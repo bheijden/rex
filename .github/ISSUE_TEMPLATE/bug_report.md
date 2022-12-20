@@ -20,7 +20,7 @@ Please use the [markdown code blocks](https://help.github.com/en/articles/creati
 for both code and stack traces.
 
 ```python
-from eagerx import ...
+from rex import ...
 
 ```
 
@@ -38,7 +38,7 @@ A clear and concise description of what you expected to happen.
 
 Describe the characteristic of your environment:
  * Describe how the library was installed (pip, docker, source, ...)
- * Versions of all EAGERx packages installed
+ * Versions of all rex packages installed
  * Python version
  * Gym version
  * Versions of all relevant libraries
@@ -48,8 +48,10 @@ Add any other context about the problem here.
 
 ### Checklist
 
-- [ ] I have checked that there is no similar [issue](https://github.com/eager-dev/eagerx/issues) in the repo (**required**)
-- [ ] I have read the [documentation](https://eagerx.readthedocs.io) (**required**)
+- [ ] I have checked that there is no similar [issue](https://github.com/bheijden/rex/issues) in the repo (**required**)
+
+[//]: # (- [ ] I have read the [documentation]&#40;https://eagerx.readthedocs.io&#41; &#40;**required**&#41;)
+
 - [ ] I have provided a minimal working example to reproduce the bug (**required**)
 
 <!--- This Template is an edited version of the one from https://github.com/DLR-RM/stable-baselines3-->

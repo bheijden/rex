@@ -1,5 +1,5 @@
 # Adapted from DLR-RM/stable-baselines3
-PACKAGE_NAME=eagerx_template
+PACKAGE_NAME=rex
 
 SHELL=/bin/bash
 LINT_PATHS=${PACKAGE_NAME}/
@@ -21,5 +21,10 @@ lint:
 	poetry run flake8 ${LINT_PATHS} --count --select=E9,F63,F7,F82 --show-source --statistics
 	# exit-zero treats all errors as warnings.
 	poetry run flake8 ${LINT_PATHS} --count --exit-zero --statistics
+
+proto-gen:
+	# See: https://www.datascienceblog.net/post/programming/essential-protobuf-guide-python/
+	protoc proto/log.proto --python_out eagerx_paper/framework/ --proto_path proto=./proto
+
 
 .PHONY: check-codestyle
