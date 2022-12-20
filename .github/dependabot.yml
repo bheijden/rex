@@ -1,0 +1,12 @@
+version: 2
+
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    reviewers:
+      - "bheijden"
+    commit-message:
+      # Prefix all commit messages with "npm"
+      prefix: "chore: "
