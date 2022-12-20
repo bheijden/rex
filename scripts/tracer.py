@@ -12,9 +12,9 @@ except ImportError:
     print("Seaborn not installed, plots will not be as pretty.")
 from rex.proto import log_pb2
 from rex.tracer import trace
-from rex.utils import plot_graph, plot_topological_order
+from rex.plot import plot_graph, plot_topological_order
 
-with open("/home/r2ci/eagerx-dev/eagerx_paper/examples/record_1.pb", "rb") as f:
+with open("/home/r2ci/rex/scripts/record_1.pb", "rb") as f:
     record = log_pb2.EpisodeRecord()
     record.ParseFromString(f.read())
 

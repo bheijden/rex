@@ -14,7 +14,7 @@ from dummy import DummyNode, DummyEnv, DummyAgent
 if __name__ == "__main__":
 
     # Load protobuf trace
-    with open("/home/r2ci/eagerx-dev/eagerx_paper/examples/record_1.pb", "rb") as f:
+    with open("/home/r2ci/rex/scripts/record_1.pb", "rb") as f:
         record = log_pb2.TraceRecord()
         record.ParseFromString(f.read())
     d = {n.info.name: n for n in record.episode.node}

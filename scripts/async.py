@@ -90,7 +90,7 @@ while True:
             trace_record = trace(record, "agent", -1, static=True)
 
             # Write record to file
-            # with open(f"/home/r2ci/eagerx-dev/eagerx_paper/examples/record_{i}.pb", "wb") as f:
+            # with open(f"/home/r2ci/rex/scripts/record_{i}.pb", "wb") as f:
             #     f.write(trace_record.SerializeToString())
 
             # Plot progress

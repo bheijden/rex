@@ -29,7 +29,7 @@ Add any other context or screenshots about the feature request here.
 
 ### Checklist
 
-- [ ] I have checked that there is no similar [issue](https://github.com/eager-dev/eagerx/issues) in the repo (**required**)
+- [ ] I have checked that there is no similar [issue](https://github.com/bheijden/rex/issues) in the repo (**required**)
 
 
 <!--- This Template is an edited version of the one from https://github.com/DLR-RM/stable-baselines3 which is an edited version of the one from https://github.com/pytorch/pytorch -->
