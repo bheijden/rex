@@ -39,14 +39,14 @@ if __name__ == "__main__":
 
     # Create environment
     # env = DummyEnv(nodes, agent=agent, max_steps=200, sync=SYNC, clock=SIMULATED, scheduling=PHASE, real_time_factor=FAST_AS_POSSIBLE)
-    env = DummyEnv(nodes, agent=agent, max_steps=200, trace=record)
+    env = DummyEnv(nodes, agent=agent, max_steps=20, trace=record)
 
     # Warmup
     [n.warmup() for n in nodes.values()]
 
     # Initial graph state
     num_steps = 200000
-    backend = "numpy"
+    backend = "jax"
     use_jit = False and backend == "jax"
     with use(backend=backend):
         # Get reset and step function

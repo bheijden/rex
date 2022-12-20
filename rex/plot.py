@@ -334,8 +334,8 @@ def plot_delay(ax: "matplotlib.Axes",
     # Plot kde/histogram
     import seaborn as sns
     sns.histplot(delay, ax=ax, stat="density", label="data", color=edgecolor, fill=facecolor)
-    sns.kdeplot(delay, ax=ax, warn_singular=False, clip=[low, high], color=edgecolor, fill=facecolor, label="kde estimate",
-                **kde_kwargs)
+    # sns.kdeplot(delay, ax=ax, warn_singular=False, clip=[low, high], color=edgecolor, fill=facecolor, label="kde estimate",
+    #             **kde_kwargs) # todo: TURN ON AGAIN!
 
 
 def plot_step_timing(ax: "matplotlib.Axes",
