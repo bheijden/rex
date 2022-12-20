@@ -24,7 +24,7 @@ lint:
 
 proto-gen:
 	# See: https://www.datascienceblog.net/post/programming/essential-protobuf-guide-python/
-	protoc proto/log.proto --python_out eagerx_paper/framework/ --proto_path proto=./proto
+	protoc proto/log.proto --python_out rex/ --proto_path proto=./proto
 
 
 .PHONY: check-codestyle

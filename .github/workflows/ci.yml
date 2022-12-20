@@ -78,34 +78,35 @@ jobs:
         run: |
           source .venv/bin/activate
           make pytest
-  release:
-    needs: test
-    # https://github.community/t/how-do-i-specify-job-dependency-running-in-another-workflow/16482
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && !contains(github.event.head_commit.message, 'chore(release):')
-    runs-on: ubuntu-latest
-    steps:
-      #----------------------------------------------
-      #       check-out repo and set-up python
-      #----------------------------------------------
-      - uses: actions/setup-python@v2
-        with:
-          python-version: 3.8
-      - name: Checkout code
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GH_TOKEN }}
-      #-----------------------------------------------
-      #   Publish to PYPI in case of a new version
-      #-----------------------------------------------
-      - name: Semantic Release
-        run: |
-          pip install python-semantic-release
-          git config --global user.name "github-actions"
-          git config --global user.email "action@github.com"
-          semantic-release publish -D commit_author="github-actions <action@github.com>"
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPOSITORY_USERNAME: ${{ secrets.PYPI_USERNAME }}
-          REPOSITORY_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+
+#  release:
+#    needs: test
+#    # https://github.community/t/how-do-i-specify-job-dependency-running-in-another-workflow/16482
+#    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && !contains(github.event.head_commit.message, 'chore(release):')
+#    runs-on: ubuntu-latest
+#    steps:
+#      #----------------------------------------------
+#      #       check-out repo and set-up python
+#      #----------------------------------------------
+#      - uses: actions/setup-python@v2
+#        with:
+#          python-version: 3.8
+#      - name: Checkout code
+#        uses: actions/checkout@v2
+#        with:
+#          fetch-depth: 0
+#          token: ${{ secrets.GH_TOKEN }}
+#      #-----------------------------------------------
+#      #   Publish to PYPI in case of a new version
+#      #-----------------------------------------------
+#      - name: Semantic Release
+#        run: |
+#          pip install python-semantic-release
+#          git config --global user.name "github-actions"
+#          git config --global user.email "action@github.com"
+#          semantic-release publish -D commit_author="github-actions <action@github.com>"
+#        env:
+#          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#          REPOSITORY_USERNAME: ${{ secrets.PYPI_USERNAME }}
+#          REPOSITORY_PASSWORD: ${{ secrets.PYPI_PASSWORD }}

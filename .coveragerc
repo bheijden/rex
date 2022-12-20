@@ -8,5 +8,6 @@ omit =
 [report]
 exclude_lines =
     pragma: no cover
+    raise NotImplementedError
     pass
     if TYPE_CHECKING:
