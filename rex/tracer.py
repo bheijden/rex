@@ -1,4 +1,4 @@
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Tuple
 import sys
 from rex.proto import log_pb2
 
@@ -115,9 +115,10 @@ class Step:
 				d = log_pb2.Dependency(used=False, source=source, target=target)
 				self._upstream_inputs[i.info.output].append(d)
 
-	def upstream(self, steps: Dict[str, List["Step"]], index: List[int], output: str, num: int):
+	def upstream(self, steps: Dict[str, List["Step"]], index: List[int], output: str, num: int) -> int:
 		"""Add upstream dependencies to the trace."""
 		dependencies = self._upstream_inputs[output]
+		depths: List[int] = [-1]
 
 		# Determine the number of dependencies to add
 		num_add = min(len(dependencies), num)
@@ -127,30 +128,39 @@ class Step:
 		assert num_add + num_upstream == num
 		for idx, d in enumerate(dependencies[-num_add:]):  # Only add dependencies up to num size.
 			if not d.used:  # Only add dependency if it was not previously added (if node is stateless)
-				steps[output][d.source.tick]._trace(steps, index, d)
+				_, depth = steps[output][d.source.tick]._trace(steps, index, d)
+				depths.append(depth)
 
 		# Add upstream input dependencies that were received in previous ticks
 		prev_tick = self._tick - 1
 		if num_upstream > 0 and prev_tick >= 0:
-			steps[self._info.name][prev_tick].upstream(steps, index, output, num_upstream)
+			depth = steps[self._info.name][prev_tick].upstream(steps, index, output, num_upstream)
+			depths.append(depth)
+		return max(depths)
 
-	def _trace(self, steps: Dict[str, List["Step"]], index: List[int], dependency: log_pb2.Dependency, final: bool = False) -> int:
+	def _trace(self, steps: Dict[str, List["Step"]], index: List[int], dependency: log_pb2.Dependency, final: bool = False) -> Tuple[int, int]:
 		"""An intermediate trace function that is called recursively."""
 		if not self._steptrace.used:
+			depths: List[int] = [-1]
 			# Only trace previous step as dependency if stateful
 			if self._upstream_state is not None:
 				if not self._upstream_state.used:
-					steps[self._info.name][self._upstream_state.source.tick]._trace(steps, index, self._upstream_state)
+					_, depth = steps[self._info.name][self._upstream_state.source.tick]._trace(steps, index, self._upstream_state)
+					depths.append(depth)
 
 			# Trace inputs
 			# Note: should happen after having added the state dependency, else stateless nodes may have their steps
 			# scheduled in non-chronologically order, that in turn, will mess up the circular buffers.
 			for output_name, dependencies in self._upstream_inputs.items():
 				w = self._window[output_name]
-				self.upstream(steps, index, output_name, w)
+				depth = self.upstream(steps, index, output_name, w)
+				depths.append(depth)
 
 			self._steptrace.used = True
 			self._steptrace.index = index[0]
+			self._steptrace.depth = max(depths) + 1
+			u = self._steptrace
+			# print(f"{u.name=} | {u.tick=} | {u.depth=} ")
 			index[0] += 1
 
 		if not final:
@@ -161,7 +171,7 @@ class Step:
 			assert source.ts == self._step.ts_output, f"Timestamps do not match: {source.ts=} vs {self._step.ts_output=}."
 			dependency.used = True
 			self._steptrace.downstream.append(dependency)
-		return index[0]
+		return index[0], self._steptrace.depth
 
 	def trace(self, steps: Dict[str, List["Step"]], static: Union[bool, Dict[str, bool]] = False) -> log_pb2.TraceRecord:
 		"""Traces the step and returns a TraceRecord."""
@@ -174,15 +184,16 @@ class Step:
 		# Start trace (with static=True, does not respect chronological order).
 		[[s.reset(steps, static=static.get(s._info.name, False)) for s in lst] for _, lst in steps.items()]
 		with RecursionDepth(num_steps):
-			_end = self._trace(steps, [0], log_pb2.Dependency(used=True), final=True)
+			_end, _end_depth = self._trace(steps, [0], log_pb2.Dependency(used=True), final=True)
 
 		# Get dependencies
 		deps = {name: [s._steptrace.used for s in lst] for name, lst in steps.items()}
 
 		# Start trace (with static=Optional[True]), does respect chronological order if we provide deps.
+		# print("NEW TRACE")
 		[[s.reset(steps, static=static.get(s._info.name, False), deps=deps) for s in lst] for _, lst in steps.items()]
 		with RecursionDepth(num_steps):
-			end = self._trace(steps, [0], log_pb2.Dependency(used=True), final=True)
+			end, end_depth = self._trace(steps, [0], log_pb2.Dependency(used=True), final=True)
 
 		# Gather traceback
 		traceback = log_pb2.TraceRecord()
@@ -193,18 +204,22 @@ class Step:
 		# Sort the traced steps
 		use: List[log_pb2.TracedStep] = end * [None]
 		excluded = []
+		depths = [[]for i in range(0, 1+_end_depth)]
 		for _name, lst in steps.items():
 			for step in lst:
 				s = step._steptrace
 				if s.used:
 					# Check validity
 					for d in s.downstream:
+
 						assert d.used, "Downstream dependency must be used."
 					assert s.index < end, "Index violates the bounds"
 					assert use[s.index] is None, "Duplicate index"
 					# Add to use list at right index
 					# Makes a copy below, so changes later on to _steptrace.downstream will not get through.
 					use[s.index] = step.steptrace
+					depths[s.depth].append(step.steptrace)
+					# depths[s.depth].append((s.depth, s.name, s.tick))
 				else:
 					assert all([not d.used for d in s.upstream]), "Excluded steptrace must not have used upstream dependencies."
 					assert len(s.downstream) == 0, "Removed steps cannot have downstream dependencies"
@@ -212,34 +227,68 @@ class Step:
 
 		# Check trace validity
 		monotone_ticks = {name: -1 for name in steps}
-		for i, u in enumerate(use):
-			assert u is not None, f"Missing step in used trace for index {i}"
 
-			# Verify that all upstream dependencies are evaluated before this step
-			for d in u.upstream:
-				if d.used:
+		for i, depth in enumerate(depths):
+			names = [u.name for u in depth]
+			assert len(names) == len(set(names)), f"Duplicate names in depth {i}: {names}"
+			for u in depth:
+				# Verify that all upstream dependencies are evaluated before this step
+				for d in u.upstream:
+					if d.used:
+						_has_run = False
+						for depthr in reversed(depths[:i]):
+							for ur in depthr:
+								if ur.name == d.source.name and ur.tick == d.source.tick:
+									_has_run = True
+									break
+							if _has_run:
+								break
+						assert _has_run, f"Upstream dependency {d.source.name} {d.source.tick} not found in previous depths."
+
+				# Verify that all downstream dependencies are evaluated after this step
+				for d in u.downstream:
+					assert d.used, "Downstream dependency must be used."
 					_has_run = False
-					for ur in reversed(use[:i]):
-						if ur.name == d.source.name and ur.tick == d.source.tick:
-							_has_run = True
+					for depthr in depths[i+1:]:
+						for ur in depthr:
+							if ur.name == d.target.name and ur.tick == d.target.tick:
+								_has_run = True
+								break
+						if _has_run:
 							break
-					assert _has_run, f"Upstream dependency {d.source.name} {d.source.tick} not evaluated before {u.name} {u.tick}."
+				assert monotone_ticks[u.name] < u.tick, f"Steps of node `{u.name}` are scheduled in non-chronological order."
+				monotone_ticks[u.name] = u.tick
 
-			# Verify that all downstream dependencies are evaluated after this step
-			for d in u.downstream:
-				assert d.used, "Downstream dependency must be used."
-				_has_run = False
-				for ur in use[i:]:
-					if ur.name == d.target.name and ur.tick == d.target.tick:
-						_has_run = True
-						break
-				assert _has_run, f"Downstream dependency {d.target.name} {d.target.tick} not evaluated after {u.name} {u.tick}."
-
-			# Check that ticks of step traces are monotonically increasing per node
-			# if not (monotone_ticks[u.name] < u.tick):
-			# 	print(f"{u.name} {monotone_ticks[u.name]=} < {u.tick=}")
-			assert monotone_ticks[u.name] < u.tick, f"Steps of node `{u.name}` are scheduled in non-chronological order."
-			monotone_ticks[u.name] = u.tick
+		# # Check trace validity
+		# monotone_ticks = {name: -1 for name in steps}
+		# for i, u in enumerate(use):
+		# 	assert u is not None, f"Missing step in used trace for index {i}"
+		#
+		# 	# Verify that all upstream dependencies are evaluated before this step
+		# 	for d in u.upstream:
+		# 		if d.used:
+		# 			_has_run = False
+		# 			for ur in reversed(use[:i]):
+		# 				if ur.name == d.source.name and ur.tick == d.source.tick:
+		# 					_has_run = True
+		# 					break
+		# 			assert _has_run, f"Upstream dependency {d.source.name} {d.source.tick} not evaluated before {u.name} {u.tick}."
+		#
+		# 	# Verify that all downstream dependencies are evaluated after this step
+		# 	for d in u.downstream:
+		# 		assert d.used, "Downstream dependency must be used."
+		# 		_has_run = False
+		# 		for ur in use[i:]:
+		# 			if ur.name == d.target.name and ur.tick == d.target.tick:
+		# 				_has_run = True
+		# 				break
+		# 		assert _has_run, f"Downstream dependency {d.target.name} {d.target.tick} not evaluated after {u.name} {u.tick}."
+		#
+		# 	# Check that ticks of step traces are monotonically increasing per node
+		# 	# if not (monotone_ticks[u.name] < u.tick):
+		# 	# 	print(f"{u.name} {monotone_ticks[u.name]=} < {u.tick=}")
+		# 	assert monotone_ticks[u.name] < u.tick, f"Steps of node `{u.name}` are scheduled in non-chronological order."
+		# 	monotone_ticks[u.name] = u.tick
 
 		# Add to traceback
 		traceback.used.extend(use)
@@ -265,12 +314,13 @@ def trace(record: log_pb2.EpisodeRecord, name: str, tick: int, static: Union[boo
 	# Analyze traced steps
 	if verbose:
 		# todo: analyze per node how many steps are used and dependencies are required.
+		max_depth = max([u.depth for u in record_trace.used])
+		num_nodes = len(record.node)
 		num_use = len(record_trace.used)
 		num_excluded = len(record_trace.excluded)
 		deps_used = 0
 		deps_excluded = 0
 		for t in record_trace.used:
-			# print(f"{t.name=} | {t.tick=} | {len(t.downstream)=}")
 			for d in t.downstream:
 				if d.used:
 					deps_used += 1
@@ -283,6 +333,6 @@ def trace(record: log_pb2.EpisodeRecord, name: str, tick: int, static: Union[boo
 					deps_excluded += 1
 			deps_used += len(t.downstream)
 
-		print(f"Trace | {name=} | {tick=} | scheduled steps: {num_use}/{num_use + num_excluded} | scheduled deps: {deps_used}/{deps_used + deps_excluded}")
+		print(f"Trace | {name=} | {tick=}| sequential steps: {num_use}/{num_use + num_excluded} | sequential deps: {deps_used}/{deps_used + deps_excluded} |  {max_depth=} | vectorized: {max_depth*num_nodes}/{num_use}")
 
 	return record_trace

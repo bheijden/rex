@@ -114,13 +114,14 @@ message TraceRecord {
 message TracedStep {
     bool used = 1;  // Whether the step is required (=True) or not (=False).
     uint32 index = 2; // Index in the topologically sorted computation graph
-    bool stateful = 3; // Whether the node is stateful (=True) or stateless (=False).
-    bool static = 4;    // Whether the node's params are static (=True) or stateless (=False).
-    string name = 5; // Node name.
-    uint32 tick = 6; // The tick count.
-    double ts_step = 7; // Step timestamp (after considering any input, scheduling, or last output phase shifts).
-    repeated Dependency upstream = 8; // Upstream dependencies, on which this step call depends.
-    repeated Dependency downstream = 9; // Downstream dependencies that depend on this step call.
+    uint32 depth = 3; // Depth of the graph
+    bool stateful = 4; // Whether the node is stateful (=True) or stateless (=False).
+    bool static = 5;    // Whether the node's params are static (=True) or stateless (=False).
+    string name = 6; // Node name.
+    uint32 tick = 7; // The tick count.
+    double ts_step = 8; // Step timestamp (after considering any input, scheduling, or last output phase shifts).
+    repeated Dependency upstream = 9; // Upstream dependencies, on which this step call depends.
+    repeated Dependency downstream = 10; // Downstream dependencies that depend on this step call.
 }
 
 message Dependency {

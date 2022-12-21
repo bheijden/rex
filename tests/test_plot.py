@@ -185,7 +185,7 @@ def test_plot():
     # Trace record
     traceback = trace(record, "agent", -1, static=True)
 
-    from rex.plot import plot_graph, plot_topological_order
+    from rex.plot import plot_graph, plot_topological_order, plot_depth_order
     from matplotlib.ticker import MaxNLocator
 
     # Create new plot
@@ -216,6 +216,22 @@ def test_plot():
 
     plot_topological_order(ax, traceback, xmax=0.6, cscheme=cscheme, node_labeltype="tick")
     plot_topological_order(ax, traceback, xmax=0.6, cscheme=cscheme, node_labeltype="ts")
+
+    # Plot legend
+    handles, labels = ax.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    by_label = dict(sorted(by_label.items()))
+    ax.legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
+              bbox_to_anchor=(1.0, 0.50))
+
+    fig, ax = plt.subplots()
+    fig.set_size_inches(12, 5)
+    ax.set(facecolor=oc.ccolor("gray"), xlabel="Depth order", yticks=[], xlim=[-1, 10])
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
+
+    plot_depth_order(ax, traceback, xmax=0.6, cscheme=cscheme, node_labeltype="tick", draw_excess=True)
+    plot_depth_order(ax, traceback, xmax=0.6, cscheme=cscheme, node_labeltype="ts", draw_excess=True)
 
     # Plot legend
     handles, labels = ax.get_legend_handles_labels()
