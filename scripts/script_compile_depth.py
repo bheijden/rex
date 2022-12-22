@@ -178,7 +178,7 @@ if __name__ == "__main__":
 
     # Split trace into chunks
     eps_record = record.episode
-    new_record = trace(record.episode, "agent", -1, static=True)
+    new_record = trace(record.episode, "agent", -1, static=True, isolate=True)
 
     # Create new plot
     import seaborn as sns

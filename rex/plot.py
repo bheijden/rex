@@ -786,9 +786,14 @@ def plot_depth_order(ax: "matplotlib.Axes",
     G = nx.MultiDiGraph()
     max_depth = max([u.depth for u in record.used])+1
     depths = [[] for _ in range(max_depth)]
+    isolated_node = None
     for t in record.used:
         if not t.used:
             continue
+
+        # Determine the isolated node name
+        if t.isolate:
+            isolated_node = t.name
 
         # Skip if trace is past tmax
         if xmax is not None and t.ts_step > xmax:
@@ -830,10 +835,16 @@ def plot_depth_order(ax: "matplotlib.Axes",
 
     if draw_excess:
         for i, depth in enumerate(depths):
+            # We do not have excess step calls for the isolated node (if any)
+            if isolated_node in depth:
+                continue
+            # Add excess step calls
             ypos = [(name, pos) for name, pos in y.items() if name not in depth]
             if len(ypos) == len(y.keys()):
                 continue
             for name, yy in ypos:
+                if name in record.pruned:
+                    continue
                 # Add node to graph
                 name = f"{name}_excl({i})"
                 edgecolor = oc.ecolor.excluded
@@ -887,7 +898,7 @@ def plot_depth_order(ax: "matplotlib.Axes",
         ax.scatter([], [], edgecolor=e, facecolor=f, label=name)
 
     if draw_excess:
-        ax.scatter([], [], edgecolor=oc.ecolor.excluded, facecolor=oc.fcolor.excluded, alpha=0.5, label="excess step")
+        ax.scatter([], [], edgecolor=oc.ecolor.excluded, facecolor=oc.fcolor.excluded, alpha=0.5, label="excess step call")
 
     # Set ticks
     yticks = ax.get_yticks().tolist()
