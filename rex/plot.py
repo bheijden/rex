@@ -784,7 +784,7 @@ def plot_depth_order(ax: "matplotlib.Axes",
 
     # Generate graph
     G = nx.MultiDiGraph()
-    max_depth = max([u.depth for u in record.used])
+    max_depth = max([u.depth for u in record.used])+1
     depths = [[] for _ in range(max_depth)]
     for t in record.used:
         if not t.used:
