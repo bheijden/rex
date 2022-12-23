@@ -105,7 +105,7 @@ if __name__ == "__main__":
     #     f.write(trace_record.SerializeToString())
 
     # Plot progress
-    must_plot = True
+    must_plot = False
     if must_plot:
         plot_graph(trace_opt)
         plot_delay(r)

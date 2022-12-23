@@ -112,6 +112,8 @@ message TraceRecord {
     repeated TracedStep excluded = 5; // if the step call was excluded in the trace.
     bool isolate = 7; // Whether there was a trace that was isolated into its own depth (=True) or not (=False).
     uint32 max_consecutive = 8; // The maximum number of consecutive depths without an isolated trace.
+    uint32 max_depth = 9; // The maximum depth of the trace. Starts counting at 0, so len(depths) = max_depth + 1.
+    string name = 10; // Name of the traced node
 }
 
 message TracedStep {

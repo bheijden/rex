@@ -1,4 +1,4 @@
-from typing import Sequence, Callable, Any
+from typing import Sequence, Callable, Any, TypeVar, Tuple
 from jumpy import _in_jit
 import jax
 import jumpy as jp
@@ -71,3 +71,53 @@ def switch(index, branches: Sequence[Callable], *operands: Any):
         # else:
             # index = onp.clip(index, 0, len(branches) - 1)
         return branches[index](*operands)
+
+
+def select(pred, on_true, on_false):
+    """Conditionally select between ``on_true`` and ``on_false`` given ``pred``.
+
+    Has the semantics of the following Python::
+
+        def select(pred, on_true, on_false):
+          return on_true if pred else on_false
+    """
+    if _in_jit():
+        return jax.lax.select(pred, on_true, on_false)
+    else:
+        # if jp._has_jax:
+        #     return jax.lax.select(pred, on_true, on_false)
+        # else:
+        return onp.select(pred, on_true, on_false)
+
+
+Carry = TypeVar("Carry")
+X = TypeVar("X")
+Y = TypeVar("Y")
+
+
+def scan(
+    f: Callable[[Carry, X], Tuple[Carry, Y]],
+    init: Carry,
+    xs: X,
+    length: int = None,
+    reverse: bool = False,
+    unroll: int = 1,
+) -> Tuple[Carry, Y]:
+    """Scan a function over leading array axes while carrying along state."""
+    if not jp._has_jax:
+        raise NotImplementedError("This function requires the jax module")
+
+    if _in_jit():
+        return jax.lax.scan(f, init, xs, length, reverse, unroll)
+    else:
+        # raise NotImplementedError("Must infer length correctly here.")
+        xs_flat, xs_tree = jax.tree_util.tree_flatten(xs)
+        carry = init
+        ys = []
+        maybe_reversed = reversed if reverse else lambda x: x
+        for i in maybe_reversed(range(length)):
+            xs_slice = [x[i] for x in xs_flat]
+            carry, y = f(carry, jax.tree_util.tree_unflatten(xs_tree, xs_slice))
+            ys.append(y)
+        stacked_y = jax.tree_util.tree_map(lambda *y: onp.stack(y), *maybe_reversed(ys))
+        return carry, stacked_y

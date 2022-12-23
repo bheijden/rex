@@ -336,6 +336,8 @@ class Step:
 			monotone_ticks[u.name] = u.tick
 
 		# Add to traceback
+		traceback.name = self._info.name
+		traceback.max_depth = depths[-1][0].depth
 		traceback.isolate = any(isolate.values())
 		traceback.max_consecutive = max_consecutive
 		traceback.pruned.extend(pruned)

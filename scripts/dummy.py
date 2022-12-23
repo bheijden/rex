@@ -281,15 +281,15 @@ class DummyEnvV2(BaseEnv):
 
 		return obs
 
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
-		"""Reset environment."""
-		# Create new graph_state
-		new_graph_state = GraphState(step=jp.int32(0), nodes={})
+	def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> GraphState:
+		"""Get the graph state."""
+		# For every node, prepare the initial stepstate
+		new_nodes = dict()
 
 		# ***DO SOMETHING WITH graph_state TO RESET ALL NODES***
 		# Reset agent node (for which this environment is a drop-in replacement)
 		rng, rng_agent = jp.random_split(rng, num=2)
-		new_graph_state.nodes[self.agent.name] = self.agent.reset(rng_agent, graph_state)
+		new_nodes[self.agent.name] = self.agent.reset(rng_agent, graph_state)
 
 		# Split rngs for other node resets
 		rngs = jp.random_split(rng, num=len(self.nodes))
@@ -299,8 +299,14 @@ class DummyEnvV2(BaseEnv):
 			new_ss = n.reset(rng_reset, graph_state)  # can provide params, state, inputs here
 
 			# Replace step state in graph state
-			new_graph_state.nodes[name] = new_ss
+			new_nodes[name] = new_ss
+
 		# ***DO SOMETHING WITH graph_state TO RESET ALL NODES***
+		return GraphState(step=jp.int32(0), nodes=FrozenDict(new_nodes))
+
+	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
+		"""Reset environment."""
+		new_graph_state = self._get_graph_state(rng, graph_state)
 
 		# Reset environment to get initial step_state (runs up-until the first step)
 		graph_state, ts, step_state = self.graph.reset(new_graph_state)
