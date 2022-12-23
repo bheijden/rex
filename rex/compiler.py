@@ -46,13 +46,15 @@ def make_push_output(trace: log_pb2.Dependency) -> Callable[[GraphState, Any], I
 def make_update_graph_state(name: str, push_outputs: Dict[Tuple[str, str], Callable]) -> Callable[[GraphState, StepState, Any], GraphState]:
     # @jax.jit
     def _update_graph_state(graph_state: GraphState, step_state: StepState, output: Any) -> GraphState:
-        graph_state = graph_state.replace(nodes=graph_state.nodes.copy())  # NOTE! This makes a shallow copy
-        graph_state.nodes[name] = step_state  # NOTE! This updates a dict in-place
+        new_nodes = dict()
+        new_nodes[name] = step_state
         for (node_name, input_name), push_output in push_outputs.items():
-            new_inputs = push_output(graph_state, output)
-            graph_state.nodes[node_name] = graph_state.nodes[node_name].replace(inputs=graph_state.nodes[node_name].inputs.copy())  # NOTE! This makes a shallow copy
-            graph_state.nodes[node_name].inputs[input_name] = new_inputs  # NOTE: This updates a dict in-place
-        return graph_state
+            # NOTE! Currently, nodes cannot self-connect or have multiple inputs from the same node. This requires merging.
+            assert node_name not in new_nodes, "Overwriting node. Should implement merging instead."
+            new_input = push_output(graph_state, output)
+            new_inputs = graph_state.nodes[node_name].inputs.copy({input_name: new_input})
+            new_nodes[node_name] = graph_state.nodes[node_name].replace(inputs=new_inputs)
+        return graph_state.replace(nodes=graph_state.nodes.copy(new_nodes))
     return _update_graph_state
 
 

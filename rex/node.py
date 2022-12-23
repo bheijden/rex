@@ -9,6 +9,7 @@ import jumpy as jp
 import jax.numpy as jnp  # todo: replace with jumpy as jp.ndarray?
 import jax.random as rnd
 import numpy as onp
+from flax.core import FrozenDict
 from jax import jit
 
 from rex.base import GraphState, StepState, InputState, State,  Output, Params
@@ -436,14 +437,10 @@ class BaseNode:
             _, ts_step_wc = self.now()
 
             # Grab grouped msgs
-            inputs = {i.name: i.q_grouped.popleft() for i in self.inputs}
+            inputs = FrozenDict({i.name: i.q_grouped.popleft() for i in self.inputs})
 
             # Update StepState with grouped messages
             step_state = self._step_state.replace(inputs=inputs)
-            # self._step_state.inputs = self._step_state.inputs.copy()
-            # self._step_state.inputs.update(inputs)  # NOTE! This updates a dict in-place
-            # for n, i in inputs.items():
-            #     self._step_state.inputs[n] = i
 
             # Run step and get msg
             new_step_state, output = self.step(jp.float32(ts_step_sc), step_state)
@@ -504,7 +501,7 @@ class Node(BaseNode):
         """Default state of the node."""
         raise NotImplementedError
 
-    def default_inputs(self, rng: jp.ndarray, graph_state: GraphState = None) -> Dict[str, InputState]:
+    def default_inputs(self, rng: jp.ndarray, graph_state: GraphState = None) -> FrozenDict[str, InputState]: #Dict[str, InputState]:
         """Default inputs of the node."""
         rngs = jp.random_split(rng, num=len(self.inputs))
         inputs = dict()
@@ -515,7 +512,7 @@ class Node(BaseNode):
             ts_recv = 0 * jp.arange(-window, 0, dtype=jp.float32)
             outputs = [i.output.node.default_output(rng_output, graph_state) for _ in range(window)]
             inputs[i.name] = InputState.from_outputs(seq, ts_sent, ts_recv, outputs)
-        return inputs
+        return FrozenDict(inputs)
 
     @abc.abstractmethod
     def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:

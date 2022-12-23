@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Tuple, Union
 import jumpy as jp
 import jax.numpy as jnp
 import numpy as onp
+from flax.core import FrozenDict
 
 from rex.agent import Agent
 from rex.constants import SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE
@@ -81,7 +82,7 @@ class Graph(BaseGraph):
         # Create the next graph state
         nodes = {name: node._step_state for name, node in self.nodes.items()}
         nodes[self.agent.name] = next_step_state
-        next_graph_state = GraphState(step=0, nodes=nodes)
+        next_graph_state = GraphState(step=0, nodes=FrozenDict(nodes))
         return next_graph_state, next_ts_step, next_step_state
 
     def step(self, graph_state: GraphState, step_state: StepState, output: Any) -> Tuple[GraphState, float32, StepState]:
@@ -94,7 +95,7 @@ class Graph(BaseGraph):
         # Create the next graph state
         nodes = {name: node._step_state for name, node in self.nodes.items()}
         nodes[self.agent.name] = next_step_state
-        next_graph_state = GraphState(step=graph_state.step + 1, nodes=nodes)
+        next_graph_state = GraphState(step=graph_state.step + 1, nodes=FrozenDict(nodes))
         return next_graph_state, next_ts_step, next_step_state
 
     def stop(self, timeout: float = None):

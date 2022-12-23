@@ -2,6 +2,7 @@ from functools import partial
 import jax
 from typing import Any, Dict, List, TypeVar
 from flax import struct
+from flax.core import FrozenDict
 import jumpy as jp
 
 
@@ -54,7 +55,7 @@ class InputState:
 @struct.dataclass
 class StepState:
     rng: jp.ndarray
-    inputs: Dict[str, InputState]
+    inputs: FrozenDict[str, InputState]
     state: State
     params: Params
 
@@ -62,4 +63,4 @@ class StepState:
 @struct.dataclass
 class GraphState:
     step: int
-    nodes: Dict[str, StepState]
+    nodes: FrozenDict[str, StepState]
