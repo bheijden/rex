@@ -9,7 +9,7 @@ class RecursionDepth:
 		self.default_limit = sys.getrecursionlimit()
 
 	def __enter__(self):
-		sys.setrecursionlimit(self.limit)
+		sys.setrecursionlimit(max(self.default_limit, self.limit))
 
 	def __exit__(self, type, value, traceback):
 		sys.setrecursionlimit(self.default_limit)
@@ -163,7 +163,7 @@ class Step:
 			self._steptrace.used = True
 			self._steptrace.index = index[0]
 			self._steptrace.depth = max(depths) + 1 - int(self._isolate)
-			u = self._steptrace
+			# u = self._steptrace
 			# print(f"{u.name=} | {u.tick=} | {u.depth=} ")
 			index[0] += 1
 
@@ -196,7 +196,6 @@ class Step:
 
 		# Re-trace (with static=Optional[True]), does respect chronological order if we provide deps.
 		[[s.reset(steps, static=static.get(s._info.name, False), deps=deps, isolate=isolate.get(s._info.name)) for s in lst] for _, lst in steps.items()]
-		print("NEW TRACE")
 		with RecursionDepth(num_steps):
 			end, end_depth = self._trace(steps, [0], log_pb2.Dependency(used=True), final=True)
 
@@ -228,13 +227,11 @@ class Step:
 					# Makes a copy below, so changes later on to _steptrace.downstream will not get through.
 					use[s.index] = step.steptrace
 					depths[s.depth].append(use[s.index])  # NOTE! This connects the steptraces in use and depths
-					# depths[s.depth].append((s.depth, s.name, s.tick))
 				else:
 					assert all([not d.used for d in s.upstream]), "Excluded steptrace must not have used upstream dependencies."
 					assert len(s.downstream) == 0, "Removed steps cannot have downstream dependencies"
 					excluded.append(step.steptrace)
 
-		# Update the depths
 		# Puts isolated steps in their own depth
 		new_depths = []
 		for i, depth in enumerate(depths):
@@ -255,13 +252,16 @@ class Step:
 			for u in isolated_steps:
 				new_depths.append([u])
 
-		# Update depths
+		# Update depth and topological indices
 		consecutive = 0
 		max_consecutive = 0
+		topological_index = 0
 		for i, depth in enumerate(new_depths):
-			# Update depths (taking the isolated depth offset into account)
+			# Update depths (takes the isolated depth offset into account)
 			for u in depth:
 				u.depth = i
+				u.index = topological_index
+				topological_index += 1
 
 			# Count max sequential steps without an isolated step
 			has_isolated = any([u.isolate for u in depth])
@@ -271,7 +271,11 @@ class Step:
 			else:
 				consecutive += 1
 
+		# Update depths to be new_depths (which takes isolated steps into account)
 		depths = new_depths
+
+		# Sort used steps by updated index
+		use.sort(key=lambda u: u.index)
 
 		# Check validity (according to depth)
 		monotone_ticks = {name: -1 for name in steps}

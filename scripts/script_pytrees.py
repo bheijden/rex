@@ -1,3 +1,4 @@
+import jax
 from rex.distributions import Gaussian
 from dummy import DummyNode, DummyEnv, DummyAgent, DummyOutput
 from rex.constants import LATEST, BUFFER, WARN
@@ -90,9 +91,17 @@ class TreeLeaf:
         self.c = container
 
 
-gs_choice = jp.tree_map(lambda *args: TreeLeaf(args), *gs_lst)
-mask_choice = jp.tree_map(lambda *args: TreeLeaf(args), *mask_lst)
-new_gs = jp.tree_map(lambda mask, next_gs, prev_gs: rjp.select(mask.c, next_gs.c, prev_gs), mask_choice, gs_choice, base_gs)
+@jax.jit
+def update(_gs_lst, _mask_lst, old):
+    gs_choice = jp.tree_map(lambda *args: TreeLeaf(args), *_gs_lst)
+    mask_choice = jp.tree_map(lambda *args: TreeLeaf(args), *_mask_lst)
+    jp.tree_map(lambda mask, next_gs, prev_gs: print(f"{mask.c=} | {next_gs.c=} | {prev_gs=}"), mask_choice, gs_choice, old)
+    new_gs = jp.tree_map(lambda mask, next_gs, prev_gs: rjp.select(mask.c, next_gs.c, prev_gs), mask_choice, gs_choice,
+                         old)
+    return new_gs
+
+
+new_gs = update(gs_lst, mask_lst, base_gs)
 
 # def xor(*args):
 #     return print(f"xor={sum(args) == 1} | {args}",)

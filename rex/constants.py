@@ -30,6 +30,14 @@ LATEST = 0
 BUFFER = 1
 JITTER_MODES = {LATEST: "synchronous", BUFFER: "asynchronous"}
 
+# Graph modes
+INTERPRETED = 0
+VECTORIZED = 1
+SEQUENTIAL = 2
+BATCHED = 3
+GRAPH_MODES = {INTERPRETED: "interpreted", VECTORIZED: "vectorized", SEQUENTIAL: "sequential", BATCHED: "batched"}
+
+
 # Log levels
 SILENT = 0
 DEBUG = 10

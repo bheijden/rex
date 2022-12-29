@@ -4,14 +4,11 @@ from flax import struct
 from flax.core import FrozenDict
 
 from rex.proto import log_pb2
-from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE
+from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, INTERPRETED, WARN
 from rex.base import InputState, StepState, GraphState
 from rex.env import BaseEnv
 from rex.node import Node
 from rex.agent import Agent
-from rex.compiler import CompiledGraph
-from rex.compiler_v2 import CompiledGraph as CompiledGraphV2
-from rex.graph import Graph
 
 
 @struct.dataclass
@@ -77,9 +74,11 @@ class DummyNode(Node):
 		# new_rng, rng_step = jp.random_split(rng, num=2)  # todo: is costly if not jitted.
 
 		# Sum the sequence numbers of all inputs
-		seqs_sum = state.seqs_sum if self.stateful else jp.int32(0)
+		seqs_sum = jp.int32(0)  # state.seqs_sum if self.stateful else jp.int32(0)
 		for name, i in inputs.items():
 			seqs_sum += jp.sum(i.seq)
+		# if self.name == "observer":
+		# 	self.log("", f"seqs_sum: {seqs_sum}", WARN)
 
 		# Update params (optional)
 		new_params = params.replace(param_1=ts)
@@ -94,14 +93,14 @@ class DummyNode(Node):
 		new_step_state = step_state.replace(rng=new_rng, state=new_state, params=new_params)
 
 		# Print input info
-		# if not jp._in_jit():
-		log_msg = []
-		for name, input_state in inputs.items():
-			ts_msgs = [round(ts_recv, 4) for ts_recv in input_state.ts_recv]
-			info = f"{name}={ts_msgs}"
-			log_msg.append(info)
-		log_msg = " | ".join(log_msg)
-		self.log("step", f"step={state.step} | ts={ts: .3f} | {log_msg}", log_level=INFO)
+		if not jp._in_jit() and not jp._has_jax:
+			log_msg = []
+			for name, input_state in inputs.items():
+				ts_msgs = [round(ts_recv, 4) for ts_recv in input_state.ts_recv]
+				info = f"{name}={ts_msgs}"
+				log_msg.append(info)
+			log_msg = " | ".join(log_msg)
+			self.log("step", f"step={state.step} | ts={ts: .3f} | {log_msg}", log_level=INFO)
 
 		return new_step_state, output
 
@@ -146,18 +145,16 @@ class DummyEnv(BaseEnv):
 			clock: int = SIMULATED,
 			scheduling: int = PHASE,
 			real_time_factor: Union[int, float] = FAST_AS_POSSIBLE,
+			graph: int = INTERPRETED,
+			name: str = "DummyEnv",
 	):
 		# Exclude the node for which this environment is a drop-in replacement (i.e. the agent)
-		self.nodes = {node.name: node for _, node in nodes.items() if node.name != agent.name}
+		nodes = {node.name: node for _, node in nodes.items() if node.name != agent.name}
 
-		# Create the graph
-		if trace is not None:
-			graph = CompiledGraph(nodes=nodes, trace=trace, agent=agent, max_steps=max_steps)
-			max_steps = graph.max_steps
-		else:
-			graph = Graph(nodes=nodes, agent=agent, sync=sync, clock=clock, scheduling=scheduling, real_time_factor=real_time_factor)
-			max_steps = 100 if max_steps is None else max_steps
-		super().__init__(agent=agent, graph=graph, max_steps=max_steps)
+		# Required for step and reset functions
+		self.agent = agent
+		self.nodes = nodes
+		super().__init__(nodes, agent, max_steps, sync, clock, scheduling, real_time_factor, graph, trace, name=name)
 
 	def _is_terminal(self, graph_state: GraphState) -> bool:
 		return graph_state.step >= self.max_steps
@@ -220,117 +217,8 @@ class DummyEnv(BaseEnv):
 		seqs_sum = state.seqs_sum
 		for name, i in inputs.items():
 			seqs_sum += jp.sum(i.seq)
-
-		# Update params (optional)
-		new_params = params.replace(param_1=jp.float32(0.0))
-
-		# Update state
-		new_state = state.replace(step=state.step + 1, seqs_sum=seqs_sum)
-
-		# Prepare output
-		action = DummyOutput(seqs_sum=seqs_sum, dummy_1=jp.array([1.0, 2.0], jp.float32))
-
-		# Update StepState (notice that we do not replace the inputs)
-		new_step_state = step_state.replace(rng=new_rng, state=new_state, params=new_params)
-
-		# Apply step to receive next step_state
-		graph_state, ts, step_state = self.graph.step(graph_state, new_step_state, action)
-
-		# ***DO SOMETHING WITH StepState TO GET OBS/reward/done/info***
-		obs = self._get_obs(step_state)
-		reward = 0.
-		done = self._is_terminal(graph_state)
-		info = {}
-		# ***DO SOMETHING WITH StepState TO GET OBS/reward/done/info***
-
-		return graph_state, obs, reward, done, info
-
-
-class DummyEnvV2(BaseEnv):
-	def __init__(
-			self,
-			nodes: Dict[str, "Node"],
-			agent: DummyAgent,
-			max_steps: int = 100,
-			trace: log_pb2.TraceRecord = None,
-			sync: int = SYNC,
-			clock: int = SIMULATED,
-			scheduling: int = PHASE,
-			real_time_factor: Union[int, float] = FAST_AS_POSSIBLE,
-	):
-		# Exclude the node for which this environment is a drop-in replacement (i.e. the agent)
-		self.nodes = {node.name: node for _, node in nodes.items() if node.name != agent.name}
-
-		# Create the graph
-		if trace is not None:
-			graph = CompiledGraphV2(nodes=nodes, trace=trace, agent=agent, max_steps=max_steps)
-			max_steps = graph.max_steps
-		else:
-			graph = Graph(nodes=nodes, agent=agent, sync=sync, clock=clock, scheduling=scheduling, real_time_factor=real_time_factor)
-			max_steps = 100 if max_steps is None else max_steps
-		super().__init__(agent=agent, graph=graph, max_steps=max_steps)
-
-	def _is_terminal(self, graph_state: GraphState) -> bool:
-		return graph_state.step >= self.max_steps
-
-	def _get_obs(self, step_state: StepState) -> Any:
-		"""Get observation from environment."""
-		# ***DO SOMETHING WITH StepState TO GET OBSERVATION***
-		obs = step_state.inputs
-		# ***DO SOMETHING WITH StepState TO GET OBSERVATION***
-
-		return obs
-
-	def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> GraphState:
-		"""Get the graph state."""
-		# For every node, prepare the initial stepstate
-		new_nodes = dict()
-
-		# ***DO SOMETHING WITH graph_state TO RESET ALL NODES***
-		# Reset agent node (for which this environment is a drop-in replacement)
-		rng, rng_agent = jp.random_split(rng, num=2)
-		new_nodes[self.agent.name] = self.agent.reset(rng_agent, graph_state)
-
-		# Split rngs for other node resets
-		rngs = jp.random_split(rng, num=len(self.nodes))
-
-		for (name, n), rng_reset in zip(self.nodes.items(), rngs):
-			# Reset node and optionally provide params, state, inputs
-			new_ss = n.reset(rng_reset, graph_state)  # can provide params, state, inputs here
-
-			# Replace step state in graph state
-			new_nodes[name] = new_ss
-
-		# ***DO SOMETHING WITH graph_state TO RESET ALL NODES***
-		return GraphState(step=jp.int32(0), nodes=FrozenDict(new_nodes))
-
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
-		"""Reset environment."""
-		new_graph_state = self._get_graph_state(rng, graph_state)
-
-		# Reset environment to get initial step_state (runs up-until the first step)
-		graph_state, ts, step_state = self.graph.reset(new_graph_state)
-
-		# ***DO SOMETHING WITH StepState TO GET OBSERVATION***
-		obs = self._get_obs(step_state)
-		# ***DO SOMETHING WITH StepState TO GET OBSERVATION***
-
-		return graph_state, obs
-
-	def step(self, graph_state: GraphState, action: Any) -> Tuple[GraphState, InputState, float, bool, Dict]:
-		"""Perform step transition in environment."""
-		# ***PREPROCESS action TO GET AgentOutput***
-		# Unpack StepState
-		step_state = self.agent.get_step_state(graph_state)
-		rng, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
-
-		# Split rng for step call
-		new_rng, rng_step = jp.random_split(rng, num=2)
-
-		# Sum the sequence numbers of all inputs
-		seqs_sum = state.seqs_sum
-		for name, i in inputs.items():
-			seqs_sum += jp.sum(i.seq)
+			# self.log("seqs_sum | seqs", f"{seqs_sum=} | {i.seq=}", log_level=WARN)
+			self.log(f"{name}.data.seqs_sum", f"{i.data.seqs_sum=}", log_level=WARN)
 
 		# Update params (optional)
 		new_params = params.replace(param_1=jp.float32(0.0))

@@ -159,7 +159,7 @@ def make_graph_step(chunks: Dict[int, SplitOutput], start_index: int, end_index:
     return _graph_step
 
 
-class CompiledGraph(BaseGraph):
+class SequentialGraph(BaseGraph):
     def __init__(self, nodes: Dict[str, "Node"],  trace: log_pb2.TraceRecord, agent: Agent, max_steps: int):
         # Split trace into chunks
         splitter = make_splitter(nodes, trace, agent.name)

@@ -1,4 +1,3 @@
-from typing import Any, Dict, List, Tuple, Generator, Callable, Union
 import time
 import jax.numpy as jnp
 import numpy as onp
@@ -8,15 +7,12 @@ from flax import struct
 
 from rex.jumpy import use
 from rex.utils import timer
-from rex.constants import WARN, SYNC, FAST_AS_POSSIBLE, PHASE, SIMULATED
+from rex.constants import WARN, SYNC, FAST_AS_POSSIBLE, PHASE, SIMULATED, VECTORIZED, SEQUENTIAL, INTERPRETED
 from rex.proto import log_pb2
-from rex.node import Node
-from rex.graph import BaseGraph
-from rex.base import InputState, StepState, GraphState, State
 from rex.tracer import trace
 from rex.plot import plot_depth_order
 
-from dummy import DummyNode, DummyEnvV2, DummyAgent
+from dummy import DummyNode, DummyEnv, DummyAgent
 
 
 def _plot(new_record):
@@ -74,11 +70,11 @@ if __name__ == "__main__":
     new_record = trace(record.episode, "agent", -1, static=True, isolate=True)
 
     # Plot
-    # _plot(new_record)
+    _plot(new_record)
 
     # Create environment
-    # env = DummyEnvV2(nodes, agent=agent, max_steps=200, sync=SYNC, clock=SIMULATED, scheduling=PHASE, real_time_factor=FAST_AS_POSSIBLE)
-    env = DummyEnvV2(nodes, agent=agent, max_steps=20, trace=new_record)
+    # env = DummyEnv(nodes, agent=agent, max_steps=200, sync=SYNC, clock=SIMULATED, scheduling=PHASE, real_time_factor=FAST_AS_POSSIBLE)
+    env = DummyEnv(nodes, agent=agent, max_steps=200, trace=new_record, graph=SEQUENTIAL)
 
     # Warmup
     # [n.warmup() for n in nodes.values()]
@@ -117,23 +113,3 @@ if __name__ == "__main__":
                 print(f"agent_steps={eps_steps} | chunk_index={step} | t={(treset - tstart): 2.4f} sec | t_r={(treset - tend): 2.4f} sec | fps={eps_steps / (tend - tstart): 2.4f} | fps={eps_steps / (treset - tstart): 2.4f} (incl. reset)")
                 tstart = treset
                 eps_steps = 0
-
-    import numpy as np
-
-
-    def scan(f, init, xs, length=None):
-        """Scan over the first dimension of an array.
-        :param f: function to apply to the array (carry_t, x_t) -> (carry_tp1, y_t)
-        :param init: initial carry value (state, carry_0)
-        :param xs: array to scan over (inputs, x_0, ..., x_n)
-        :param length: length of the scan (number of inputs, e.g. xs.shape[0])
-        :return: tuple of (final carry/state, stacked y (outputs))
-        """
-        if xs is None:
-            xs = [None] * length
-        carry = init  # Sets the initial carry/state
-        ys = []  # Holds the outputs
-        for x in xs:  # Iterate over inputs.
-            carry, y = f(carry, x)
-            ys.append(y)
-        return carry, np.stack(ys)  # final state, stacked outputs

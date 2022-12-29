@@ -8,7 +8,7 @@ from rex.jumpy import use
 from rex.tracer import trace
 from rex.utils import timer
 from rex.constants import LATEST, BUFFER, SILENT, DEBUG, INFO, WARN, REAL_TIME, FAST_AS_POSSIBLE, SIMULATED, \
-    WALL_CLOCK, SYNC, ASYNC, FREQUENCY, PHASE
+    WALL_CLOCK, SYNC, ASYNC, FREQUENCY, PHASE, VECTORIZED, SEQUENTIAL, INTERPRETED
 from rex.proto import log_pb2
 from rex.distributions import Gaussian, GMM
 from scripts.dummy import DummyNode, DummyEnv, DummyAgent
@@ -43,7 +43,6 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
         tstart = time.time()
         eps_steps = 1
         while True:
-            # print(obs["observer"].seq)
             graph_state, obs, reward, done, info = env_step(graph_state, None)
             obs_lst.append(obs)
             gs_lst.append(graph_state)
@@ -83,9 +82,8 @@ def test_compiler():
     [n.warmup() for n in nodes.values()]
 
     # Create environment
-    max_steps = 200
-    env = DummyEnv(nodes, agent=agent, max_steps=max_steps, sync=SYNC, clock=SIMULATED, scheduling=PHASE,
-                   real_time_factor=FAST_AS_POSSIBLE)
+    max_steps = 7
+    env = DummyEnv(nodes, agent=agent, max_steps=max_steps, sync=SYNC, clock=SIMULATED, scheduling=PHASE, real_time_factor=FAST_AS_POSSIBLE, name="env")
 
     # Evaluate async env
     gs_async, obs_async, ss_async = evaluate(env, name="async", backend="numpy", use_jit=False, seed=0)
@@ -93,27 +91,30 @@ def test_compiler():
     # Gather record
     record = log_pb2.EpisodeRecord()
     [record.node.append(node.record) for node in nodes.values()]
-    r = {n.info.name: n for n in record.node}
 
     # Trace
     trace_all = trace(record, "agent", -1, static=False)
     trace_opt = trace(record, "agent", -1, static=True)
 
     # Plot progress
-    # must_plot = False
-    # if must_plot:
-    #     plot_graph(trace_opt)
-    #     plot_delay(r)
-    #     plot_grouped(r)
-    #     plot_threads(r, show=False)
+    must_plot = False
+    if must_plot:
+        from scripts.dummy_plot import plot_delay, plot_graph, plot_grouped, plot_threads
+        r = {n.info.name: n for n in record.node}
+        plot_graph(trace_opt)
+        plot_delay(r)
+        plot_grouped(r)
+        plot_threads(r)
 
     # Compile environments
-    env_all = DummyEnv(nodes, agent=agent, max_steps=max_steps, trace=trace_all)
-    env_opt = DummyEnv(nodes, agent=agent, max_steps=max_steps, trace=trace_opt)
+    env_all = DummyEnv(nodes, agent=agent, max_steps=max_steps, trace=trace_all, graph=SEQUENTIAL, name="env_all")
+    env_opt = DummyEnv(nodes, agent=agent, max_steps=max_steps, trace=trace_opt, graph=SEQUENTIAL, name="env_opt")
 
     # Evaluate compiled envs
     gs_all, obs_all, ss_all = evaluate(env_all, name="all", backend="numpy", use_jit=False, seed=0)
     gs_opt, obs_opt, ss_opt = evaluate(env_opt, name="opt", backend="numpy", use_jit=False, seed=0)
+    # gs_all, obs_all, ss_all = evaluate(env_all, name="all", backend="jax", use_jit=True, seed=0)
+    # gs_opt, obs_opt, ss_opt = evaluate(env_opt, name="opt", backend="jax", use_jit=True, seed=0)
 
     # Compare
     def compare(_async, _opt, _all):
@@ -132,8 +133,12 @@ def test_compiler():
                 _op_all = "==" if _equal_all else "!="
                 _op_opt = "==" if _equal_opt else "!="
                 msg = f"{_async} {_op_all} {_all} {_op_opt} {_opt}"
-                assert _equal_all, msg
-                assert _equal_opt, msg
+                try:
+                    assert _equal_all, msg
+                    assert _equal_opt, msg
+                except AssertionError:
+                    print("waiting for debugger...")
+                    raise
 
     # Test InputState API
     _ = obs_all[0]["observer"][0]
@@ -143,7 +148,14 @@ def test_compiler():
     gs = jp.tree_map(lambda *args: args, gs_async, gs_opt, gs_all)
     ss = jp.tree_map(lambda *args: args, ss_async, ss_opt, ss_all)
 
+    [print(s["observer"].data.seqs_sum) for s in obs]
+    # [print(i.nodes["observer"].inputs["sensor"].seq) for i in gs]
+
     # Compare observations and agent step states
     jp.tree_map(compare, obs_async, obs_opt, obs_all)
     jp.tree_map(compare, ss_all, ss_opt, ss_all)
     print("finished")
+
+
+if __name__ == "__main__":
+    test_compiler()

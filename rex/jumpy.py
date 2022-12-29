@@ -82,12 +82,12 @@ def select(pred, on_true, on_false):
           return on_true if pred else on_false
     """
     if _in_jit():
-        return jax.lax.select(pred, on_true, on_false)
+        return jax.numpy.select(pred, on_true, on_false)
     else:
-        # if jp._has_jax:
-        #     return jax.lax.select(pred, on_true, on_false)
-        # else:
-        return onp.select(pred, on_true, on_false)
+        if jp._has_jax:
+            return jax.numpy.select(pred, on_true, on_false)
+        else:
+            return onp.select(pred, on_true, on_false)
 
 
 Carry = TypeVar("Carry")
@@ -104,9 +104,6 @@ def scan(
     unroll: int = 1,
 ) -> Tuple[Carry, Y]:
     """Scan a function over leading array axes while carrying along state."""
-    if not jp._has_jax:
-        raise NotImplementedError("This function requires the jax module")
-
     if _in_jit():
         return jax.lax.scan(f, init, xs, length, reverse, unroll)
     else:
@@ -121,3 +118,62 @@ def scan(
             ys.append(y)
         stacked_y = jax.tree_util.tree_map(lambda *y: onp.stack(y), *maybe_reversed(ys))
         return carry, stacked_y
+
+
+def fori_loop(lower: int, upper: int, body_fun: Callable[[int, X], X], init_val: X) -> X:
+    """Call body_fun over range from lower to upper, starting with init_val."""
+    if _in_jit():
+        return jax.lax.fori_loop(lower, upper, body_fun, init_val)
+    else:
+        val = init_val
+        for i in range(lower, upper):
+            val = body_fun(i, val)
+        return val
+
+
+def dynamic_slice(
+    operand: X, start_indices: Sequence[int], slice_sizes: Sequence[int]
+) -> X:
+    """Dynamic slice of ``operand`` with per-dimension ``start_indices`` and ``slice_sizes``.
+
+    Has the semantics of the following Python::
+
+        def dynamic_slice(operand, start_indices, slice_sizes):
+          return operand[tuple(slice(start, start + size) for start, size in zip(start_indices, slice_sizes))]
+    """
+    if _in_jit():
+        return jax.lax.dynamic_slice(operand, start_indices, slice_sizes)
+    else:
+        # if jp._has_jax:
+        #     return jax.lax.dynamic_slice(operand, start_indices, slice_sizes)
+        # else:
+        slices = tuple(
+            slice(start, start + size) for start, size in zip(start_indices, slice_sizes)
+        )
+        return operand[slices]
+
+
+def cond(
+    pred, true_fun: Callable[..., bool], false_fun: Callable[..., bool], *operands: Any
+):
+    """Conditionally apply true_fun or false_fun to operands."""
+    if _in_jit():
+        return jax.lax.cond(pred, true_fun, false_fun, *operands)
+    else:
+        if pred:
+            return true_fun(*operands)
+        else:
+            return false_fun(*operands)
+
+
+
+# def nonzero(x, size=None, fill_value=None):
+#     # NOTE! not identical behavior between jax.numpy.nonzero and onp.nonzero
+#     """Return the indices of the elements that are non-zero."""
+#     if _in_jit():
+#         return jax.numpy.nonzero(x, size, fill_value)
+#     else:
+#         if jp._has_jax:
+#             return jax.numpy.nonzero(x, size, fill_value)
+#         else:
+#             return onp.nonzero(x)
