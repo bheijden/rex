@@ -1,13 +1,9 @@
 # use JAX_LOG_COMPILES=1 to log JIT compilation.
 # todo: [ASYNC] Test while running for longer period.
 # todo: [ASYNC] can we run ASYNC with SIMULATED CLOCK? --> what does this mean?
-# todo: [API] Implement jax node class
-#       .reset(rng, states_0=None, params=None) = state_0, params
-#       .step(rng, ts, state, inputs, params=None) = state, outputs, params
 # todo: [PLOT] Visualize graph (including sample probabilities)
 # todo: [PLOT] Record sample probabilities to GroupedRecord. How to deal with scheduling and idle phase shifts?
 #       delay.cdf(next_cb_ts - prev_cb_ts) <--- how "big" is the chance that this msg is sampled?
-# todo: [ASYNC] what if episode length is very long? Limit number of saved records?
 # todo: [PLOT] half phase bars, and place sleep behind it
 # todo: [PLOT] allow setting a name for plot_input_thread plots
 # todo: [PLOT] in grouped plot, do not scale y with x axis. Instead, use a fixed scale.
@@ -15,19 +11,13 @@
 #        link: https://matplotlib.org/stable/gallery/lines_bars_and_markers/bar_label_demo.html
 # todo: [PLOT] visualize node graph with rates, blocking, skip (and delays?).
 # todo: [API] define transform functions with the API of scipy that can be used for input transformations.
-# todo: [PLOT] move plotting functions to plt module
 # todo: [TRACER] make topological sort use time constraints everywhere --> lexicographical sort?
-# todo: [TRACER] make topological sort that merges nodes of the same "depth" to the same set.
-#                https://cs.stackexchange.com/questions/2524/getting-parallel-items-in-dependency-resolution/2525#2525
 # todo: [JIT] is _in_jit() True when in pmap?
-# todo: [JIT] reimplement chunk to run all nodes and use jax.lax.select?
-# todo: [JIT] switch chunk implementation when in jit?
-# todo: [JIT] how to implement updates then? Push output to every connected node and use select?
-# todo: [JIT] does new jp.switch support vmap?
 # todo: [JIT] Is vmap supported?
-# todo: [JIT] jit env_steps with static args.
-# todo: [API] rewrite node API (._async_reset, reset, step, graph_state, update inputs, etc...)
-#             --> In async mode all nodes only have their own step_state and inputs. There is no global graph_state.
+# todo: [ASYNC] Log outputs of nodes in a deque (or list with maxlen) that can be converted to a stacked graphstate.output.
+# todo: [ASYNC] what if episode length is very long? Limit number of saved records?
+# todo: [JIT] Test difference cond vs select (GPU, CPU, vectorized)
+# todo: [JIT] implement BATCHED graph mode.
 
 import time
 import jax.random as rnd

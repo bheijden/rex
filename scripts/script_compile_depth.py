@@ -70,18 +70,19 @@ if __name__ == "__main__":
     new_record = trace(record.episode, "agent", -1, static=True, isolate=True)
 
     # Plot
-    _plot(new_record)
+    # _plot(new_record)
 
     # Create environment
     # env = DummyEnv(nodes, agent=agent, max_steps=200, sync=SYNC, clock=SIMULATED, scheduling=PHASE, real_time_factor=FAST_AS_POSSIBLE)
-    env = DummyEnv(nodes, agent=agent, max_steps=200, trace=new_record, graph=SEQUENTIAL)
+    # env = DummyEnv(nodes, agent=agent, max_steps=1000, trace=new_record, graph=SEQUENTIAL)
+    env = DummyEnv(nodes, agent=agent, max_steps=1000, trace=new_record, graph=VECTORIZED)
 
     # Warmup
     # [n.warmup() for n in nodes.values()]
 
     # Initial graph state
     num_steps = 200000
-    backend = "jax"
+    backend = "numpy"
     use_jit = True and backend == "jax"
     with use(backend=backend):
         # Get reset and step function

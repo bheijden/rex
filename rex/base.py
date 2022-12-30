@@ -1,9 +1,10 @@
 from functools import partial
 import jax
-from typing import Any, Dict, List, TypeVar
+from typing import Any, Union, List, TypeVar
 from flax import struct
 from flax.core import FrozenDict
 import jumpy as jp
+import rex.jumpy as rjp
 
 
 Output = TypeVar('Output')
@@ -30,7 +31,7 @@ class InputState:
 
     def _shift(self, a: jp.ndarray, new: jp.ndarray):
         rolled_a = jp.roll(a, -1, axis=0)
-        new_a = jp.index_update(rolled_a, -1, new)
+        new_a = rjp.index_update(rolled_a, -1, new, copy=True)
         return new_a
 
     # @partial(jax.jit, static_argnums=(0,))
@@ -44,7 +45,7 @@ class InputState:
         if size > 1:
             new = jp.tree_map(lambda tb, t: self._shift(tb, t), tb, new_t)
         else:
-            new = jp.tree_map(lambda _tb, _t: jp.index_update(_tb, jp.int32(0), _t), tb, new_t)
+            new = jp.tree_map(lambda _tb, _t: rjp.index_update(_tb, jp.int32(0), _t, copy=True), tb, new_t)
         return InputState(*new)
 
     def __getitem__(self, val):
@@ -62,5 +63,6 @@ class StepState:
 
 @struct.dataclass
 class GraphState:
-    step: int
     nodes: FrozenDict[str, StepState]
+    step: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
+    outputs: FrozenDict[str, Output] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))

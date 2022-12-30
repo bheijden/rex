@@ -3,6 +3,8 @@ import jax.numpy as jnp
 import numpy as onp
 import jumpy as jp
 import rex.jumpy as rjp
+from collections import deque
+from copy import deepcopy
 import jax
 from flax import struct
 
@@ -10,7 +12,7 @@ from rex.constants import SEQUENTIAL, VECTORIZED, BATCHED, WARN, SYNC, FAST_AS_P
 from rex.proto import log_pb2
 from rex.node import Node
 from rex.graph import BaseGraph
-from rex.base import InputState, StepState, GraphState, State
+from rex.base import InputState, StepState, GraphState, Output
 from rex.agent import Agent
 
 
@@ -74,40 +76,101 @@ def make_timings(nodes: Dict[str, "Node"], trace: log_pb2.TraceRecord, depths: L
     num_depths = len(depths)
 
     # Prepare timings pytree
-    timings = {n.name: dict(run=jp.repeat(False, num_depths),       # run:= whether the node must run,
-                            ts_step=jp.repeat(0., num_depths),      # ts_step:= ts trajectory,
-                            stateful=jp.repeat(False, num_depths),  # stateful:= whether to update the state,
-                            inputs={},                               # inputs:= inputs from other nodes to this node
+    timings = {n.name: dict(run=onp.repeat(False, num_depths),       # run:= whether the node must run,
+                            ts_step=onp.repeat(0., num_depths),      # ts_step:= ts trajectory,
+                            tick=onp.repeat(-1, num_depths),         # tick:= tick trajectory,
+                            stateful=onp.repeat(False, num_depths),  # stateful:= whether to update the state,
+                            inputs={},                              # inputs:= inputs from other nodes to this node
                             ) for i, n in enumerate(trace.node)}
+    update, window = dict(), dict()
     for name, t, in timings.items():
+        update[name], window[name] = dict(), dict()
         for i in nodes[name].inputs:
-            t["inputs"][i.info.name] = dict(update=jp.repeat(False, num_depths),   # update:= whether to update the input with output,
-                                            seq=jp.repeat(-1, num_depths),         # seq:= seq trajectory,
-                                            ts_sent=jp.repeat(-1., num_depths),    # ts_sent:= ts trajectory
-                                            ts_recv=jp.repeat(-1., num_depths))    # ts_recv:= ts trajectory
+            update[name][i.info.name] = deque([False]*i.window, maxlen=i.window)
+            window[name][i.info.name] = dict(seq=deque(range(-i.window, 0), maxlen=i.window),
+                                             ts_sent=deque([0.]*i.window, maxlen=i.window),
+                                             ts_recv=deque([0.]*i.window, maxlen=i.window))
+            t["inputs"][i.info.name] = dict(update=[], seq=[], ts_sent=[], ts_recv=[])
 
     # Populate timings
     for idx, depth in enumerate(depths):
+        _update = deepcopy(update)
         for t in depth:
             # Update source node timings
             timings[t.name]["run"][idx] = True
             timings[t.name]["ts_step"][idx] = t.ts_step
+            timings[t.name]["tick"][idx] = t.tick
             timings[t.name]["stateful"][idx] = t.stateful or not t.static
-            # Update input timings
-            for d in t.downstream:
-                if d.target.name == t.name:
+
+            # Sort upstream dependencies per input channel & sequence number
+            _sorted_deps = dict()
+            for d in t.upstream:
+                if not d.used:
                     continue
-                target_node = d.target.name
+                if d.source.name == t.name:
+                    continue
+                assert d.target.name == t.name
                 input_name = d.target.input_name
-                timings[target_node]["inputs"][input_name]["update"][idx] = True
-                timings[target_node]["inputs"][input_name]["seq"][idx] = d.source.tick
-                timings[target_node]["inputs"][input_name]["ts_sent"][idx] = d.source.ts
-                timings[target_node]["inputs"][input_name]["ts_recv"][idx] = d.target.ts
+                _sorted_deps[input_name] = _sorted_deps.get(input_name, []) + [d]
+            [d_lst.sort(key=lambda d: d.source.tick) for d_lst in _sorted_deps.values()]
+
+            # Update windows
+            for input_name, deps in _sorted_deps.items():
+                for d in deps:
+                    input_name = d.target.input_name
+                    _update[t.name][input_name].append(True)
+                    window[t.name][input_name]["seq"].append(d.source.tick)
+                    window[t.name][input_name]["ts_sent"].append(d.source.ts)
+                    window[t.name][input_name]["ts_recv"].append(d.target.ts)
+
+        # Update timings
+        for node_name, n in window.items():
+            for input_name, w in n.items():
+                u = _update[node_name][input_name]
+                w = window[node_name][input_name]
+                timings[node_name]["inputs"][input_name]["update"].append(onp.array(u))
+                timings[node_name]["inputs"][input_name]["seq"].append(onp.array(w["seq"]))
+                timings[node_name]["inputs"][input_name]["ts_sent"].append(onp.array(w["ts_sent"]))
+                timings[node_name]["inputs"][input_name]["ts_recv"].append(onp.array(w["ts_recv"]))
+
+
+            # # Update input timings
+            # for d in t.downstream:
+            #     if d.target.name == t.name:
+            #         continue
+            #     target_node = d.target.name
+            #     input_name = d.target.input_name
+            #     timings[target_node]["inputs"][input_name]["update"][idx] = True
+            #     timings[target_node]["inputs"][input_name]["seq"][idx] = d.source.tick
+            #     timings[target_node]["inputs"][input_name]["ts_sent"][idx] = d.source.ts
+            #     timings[target_node]["inputs"][input_name]["ts_recv"][idx] = d.target.ts
+
+    # Stack timings
+    for name, t in timings.items():
+        for input_name, i in t["inputs"].items():
+            for k, v in i.items():
+                i[k] = onp.stack(v, axis=0)
 
     return timings
 
 
-def make_splitter(trace: log_pb2.TraceRecord, timings, depths) -> Tuple[jp.ndarray, jp.ndarray, Timings]:
+def make_default_outputs(nodes: Dict[str, "Node"], timings: Timings) -> Dict[str, Output]:
+    num_ticks = dict()
+    outputs = dict()
+    _seed = jp.random_prngkey(0)
+    for name, n in nodes.items():
+        num_ticks[name] = timings[name]["tick"].max() + 1  # Number of ticks
+        outputs[name] = n.default_output(_seed)  # Outputs
+
+    # Stack outputs
+    stack_fn = lambda *x: jp.stack(x, axis=0)
+    stacked_outputs = dict()
+    for name, n in nodes.items():
+        stacked_outputs[name] = jp.tree_map(stack_fn, *[outputs[name]]*(num_ticks[name]+1))
+    return stacked_outputs
+
+
+def make_splitter(trace: log_pb2.TraceRecord, timings: Timings, depths: List[List[log_pb2.TracedStep]]) -> Tuple[jp.ndarray, jp.ndarray, Timings]:
     assert trace.isolate
     name = trace.name
 
@@ -139,117 +202,80 @@ def make_splitter(trace: log_pb2.TraceRecord, timings, depths) -> Tuple[jp.ndarr
     return jp.array(chunks), jp.array(substeps), isolate
 
 
-def make_update_state(name: str, outputs: List[Tuple[str, str]], stateful: bool, static: bool, with_mask: bool):
+def update_output(buffer, output: Output, tick: int32) -> Output:
+    new_buffer = jp.tree_map(lambda _b, _o: rjp.index_update(_b, tick, _o, copy=True), buffer, output)
+    return new_buffer
 
-    def _update_ss(old: StepState, new: StepState) -> StepState:
-        # If we use a mask, we do not replace step_state because the mask will take care of filtering.
-        if with_mask:
-            return new
-        elif stateful and not static:
-            return old.replace(rng=new.rng, state=new.state, params=new.params)
-        elif stateful and static:
-            return old.replace(rng=new.rng, state=new.state)
-        elif (not stateful) and static:
-            return old.replace(rng=new.rng)
-        elif (not stateful) and not static:
-            return old.replace(rng=new.rng, params=new.params)
-        else:
-            raise ValueError(f"Invalid combination of stateful={stateful} and static={static}.")
 
-    def _update_input(old: InputState, seq: int32, ts_sent: float32, ts_recv: float32, output: Any) -> InputState:
-        return old.push(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=output)
+def make_update_state(name: str, stateful: bool, static: bool):
 
     def _update_state(graph_state: GraphState, timing: Dict, step_state: StepState, output: Any) -> GraphState:
         # Define node's step state update
         new_nodes = dict()
+        new_outputs = dict()
 
         # Add node's step state update
-        new_nodes[name] = _update_ss(graph_state.nodes[name], step_state)
-
-        # Define node's output push to other nodes
-        for node_name, input_name in outputs:
-            # if not jp._in_jit() and update:
-            #     assert timing[name]["run"], "Node must run if it is to update another node."
-            old = graph_state.nodes[node_name].inputs[input_name]
-            update = timing[node_name]["inputs"][input_name]["update"]
-            seq = timing[node_name]["inputs"][input_name]["seq"]
-            ts_sent = timing[node_name]["inputs"][input_name]["ts_sent"]
-            ts_recv = timing[node_name]["inputs"][input_name]["ts_recv"]
-
-            # Push output
-            if with_mask:
-                new_input = _update_input(old, seq, ts_sent, ts_recv, output)
-            else:
-                new_input = rjp.cond(update, _update_input, lambda *args: old, old, seq, ts_sent, ts_recv, output)
-
-            # Update node's input state
-            new_inputs = graph_state.nodes[node_name].inputs.copy({input_name: new_input})
-            # NOTE! Currently, nodes cannot self-connect or have multiple inputs from the same node.
-            assert node_name not in new_nodes, "Overwriting node. Should implement merging instead."
-            new_nodes[node_name] = graph_state.nodes[node_name].replace(inputs=new_inputs)
-
-        # Define new graph_state and mask
-        new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes))
+        new_nodes[name] = step_state  # todo: Do not update params if static?
+        new_outputs[name] = update_output(graph_state.outputs[name], output, timing[name]["tick"])
+        new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes),
+                                              outputs=graph_state.outputs.copy(new_outputs))
         return new_graph_state
 
     return _update_state
 
 
-def make_update_mask(name: str, outputs: List[Tuple[str, str]], stateful: bool, static: bool):
-    # Define update function
-    set_mask = lambda tree, val: jp.tree_map(lambda x: val, tree)
+def make_update_inputs(name: str, outputs: Dict[str, str], cond: bool = True):
 
-    def _update_mask(mask: GraphState, timing: Dict) -> Tuple[GraphState, GraphState]:
-        must_run = timing[name]["run"]
+    def __push_input(old: InputState, seq: rjp.int32, ts_sent: rjp.float32, ts_recv: rjp.float32, buffer: Output) -> InputState:
+        new_o = rjp.take(buffer, seq)
+        return old.push(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=new_o)
 
-        # Define node's step state update
-        new_nodes_mask = dict()
+    def _update_inputs(graph_state: GraphState, timing: Dict) -> StepState:
+        ss = graph_state.nodes[name]
+        new_inputs = dict()
+        for input_name, node_name in outputs.items():
+            _new = ss.inputs[input_name]
+            t = timing[name]["inputs"][input_name]
+            buffer = graph_state.outputs[node_name]
+            window = _new.seq.shape[0]
+            for j in range(window):
+                pred = t["update"][j]
+                seq = t["seq"][j]
+                ts_sent = t["ts_sent"][j]
+                ts_recv = t["ts_recv"][j]
+                if cond:
+                    _new = rjp.cond(pred, __push_input, lambda _old, *args: _old, _new, seq, ts_sent, ts_recv, buffer)
+                else:
+                    _update = __push_input(_new, seq, ts_sent, ts_recv, buffer)
+                    _new = jp.tree_map(lambda _u, _o: jp.where(pred, _u, _o), _update, _new)
+            new_inputs[input_name] = _new
 
-        # Create update mask for node stepstate
-        _replace = dict(rng=set_mask(mask.nodes[name].rng, must_run))
-        if stateful:
-            _replace["state"] = set_mask(mask.nodes[name].state, must_run)
-        if not static:
-            _replace["params"] = set_mask(mask.nodes[name].params, must_run)
-        new_nodes_mask[name] = mask.nodes[name].replace(**_replace)
+        return ss.replace(inputs=ss.inputs.copy(new_inputs))
 
-        # Define node's output push to other nodes
-        for node_name, input_name in outputs:
-            update = timing[node_name]["inputs"][input_name]["update"]
-            if not jp._in_jit() and update:
-                assert must_run, "Node must run if it is to update another node."
-
-            # Push output
-            new_input_mask = set_mask(mask.nodes[node_name].inputs[input_name], update)
-            new_inputs_mask = mask.nodes[node_name].inputs.copy({input_name: new_input_mask})
-            # NOTE! Currently, nodes cannot self-connect or have multiple inputs from the same node.
-            new_nodes_mask[node_name] = mask.nodes[node_name].replace(inputs=new_inputs_mask)
-
-        # Define new graph_state and mask
-        new_mask = mask.replace(nodes=mask.nodes.copy(new_nodes_mask))
-        return new_mask
-
-    return _update_mask
+    return _update_inputs
 
 
-def make_run_node(name: str, node: "Node", outputs: List[Tuple[str, str]], stateful: bool, static: bool):
-    update = make_update_state(name, outputs, stateful, static, with_mask=False)
+def make_run_node(name: str, node: "Node", outputs: Dict[str, str], stateful: bool, static: bool):
+    update_inputs = make_update_inputs(name, outputs)
+    update_state = make_update_state(name, stateful, static)
 
     def _run_node(graph_state: GraphState, timing: Dict) -> GraphState:
+        # Update inputs
+        ss = update_inputs(graph_state, timing)
+
         # Run node step
-        ss = graph_state.nodes[name]
-        ts_step = timing[name]["ts_step"]
-        new_ss, output = node.step(ts_step, ss)
+        new_ss, output = node.step(timing[name]["ts_step"], ss)
 
         # Get mask
-        new_graph_state = update(graph_state, timing, new_ss, output)
+        new_graph_state = update_state(graph_state, timing, new_ss, output)
         return new_graph_state
 
     return _run_node
 
 
 def make_run_batch_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp.ndarray, graph: int,
-                         batch_nodes: Dict[str, "Node"], batch_outputs: Dict, stateful: Dict, static: Dict):
+                         batch_nodes: Dict[str, "Node"], batch_outputs: Dict, stateful: Dict, static: Dict,
+                         cond: bool = True):
     if graph == VECTORIZED:
         assert jp.all(substeps[chunks] == substeps[chunks][0]), "All substeps must be equal when vectorized."
         fixed_num_steps = int(substeps[chunks][0])
@@ -259,33 +285,46 @@ def make_run_batch_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp.ndar
         raise ValueError("Unknown graph type.")
 
     # Define update function
-    update_state_fns = {name: make_update_state(name, batch_outputs[name], stateful[name], static[name], with_mask=True) for name in batch_nodes.keys()}
-    update_mask_fns = {name: make_update_mask(name, batch_outputs[name], stateful[name], static[name]) for name in batch_nodes.keys()}
+    update_input_fns = {name: make_update_inputs(name, outputs) for name, outputs in batch_outputs.items()}
+
+    # Determine slice sizes (depends on window size)
+    slice_sizes = jp.tree_map(lambda _tb: list(_tb.shape[1:]), timings)
 
     def _run_batch_step(graph_state: GraphState, timing: Dict):
-        mask = jp.tree_map(lambda x: False, graph_state)
-
-        gs_lst = []
-        mask_lst = []
+        new_nodes = dict()
+        new_outputs = dict()
         for name, node in batch_nodes.items():
-            # todo: Skip nodes that are not used in this chunk
-            must_run = timing[name]["run"]
+            pred = timing[name]["run"]
+
+            # Prepare old states
+            _old_ss = graph_state.nodes[name]
+            _old_output = graph_state.outputs[name]
+
+            # Define node update function
+            def _run_node(graph_state: GraphState, timing: Dict) -> Tuple[StepState, Output]:
+                # Update inputs
+                ss = update_input_fns[name](graph_state, timing)
+
+                # Run node step
+                new_ss, output = node.step(timing[name]["ts_step"], ss)
+
+                buffer = update_output(graph_state.outputs[name], output, timing[name]["tick"])
+                return new_ss, buffer  # todo: Do not update params if static?
 
             # Run node step
-            ss = graph_state.nodes[name]
-            ts_step = timing[name]["ts_step"]
-            new_ss, output = node.step(ts_step, ss)
+            if cond:
+                new_ss, new_output = rjp.cond(pred, _run_node, lambda *args: (_old_ss, _old_output), graph_state, timing)
+            else:
+                _update_ss, _update_output = _run_node(graph_state, timing)
+                new_ss = jp.tree_map(lambda _u, _o: jp.where(pred, _u, _o), _update_ss, _old_ss)
+                new_output = jp.tree_map(lambda _u, _o: jp.where(pred, _u, _o), _update_output, _old_output)
 
-            # Get mask
-            new_gs = update_state_fns[name](graph_state, timing, new_ss, output)
-            new_mask = update_mask_fns[name](mask, timing)
+            # Store new state
+            new_nodes[name] = new_ss
+            new_outputs[name] = new_output
 
-            gs_lst.append(new_gs)
-            mask_lst.append(new_mask)
-
-        gs_choice = jp.tree_map(lambda *args: TreeLeaf(args), *gs_lst)
-        mask_choice = jp.tree_map(lambda *args: TreeLeaf(args), *mask_lst)
-        new_graph_state = jp.tree_map(lambda mask, next_gs, prev_gs: rjp.select(mask.c, next_gs.c, prev_gs), mask_choice, gs_choice, graph_state)
+        new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes),
+                                              outputs=graph_state.outputs.copy(new_outputs))
         return new_graph_state, None  # NOTE! carry=graph_state, output=None
 
     def _run_batch_chunk(graph_state: GraphState) -> GraphState:
@@ -296,7 +335,7 @@ def make_run_batch_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp.ndar
         if graph == VECTORIZED:
             # Infer length of chunk
             chunk = rjp.dynamic_slice(chunks, (step,), (1,))[0]  # has len(num_isolated_depths)
-            timings_chunk = jp.tree_map(lambda _tb: rjp.dynamic_slice(_tb, (chunk,), (fixed_num_steps,)), timings)
+            timings_chunk = jp.tree_map(lambda _tb, _size: rjp.dynamic_slice(_tb, [chunk] + [0*s for s in _size], [fixed_num_steps] + _size), timings, slice_sizes)
             # Run chunk
             graph_state, _ = rjp.scan(_run_batch_step, graph_state, timings_chunk, length=fixed_num_steps, unroll=fixed_num_steps)
         else:
@@ -309,7 +348,7 @@ def make_run_batch_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp.ndar
 
 
 def make_run_sequential_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp.ndarray, graph: int,
-                              batch_nodes: Dict[str, "Node"], batch_outputs: Dict, stateful: Dict, static: Dict):
+                              batch_nodes: Dict[str, "Node"], batch_outputs: Dict[str, Dict[str, str]], stateful: Dict, static: Dict):
 
     # Define step functions
     run_node_fns = [make_run_node(name, node, batch_outputs[name], stateful[name], static[name]) for name, node in batch_nodes.items()]
@@ -320,13 +359,14 @@ def make_run_sequential_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp
 
         # Get timings of this step
         step_index = chunk + substep
-        timings_step = jp.tree_map(lambda _tb: rjp.dynamic_slice(_tb, (step_index,), (1,))[0], timings)
+        timings_step = rjp.take(timings, step_index)
 
         # determine which nodes to run
         must_run_lst = [timings_step[name]["run"] for name in batch_nodes.keys()]
         must_run = jp.argmax(jp.array(must_run_lst))
 
         # Run node
+        # new_graph_state = run_node_fns[0](graph_state, timings_step)
         new_graph_state = rjp.switch(must_run, run_node_fns, graph_state, timings_step)
 
         return new_graph_state, chunk
@@ -350,9 +390,9 @@ def make_run_chunk(nodes: Dict[str, "Node"], trace: log_pb2.TraceRecord,
                    timings: Timings, chunks: jp.ndarray, substeps: jp.ndarray,
                    graph: int):
     # Exclude pruned nodes from batch step
-    # NOTE! Some weird output name grabbing happens here. Could become a source of bugs.
     batch_nodes = {node_name: node for node_name, node in nodes.items() if node_name != trace.name and (node_name not in trace.pruned)}
-    batch_outputs = {name: [(nn.node.name, nn.input_name) for nn in n.output.inputs if nn.node.name not in trace.pruned] for name, n in batch_nodes.items()}
+    # Structure is {node_name: {input_name: output_node_name}}
+    batch_outputs = {name: {i.input_name: i.output.name for i in n.inputs if i.output.name not in trace.pruned} for name, n in batch_nodes.items()}
 
     # Infer static and stateful nodes
     node_names = list(batch_nodes.keys())
@@ -374,21 +414,43 @@ def make_run_chunk(nodes: Dict[str, "Node"], trace: log_pb2.TraceRecord,
         raise ValueError("Unknown graph type.")
 
 
-def make_graph_reset(name: str, isolate: Timings, run_chunk: Callable):
-    def graph_reset(graph_state: GraphState) -> Tuple[GraphState, jp.float32, StepState]:
+def make_graph_reset(trace: log_pb2.TraceRecord, name: str, default_outputs, isolate: Timings, run_chunk: Callable):
+    outputs = dict()
+    for node_info in trace.node:
+        if node_info.name != name:
+            continue
+        for i in node_info.inputs:
+                outputs[i.name] = i.output
+
+    update_input = make_update_inputs(name, outputs)
+
+    def _graph_reset(graph_state: GraphState) -> Tuple[GraphState, jp.float32, StepState]:
+        # Update output buffers
+        new_outputs = dict()
+        for key, value in default_outputs.items():
+            if key not in graph_state.outputs:
+                new_outputs[key] = value
+        graph_state = graph_state.replace(outputs=graph_state.outputs.copy(new_outputs))
+
         # Grab step
         step = graph_state.step
 
         # Run initial chunk.
-        next_graph_state = run_chunk(graph_state)
+        _next_graph_state = run_chunk(graph_state)
+
+        # Update input
+        # todo: update next_graph_state with new_ss before returning
+        next_timing = rjp.take(isolate, step)
+        next_ss = update_input(_next_graph_state, next_timing)
+        next_graph_state = _next_graph_state.replace(nodes=_next_graph_state.nodes.copy({name: next_ss}))
 
         # Determine next ts
         next_ts_step = rjp.dynamic_slice(isolate[name]["ts_step"], (step,), (1,))[0]
 
         # NOTE! We do not increment step, because graph_state.step is used to index into the timings.
         #       In graph_step we do increment step after running the chunk, because we want to index into the next timings.
-        return next_graph_state, next_ts_step, next_graph_state.nodes[name]
-    return graph_reset
+        return next_graph_state, next_ts_step, next_ss
+    return _graph_reset
 
 
 def make_graph_step(trace: log_pb2.TraceRecord, name: str, isolate: Timings, run_chunk: Callable):
@@ -402,18 +464,20 @@ def make_graph_step(trace: log_pb2.TraceRecord, name: str, isolate: Timings, run
     assert stateful is not None, "Node not found in trace."
     assert static is not None, "Node not found in trace."
 
-    outputs = []
+    outputs = dict()
     for node_info in trace.node:
+        if node_info.name != name:
+            continue
         for i in node_info.inputs:
-            if i.output == name:
-                outputs.append((node_info.name, i.name))
+                outputs[i.name] = i.output
 
-    update = make_update_state(name, outputs, stateful, static, with_mask=False)
+    update_state = make_update_state(name, stateful, static)
+    update_input = make_update_inputs(name, outputs)
 
-    def graph_step(graph_state: GraphState, step_state: StepState, action: Any) -> Tuple[GraphState, jp.float32, StepState]:
+    def _graph_step(graph_state: GraphState, step_state: StepState, action: Any) -> Tuple[GraphState, jp.float32, StepState]:
         # Update graph_state with action
-        timing = jp.tree_map(lambda _tb: rjp.dynamic_slice(_tb, (graph_state.step,), (1,))[0], isolate)
-        new_graph_state = update(graph_state, timing, step_state, action)
+        timing = rjp.take(isolate, graph_state.step)
+        new_graph_state = update_state(graph_state, timing, step_state, action)
 
         # Grab step
         next_step = new_graph_state.step + 1
@@ -421,36 +485,43 @@ def make_graph_step(trace: log_pb2.TraceRecord, name: str, isolate: Timings, run
         # Run chunk of next step.
         # NOTE! The graph_state.step is used to index into the timings.
         #  Therefore, we increment it before running the chunk so that we index into the timings of the next step.
-        next_graph_state = run_chunk(new_graph_state.replace(step=next_step))
+        _next_graph_state = run_chunk(new_graph_state.replace(step=next_step))
+
+        # Update input
+        next_timing = rjp.take(isolate, next_step)
+        next_ss = update_input(_next_graph_state, next_timing)
+        next_graph_state = _next_graph_state.replace(nodes=_next_graph_state.nodes.copy({name: next_ss}))
 
         # Determine next ts
         next_ts_step = rjp.dynamic_slice(isolate[name]["ts_step"], (next_step,), (1,))[0]
 
-        return next_graph_state, next_ts_step, next_graph_state.nodes[name]
+        return next_graph_state, next_ts_step, next_ss
 
-    return graph_step
+    return _graph_step
 
 
 class CompiledGraph(BaseGraph):
     def __init__(self, nodes: Dict[str, "Node"],  trace: log_pb2.TraceRecord, agent: Agent, graph: int = SEQUENTIAL):
-        assert len([n for n in nodes.values() if
-                    n.name == agent.name]) == 0, "The agent should be provided separately, so not inside the `nodes` dict"
+        _assert = len([n for n in nodes.values() if n.name == agent.name]) == 0
+        assert _assert, "The agent should be provided separately, so not inside the `nodes` dict"
         nodes = {**nodes, **{agent.name: agent}}
 
         # Split trace into chunks
         depths = make_depth_grouping(trace, graph=graph)
         timings = make_timings(nodes, trace, depths)
+        default_outputs = make_default_outputs(nodes, timings)
         chunks, substeps, isolate = make_splitter(trace, timings, depths)
 
-        # Make batch chunk runner (runs a single nodes every step)
+        # Make chunk runner
         run_chunk = make_run_chunk(nodes, trace, timings, chunks, substeps, graph=graph)
 
-        # Compile reset
-        self.__reset = make_graph_reset(trace.name, isolate, run_chunk)
+        # Make compiled reset function
+        self.__reset = make_graph_reset(trace, trace.name, default_outputs, isolate, run_chunk)
 
-        # Compile step
+        # make compiled step function
         self.__step = make_graph_step(trace, trace.name, isolate, run_chunk)
 
+        # Store remaining attributes
         self.trace = trace
         self.max_steps = len(chunks)-1
         assert self.max_steps <= len(chunks)-1, f"max_steps ({self.max_steps}) must be smaller than the number of chunks ({len(chunks)-1})"
@@ -458,6 +529,7 @@ class CompiledGraph(BaseGraph):
         super().__init__(agent=agent)
 
     def reset(self, graph_state: GraphState) -> Tuple[GraphState, jp.float32, Any]:
+        # todo: initialize graph_state.outputs with empty arrays
         next_graph_state, next_ts_step, next_step_state = self.__reset(graph_state)
         return next_graph_state, next_ts_step, next_step_state
 

@@ -1,9 +1,13 @@
-from typing import Sequence, Callable, Any, TypeVar, Tuple
+from typing import Sequence, Callable, Any, TypeVar, Tuple, Union
 from jumpy import _in_jit
 import jax
 import jumpy as jp
 import numpy as onp
 import jax.numpy as jnp
+
+
+int32 = Union[jnp.int32, onp.int32]
+float32 = Union[jnp.float32, onp.float32]
 
 
 class use_numpy:
@@ -73,21 +77,21 @@ def switch(index, branches: Sequence[Callable], *operands: Any):
         return branches[index](*operands)
 
 
-def select(pred, on_true, on_false):
-    """Conditionally select between ``on_true`` and ``on_false`` given ``pred``.
-
-    Has the semantics of the following Python::
-
-        def select(pred, on_true, on_false):
-          return on_true if pred else on_false
-    """
-    if _in_jit():
-        return jax.numpy.select(pred, on_true, on_false)
-    else:
-        if jp._has_jax:
-            return jax.numpy.select(pred, on_true, on_false)
-        else:
-            return onp.select(pred, on_true, on_false)
+# def select(pred, on_true, on_false):
+#     """Conditionally select between ``on_true`` and ``on_false`` given ``pred``.
+#
+#     Has the semantics of the following Python::
+#
+#         def select(pred, on_true, on_false):
+#           return on_true if pred else on_false
+#     """
+#     if _in_jit():
+#         return jax.numpy.select(pred, on_true, on_false)
+#     else:
+#         if jp._has_jax:
+#             return jax.numpy.select(pred, on_true, on_false)
+#         else:
+#             return onp.select(pred, on_true, on_false)
 
 
 Carry = TypeVar("Carry")
@@ -166,14 +170,30 @@ def cond(
             return false_fun(*operands)
 
 
+def random_prngkey(seed: jp.int32) -> jp.ndarray:
+    """Returns a PRNG key given a seed."""
+    # NOTE: selects backend based on seed type.
+    if jp._which_np(seed) is jnp:
+        return jax.random.PRNGKey(seed)
+    else:
+        rng = onp.random.default_rng(seed)
+        return rng.integers(low=0, high=2**32, dtype="uint32", size=2)
 
-# def nonzero(x, size=None, fill_value=None):
-#     # NOTE! not identical behavior between jax.numpy.nonzero and onp.nonzero
-#     """Return the indices of the elements that are non-zero."""
-#     if _in_jit():
-#         return jax.numpy.nonzero(x, size, fill_value)
-#     else:
-#         if jp._has_jax:
-#             return jax.numpy.nonzero(x, size, fill_value)
-#         else:
-#             return onp.nonzero(x)
+
+def index_update(x: jp.ndarray, idx: jp.ndarray, y: jp.ndarray, copy: bool = True) -> jp.ndarray:
+    """Pure equivalent of x[idx] = y."""
+    if jp._which_np(x, idx, y) is jnp:
+        return jnp.array(x).at[idx].set(jnp.array(y))
+    else:
+        if copy:
+            x = onp.copy(x)
+        x[idx] = y
+        return x
+
+
+def take(tree: Any, i: Union[jp.ndarray, Sequence[int], int], axis: int = 0) -> Any:
+    """Returns tree sliced by i."""
+    np = jp._which_np(i)
+    if isinstance(i, (list, tuple)):
+        i = np.array(i, dtype=int)
+    return jax.tree_util.tree_map(lambda x: np.take(x, i, axis=axis, mode="clip"), tree)

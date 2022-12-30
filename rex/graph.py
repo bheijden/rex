@@ -83,7 +83,7 @@ class Graph(BaseGraph):
         # Create the next graph state
         nodes = {name: node._step_state for name, node in self._nodes_and_agent.items()}
         nodes[self.agent.name] = next_step_state
-        next_graph_state = GraphState(step=0, nodes=FrozenDict(nodes))
+        next_graph_state = GraphState(step=jp.int32(0), nodes=FrozenDict(nodes))
         return next_graph_state, next_ts_step, next_step_state
 
     def step(self, graph_state: GraphState, step_state: StepState, output: Any) -> Tuple[GraphState, float32, StepState]:

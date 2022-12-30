@@ -77,8 +77,6 @@ class DummyNode(Node):
 		seqs_sum = jp.int32(0)  # state.seqs_sum if self.stateful else jp.int32(0)
 		for name, i in inputs.items():
 			seqs_sum += jp.sum(i.seq)
-		# if self.name == "observer":
-		# 	self.log("", f"seqs_sum: {seqs_sum}", WARN)
 
 		# Update params (optional)
 		new_params = params.replace(param_1=ts)
@@ -96,11 +94,14 @@ class DummyNode(Node):
 		if not jp._in_jit() and not jp._has_jax:
 			log_msg = []
 			for name, input_state in inputs.items():
-				ts_msgs = [round(ts_recv, 4) for ts_recv in input_state.ts_recv]
-				info = f"{name}={ts_msgs}"
+				# ts_msgs = [round(ts_recv, 4) for ts_recv in input_state.ts_recv]
+				# info = f"{name}={ts_msgs}"
+				seq_msg = [seq for seq in input_state.seq]
+				info = f"{name}={seq_msg}"
 				log_msg.append(info)
 			log_msg = " | ".join(log_msg)
-			self.log("step", f"step={state.step} | ts={ts: .3f} | {log_msg}", log_level=INFO)
+			self.log("step", f"step={state.step} | seqs_sum={seqs_sum} | {log_msg}", log_level=INFO)
+			# self.log("step", f"step={state.step} | ts={ts: .3f} | {log_msg}", log_level=INFO)
 
 		return new_step_state, output
 
@@ -188,7 +189,7 @@ class DummyEnv(BaseEnv):
 			new_nodes[name] = new_ss
 
 		# ***DO SOMETHING WITH graph_state TO RESET ALL NODES***
-		return GraphState(step=jp.int32(0), nodes=FrozenDict(new_nodes))
+		return GraphState(nodes=FrozenDict(new_nodes))
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
 		"""Reset environment."""
@@ -214,11 +215,9 @@ class DummyEnv(BaseEnv):
 		new_rng, rng_step = jp.random_split(rng, num=2)
 
 		# Sum the sequence numbers of all inputs
-		seqs_sum = state.seqs_sum
+		seqs_sum = jp.int32(0)  # state.seqs_sum
 		for name, i in inputs.items():
 			seqs_sum += jp.sum(i.seq)
-			# self.log("seqs_sum | seqs", f"{seqs_sum=} | {i.seq=}", log_level=WARN)
-			self.log(f"{name}.data.seqs_sum", f"{i.data.seqs_sum=}", log_level=WARN)
 
 		# Update params (optional)
 		new_params = params.replace(param_1=jp.float32(0.0))
