@@ -20,7 +20,7 @@ jax-jumpy = "^0.2.0"
 networkx = "^2.8.8"
 jax = "^0.4.1"
 matplotlib = "^3.6.2"
-seaborn = "^0.12.1"
+seaborn = "^0.12.2"
 
 [tool.poetry.dev-dependencies]
 black = "^22.1.0"
