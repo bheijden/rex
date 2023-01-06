@@ -248,7 +248,7 @@ class BaseNode:
 
         # Reset all inputs and output
         rngs_in = rnd.split(rng, num=len(self.inputs))
-        [i.reset(r, self._step_state.inputs[i.name]) for r, i in zip(rngs_in, self.inputs)]
+        [i.reset(r, self._step_state.inputs[i.input_name]) for r, i in zip(rngs_in, self.inputs)]
 
         # Set running state
         self._state = READY
@@ -511,7 +511,7 @@ class Node(BaseNode):
             ts_sent = 0 * jp.arange(-window, 0, dtype=jp.float32)
             ts_recv = 0 * jp.arange(-window, 0, dtype=jp.float32)
             outputs = [i.output.node.default_output(rng_output, graph_state) for _ in range(window)]
-            inputs[i.name] = InputState.from_outputs(seq, ts_sent, ts_recv, outputs)
+            inputs[i.input_name] = InputState.from_outputs(seq, ts_sent, ts_recv, outputs)
         return FrozenDict(inputs)
 
     @abc.abstractmethod

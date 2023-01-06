@@ -26,7 +26,7 @@ def test_plot():
     nodes = [world, sensor, observer, agent, actuator]
 
     # Connect
-    sensor.connect(world, blocking=False, delay=Gaussian(0.004), skip=False, jitter=LATEST)
+    sensor.connect(world, blocking=False, delay=Gaussian(0.004), skip=False, jitter=LATEST, name="testworld")
     observer.connect(sensor, blocking=False, delay=Gaussian(0.003), skip=False, jitter=BUFFER)
     observer.connect(agent, blocking=False, delay=Gaussian(0.003), skip=True, jitter=LATEST)
     agent.connect(observer, blocking=True, delay=Gaussian(0.003), skip=False, jitter=BUFFER)
@@ -239,3 +239,6 @@ def test_plot():
     by_label = dict(sorted(by_label.items()))
     ax.legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
               bbox_to_anchor=(1.0, 0.50))
+
+if __name__ == "__main__":
+    test_plot()

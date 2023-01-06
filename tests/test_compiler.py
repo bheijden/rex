@@ -103,7 +103,7 @@ def test_compiler():
     nodes = {n.name: n for n in nodes}
 
     # Connect
-    sensor.connect(world, blocking=False, delay=Gaussian(4/1e3), skip=False, jitter=LATEST, window=2)
+    sensor.connect(world, blocking=False, delay=Gaussian(4/1e3), skip=False, jitter=LATEST, window=2, name="testworld")
     observer.connect(sensor, blocking=False, delay=Gaussian(3/1e3), skip=False, jitter=BUFFER)
     observer.connect(agent, blocking=False, delay=Gaussian(3/1e3), skip=True, jitter=LATEST)
     agent.connect(observer, blocking=True, delay=Gaussian(3/1e3), skip=False, jitter=BUFFER)
