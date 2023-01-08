@@ -205,5 +205,6 @@ default_cscheme = {"computation": "blue",
                    "excluded": "red",  # Used steps
                    "used": "gray",  # Removed steps
                    "rerouted": "orange",  # Rerouted dependency
+                   "normal": "gray",  # Normal dependency
                    }
 ecolor, fcolor = cscheme_fn(default_cscheme)

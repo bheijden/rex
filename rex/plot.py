@@ -257,7 +257,7 @@ record_types = Union[log_pb2.NodeRecord, log_pb2.InputRecord]
 
 
 def plot_delay(ax: "matplotlib.Axes",
-               records: Union[List[record_types],record_types],
+               records: Union[List[record_types], record_types],
                dist: "Distribution" = None,
                name: str = None,
                low: float = None,
@@ -286,7 +286,7 @@ def plot_delay(ax: "matplotlib.Axes",
         from rex.open_colors import fcolor
 
     # Get distributions
-    dist = GMM.from_info(records[0].info.delay) if dist is None else dist
+    dist = GMM.from_info(records[0].info.delay_sim) if dist is None else dist
 
     # Convert to GMM
     if isinstance(dist, Gaussian):
@@ -408,25 +408,25 @@ def plot_step_timing(ax: "matplotlib.Axes",
                     **kde_kwargs)
 
 
-def plot_graph(ax: "matplotlib.Axes",
-               record: log_pb2.TraceRecord,
-               xmax: float = None,
-               order: List[str] = None,
-               cscheme: Dict[str, str] = None,
-               node_labeltype: str = "tick",
-               node_size: int = 300,
-               edge_fontsize=10,
-               node_fontsize=10,
-               edge_linewidth=2.0,
-               node_linewidth=1.5,
-               arrowsize=10,
-               arrowstyle="->",
-               connectionstyle="arc3",
-               edge_bbox=None,
-               draw_edgelabels=False,
-               draw_nodelabels=True,
-               draw_excluded=True,
-               draw_stateless=True):
+def plot_computation_graph(ax: "matplotlib.Axes",
+                           record: log_pb2.TraceRecord,
+                           xmax: float = None,
+                           order: List[str] = None,
+                           cscheme: Dict[str, str] = None,
+                           node_labeltype: str = "tick",
+                           node_size: int = 300,
+                           edge_fontsize=10,
+                           node_fontsize=10,
+                           edge_linewidth=2.0,
+                           node_linewidth=1.5,
+                           arrowsize=10,
+                           arrowstyle="->",
+                           connectionstyle="arc3",
+                           edge_bbox=None,
+                           draw_edgelabels=False,
+                           draw_nodelabels=True,
+                           draw_excluded=True,
+                           draw_stateless=True):
     """
 
     :param ax:

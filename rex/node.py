@@ -23,7 +23,7 @@ import rex.proto.log_pb2 as log_pb2
 
 
 class BaseNode:
-    def __init__(self, name: str, rate: float, delay: Distribution, phase: float = None, advance: bool = True,
+    def __init__(self, name: str, rate: float, delay_sim: Distribution, delay: float = None, advance: bool = True,
                  stateful: bool = True, log_level: int = WARN, color: str = "green"):
         self.name = name
         self.rate = rate
@@ -32,7 +32,7 @@ class BaseNode:
         self.advance = advance
         self.stateful = stateful
         self.inputs: List[Input] = []
-        self.output = Output(self, self.log_level, self.color, phase, delay)
+        self.output = Output(self, self.log_level, self.color, delay, delay_sim)
 
         # State and episode counter
         self._eps = 0
@@ -84,7 +84,10 @@ class BaseNode:
 
     @property
     def record(self) -> log_pb2.NodeRecord:
-        return self._record
+        if self._record is None:
+            return log_pb2.NodeRecord(info=self.info)
+        else:
+            return self._record
 
     @property
     def eps(self) -> int:
@@ -115,14 +118,15 @@ class BaseNode:
 
     @property
     def info(self) -> log_pb2.NodeInfo:
-        info = log_pb2.NodeInfo(name=self.name, rate=self.rate, stateful=self.stateful, advance=self.advance, phase=self.phase, delay=self.output.delay.info)
+        info = log_pb2.NodeInfo(name=self.name, rate=self.rate, stateful=self.stateful, advance=self.advance, phase=self.phase,
+                                delay_sim=self.output.delay_sim.info, delay=self.output.delay)
         info.inputs.extend([i.info for i in self.inputs])
         return info
 
     @classmethod
     def from_info(cls, info: log_pb2.NodeInfo, log_level: int = WARN, color: str = "green", **kwargs):
         # Initializes a node from a NodeInfo proto log
-        node = cls(name=info.name, rate=info.rate, delay=GMM.from_info(info.delay), phase=info.phase, advance=info.advance,
+        node = cls(name=info.name, rate=info.rate, delay_sim=GMM.from_info(info.delay_sim), delay=info.delay, advance=info.advance,
                    stateful=info.stateful, log_level=log_level, color=color, **kwargs)
         return node
 
@@ -131,7 +135,8 @@ class BaseNode:
         self.connect(node,
                      blocking=info.blocking,
                      skip=info.skip,
-                     delay=GMM.from_info(info.delay),
+                     delay_sim=GMM.from_info(info.delay_sim),
+                     delay=info.delay,
                      jitter=info.jitter,
                      name=info.name,
                      color=color,
@@ -187,14 +192,14 @@ class BaseNode:
             wc_sleep = max(0., wc_passed_target-wc_passed)
             time.sleep(wc_sleep)
 
-    def connect(self, node: "Node", blocking: bool, delay: Distribution, phase: float = None, window: int = 1, skip: bool = False,
+    def connect(self, node: "Node", blocking: bool, delay_sim: Distribution, delay: float = None, window: int = 1, skip: bool = False,
                 jitter: int = LATEST, name: Optional[str] = None, log_level: Optional[int] = None, color: Optional[str] = None):
         # Create new input
         assert node.name not in [i.output.node.name for i in self.inputs], "Cannot use the same output source for more than one input."
         log_level = log_level if isinstance(log_level, int) else self.log_level
         color = color if isinstance(color, str) else self.color
         name = name if isinstance(name, str) else node.output.name
-        i = Input(self, node.output, window, blocking, skip, jitter, phase, delay, log_level, color, name)
+        i = Input(self, node.output, window, blocking, skip, jitter, delay, delay_sim, log_level, color, name)
         self.inputs.append(i)
 
         # Register the input with the output of the specified node

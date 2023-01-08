@@ -124,7 +124,7 @@ def plot_graph(traceback):
     import matplotlib.pyplot as plt
     from matplotlib.ticker import MaxNLocator
     import rex.open_colors as oc
-    from rex.plot import plot_graph, plot_topological_order
+    from rex.plot import plot_computation_graph, plot_topological_order
 
     # Create new plot
     fig, ax = plt.subplots()
@@ -134,8 +134,8 @@ def plot_graph(traceback):
     # Plot graph
     order = ["world", "sensor", "observer", "agent", "actuator"]
     cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
-    plot_graph(ax, traceback, order=order, cscheme=cscheme, xmax=0.6, node_size=200, draw_excluded=True, draw_stateless=False,
-               draw_edgelabels=False, draw_nodelabels=True)
+    plot_computation_graph(ax, traceback, order=order, cscheme=cscheme, xmax=0.6, node_size=200, draw_excluded=True,
+                           draw_stateless=False, draw_edgelabels=False, draw_nodelabels=True)
 
     # Plot legend
     handles, labels = ax.get_legend_handles_labels()

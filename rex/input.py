@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 
 class Input:
-    def __init__(self, node: "Node", output: "Output", window: int, blocking: bool, skip: bool, jitter: int, phase: float, delay: Distribution, log_level: int, color: str, name: str):
+    def __init__(self, node: "Node", output: "Output", window: int, blocking: bool, skip: bool, jitter: int, delay: float, delay_sim: Distribution, log_level: int, color: str, name: str):
         # todo: add this constraint?
         # assert not (skip and not blocking), "You can only skip blocking connections."
         self.node = node
@@ -28,18 +28,18 @@ class Input:
         self.input_name = name
         self.window = window
         self.blocking = blocking    #: Connection type
-        self.delay = delay          #: Communication delay
+        self.delay_sim = delay_sim  #: Communication delay
         self.skip = skip            #: Skip first dependency
         self.jitter = jitter        #: Jitter mode
         self.log_level = log_level
         self.color = color
-        self._phase_input = phase if phase is not None else delay.high
-        assert self._phase_input >= 0, "Phase should be non-negative."
+        self.delay = delay if delay is not None else delay_sim.high
+        assert self.delay >= 0, "Phase should be non-negative."
         self._state = STOPPED
 
         # Jit function (call self.warmup() to pre-compile)
         self._num_buffer = 50
-        self._jit_sample = jit(self.delay.sample, static_argnums=1)
+        self._jit_sample = jit(self.delay_sim.sample, static_argnums=1)
         self._jit_split = jit(rnd.split, static_argnums=1)
 
         # Executor
@@ -73,7 +73,7 @@ class Input:
     def phase(self) -> float:
         """Phase shift of the input: phase shift of the incoming output + the expected communication delay."""
         if self._phase is None:
-            return self.output.phase + self._phase_input
+            return self.output.phase + self.delay
         else:
             return self._phase
 
@@ -81,7 +81,7 @@ class Input:
     def phase_dist(self) -> Distribution:
         """Phase shift of the input: phase shift of the incoming output + the expected communication delay."""
         if self._phase_dist is None:
-            return self.output.phase_dist + self.delay
+            return self.output.phase_dist + self.delay_sim
         else:
             return self._phase_dist
 
@@ -104,7 +104,7 @@ class Input:
     def info(self) -> log_pb2.InputInfo:
         return log_pb2.InputInfo(name=self.input_name, output=self.output.name, rate=self.output.rate, window=self.window, blocking=self.blocking,
                                  skip=self.skip, jitter=self.jitter, phase=self.phase, phase_dist=self.phase_dist.info,
-                                 delay=self.delay.info)
+                                 delay_sim=self.delay_sim.info, delay=self.delay)
 
     def log(self, id: str, value: Optional[Any] = None, log_level: Optional[int] = None):
         log_level = log_level if isinstance(log_level, int) else self.log_level

@@ -439,7 +439,6 @@ def make_graph_reset(trace: log_pb2.TraceRecord, name: str, default_outputs, iso
         _next_graph_state = run_chunk(graph_state)
 
         # Update input
-        # todo: update next_graph_state with new_ss before returning
         next_timing = rjp.take(isolate, step)
         next_ss = update_input(_next_graph_state, next_timing)
         next_graph_state = _next_graph_state.replace(nodes=_next_graph_state.nodes.copy({name: next_ss}))

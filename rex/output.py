@@ -14,19 +14,19 @@ if TYPE_CHECKING:
 
 
 class Output:
-    def __init__(self, node: "Node", log_level: int, color: str, phase: float, delay: Distribution):
+    def __init__(self, node: "Node", log_level: int, color: str, delay: float, delay_sim: Distribution):
         self.node = node
         self.log_level = log_level
         self.color = color
         self.inputs = []
-        self.delay = delay
+        self.delay_sim = delay_sim
         self._state = STOPPED
-        self._phase_cb = phase if phase is not None else delay.high
-        assert self._phase_cb >= 0, "Phase should be non-negative."
+        self.delay = delay if delay is not None else delay_sim.high
+        assert self.delay >= 0, "Phase should be non-negative."
 
         # Jit function (call self.warmup() to pre-compile)
         self._num_buffer = 50
-        self._jit_sample = jit(self.delay.sample, static_argnums=1)
+        self._jit_sample = jit(self.delay_sim.sample, static_argnums=1)
         self._jit_split = jit(rnd.split, static_argnums=1)
 
         # Reset every run
@@ -46,7 +46,7 @@ class Output:
     @property
     def phase(self) -> float:
         if self._phase is None:
-            return self.node.phase + self._phase_cb
+            return self.node.phase + self.delay
         else:
             return self._phase
 
@@ -54,7 +54,7 @@ class Output:
     def phase_dist(self) -> Distribution:
         """Distribution of the output phase shift: phase shift of the node (deterministic) + the computation delay dist."""
         if self._phase_dist is None:
-            return Gaussian(self.node.phase) + self.delay
+            return Gaussian(self.node.phase) + self.delay_sim
         else:
             return self._phase_dist
 

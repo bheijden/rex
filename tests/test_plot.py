@@ -17,21 +17,21 @@ utils.set_log_level(WARN)
 
 def test_plot():
     # Create nodes
-    world = DummyNode("world", rate=20, delay=Gaussian(0.000), log_level=WARN, color="magenta")
-    sensor = DummyNode("sensor", rate=20, delay=Gaussian(0.007), log_level=WARN, color="yellow")
-    observer = DummyNode("observer", rate=30, delay=Gaussian(0.016), log_level=WARN, color="cyan")
-    agent = DummyAgent("agent", rate=45, delay=Gaussian(0.005, 0.001), log_level=WARN, color="blue", advance=True)
-    actuator = DummyNode("actuator", rate=45, delay=Gaussian(1 / 45), log_level=WARN, color="green", advance=False,
+    world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000), log_level=WARN, color="magenta")
+    sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007), log_level=WARN, color="yellow")
+    observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016), log_level=WARN, color="cyan")
+    agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(0.005, 0.001), log_level=WARN, color="blue", advance=True)
+    actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), log_level=WARN, color="green", advance=False,
                          stateful=True)
     nodes = [world, sensor, observer, agent, actuator]
 
     # Connect
-    sensor.connect(world, blocking=False, delay=Gaussian(0.004), skip=False, jitter=LATEST, name="testworld")
-    observer.connect(sensor, blocking=False, delay=Gaussian(0.003), skip=False, jitter=BUFFER)
-    observer.connect(agent, blocking=False, delay=Gaussian(0.003), skip=True, jitter=LATEST)
-    agent.connect(observer, blocking=True, delay=Gaussian(0.003), skip=False, jitter=BUFFER)
-    actuator.connect(agent, blocking=False, delay=Gaussian(0.003, 0.001), skip=False, jitter=BUFFER, phase=0.05)
-    world.connect(actuator, blocking=False, delay=Gaussian(0.004), skip=True, jitter=BUFFER)
+    sensor.connect(world, blocking=False, delay_sim=Gaussian(0.004), skip=False, jitter=LATEST, name="testworld")
+    observer.connect(sensor, blocking=False, delay_sim=Gaussian(0.003), skip=False, jitter=BUFFER)
+    observer.connect(agent, blocking=False, delay_sim=Gaussian(0.003), skip=True, jitter=LATEST)
+    agent.connect(observer, blocking=True, delay_sim=Gaussian(0.003), skip=False, jitter=BUFFER)
+    actuator.connect(agent, blocking=False, delay_sim=Gaussian(0.003, 0.001), skip=False, jitter=BUFFER, delay=0.05)
+    world.connect(actuator, blocking=False, delay_sim=Gaussian(0.004), skip=True, jitter=BUFFER)
 
     # Warmup nodes (pre-compile jitted functions)
     [n.warmup() for n in nodes]
@@ -185,7 +185,7 @@ def test_plot():
     # Trace record
     traceback = trace(record, "agent", -1, static=True)
 
-    from rex.plot import plot_graph, plot_topological_order, plot_depth_order
+    from rex.plot import plot_computation_graph, plot_topological_order, plot_depth_order
     from matplotlib.ticker import MaxNLocator
 
     # Create new plot
@@ -196,10 +196,10 @@ def test_plot():
     # Plot graph
     order = ["world", "sensor", "observer", "agent", "actuator"]
     cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
-    plot_graph(ax, traceback, order=order, cscheme=cscheme, xmax=0.6, node_size=200, draw_excluded=True, draw_stateless=False,
-               draw_edgelabels=False, draw_nodelabels=True, node_labeltype="tick")
-    plot_graph(ax, traceback, order=order, cscheme=cscheme, xmax=0.6, node_size=200, draw_excluded=True, draw_stateless=False,
-               draw_edgelabels=False, draw_nodelabels=True, node_labeltype="ts")
+    plot_computation_graph(ax, traceback, order=order, cscheme=cscheme, xmax=0.6, node_size=200, draw_excluded=True, draw_stateless=False,
+                           draw_edgelabels=False, draw_nodelabels=True, node_labeltype="tick")
+    plot_computation_graph(ax, traceback, order=order, cscheme=cscheme, xmax=0.6, node_size=200, draw_excluded=True, draw_stateless=False,
+                           draw_edgelabels=False, draw_nodelabels=True, node_labeltype="ts")
 
     # Plot legend
     handles, labels = ax.get_legend_handles_labels()

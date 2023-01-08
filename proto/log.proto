@@ -73,8 +73,9 @@ message NodeInfo {
     bool stateful = 3;  // Whether the node is stateful (=True) or stateless (=False).
     bool advance = 4;  // Whether the node may advance its step (=True) or not (=False).
     float phase = 5; // Phase shift
-    GMM delay = 6; // Computation delay distribution of the node step
-    repeated InputInfo inputs = 7;  // Registered inputs
+    GMM delay_sim = 6; // Computation delay distribution of the node step
+    float delay = 7; // Computation delay that is taken into account.
+    repeated InputInfo inputs = 8;  // Registered inputs
 }
 
 message InputInfo {
@@ -87,7 +88,8 @@ message InputInfo {
     uint32 jitter = 7; // Latest (=0) and buffer (=1) (only applies to non-blocking connections)
     float phase = 8; // Phase shift. This sets the "dejitter" buffer size for non-blocking connections.
     GMM phase_dist = 9; // Distribution of the phase shift (provided every node keeps its rate).
-    GMM delay = 10; // Communication delay distribution
+    GMM delay_sim = 10; // Communication delay distribution
+    float delay = 11; // Communication delay that is taken into account.
 }
 
 message GMM {

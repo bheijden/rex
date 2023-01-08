@@ -12,7 +12,7 @@ except ImportError:
     print("Seaborn not installed, plots will not be as pretty.")
 from rex.proto import log_pb2
 from rex.tracer import trace
-from rex.plot import plot_graph, plot_topological_order
+from rex.plot import plot_computation_graph, plot_topological_order
 
 with open("/home/r2ci/rex/scripts/record_1.pb", "rb") as f:
     record = log_pb2.EpisodeRecord()
@@ -37,8 +37,8 @@ ax.set(facecolor=oc.ccolor("gray"), xlabel="time (s)", yticks=[], xlim=[-0.01, 0
 # Plot graph
 order = ["world", "sensor", "observer", "agent", "actuator"]
 cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
-plot_graph(ax, traceback, order=order, cscheme=cscheme, xmax=0.6, draw_excluded=True, draw_stateless=False,
-           draw_edgelabels=False, draw_nodelabels=True)
+plot_computation_graph(ax, traceback, order=order, cscheme=cscheme, xmax=0.6, draw_excluded=True, draw_stateless=False,
+                       draw_edgelabels=False, draw_nodelabels=True)
 
 # Plot legend
 handles, labels = ax.get_legend_handles_labels()

@@ -99,21 +99,21 @@ def _plot(new_record):
 
 
 def test_compiler():
-    world = DummyNode("world", rate=20, delay=Gaussian(0/1e3), log_level=WARN, color="magenta")
-    sensor = DummyNode("sensor", rate=20, delay=Gaussian(7/1e3), log_level=WARN, color="yellow")
-    observer = DummyNode("observer", rate=30, delay=Gaussian(16/1e3), log_level=WARN, color="cyan")
-    agent = DummyAgent("agent", rate=45, delay=Gaussian(5/1e3, 1/1e3), log_level=WARN, color="blue", advance=True)
-    actuator = DummyNode("actuator", rate=45, delay=Gaussian(1/45), log_level=WARN, color="green", advance=False, stateful=False)
+    world = DummyNode("world", rate=20, delay_sim=Gaussian(0/1e3), log_level=WARN, color="magenta")
+    sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(7/1e3), log_level=WARN, color="yellow")
+    observer = DummyNode("observer", rate=30, delay_sim=Gaussian(16/1e3), log_level=WARN, color="cyan")
+    agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(5/1e3, 1/1e3), log_level=WARN, color="blue", advance=True)
+    actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1/45), log_level=WARN, color="green", advance=False, stateful=False)
     nodes = [world, sensor, observer, agent, actuator]
     nodes = {n.name: n for n in nodes}
 
     # Connect
-    sensor.connect(world, blocking=False, delay=Gaussian(4/1e3), skip=False, jitter=LATEST, window=2, name="testworld")
-    observer.connect(sensor, blocking=False, delay=Gaussian(3/1e3), skip=False, jitter=BUFFER)
-    observer.connect(agent, blocking=False, delay=Gaussian(3/1e3), skip=True, jitter=LATEST)
-    agent.connect(observer, blocking=True, delay=Gaussian(3/1e3), skip=False, jitter=BUFFER)
-    actuator.connect(agent, blocking=True, delay=Gaussian(3/1e3, 1/1e3), skip=False, jitter=LATEST, phase=5/1e3)
-    world.connect(actuator, blocking=False, delay=Gaussian(4/1e3), skip=True, jitter=LATEST)
+    sensor.connect(world, blocking=False, delay_sim=Gaussian(4/1e3), skip=False, jitter=LATEST, window=2, name="testworld")
+    observer.connect(sensor, blocking=False, delay_sim=Gaussian(3/1e3), skip=False, jitter=BUFFER)
+    observer.connect(agent, blocking=False, delay_sim=Gaussian(3/1e3), skip=True, jitter=LATEST)
+    agent.connect(observer, blocking=True, delay_sim=Gaussian(3/1e3), skip=False, jitter=BUFFER)
+    actuator.connect(agent, blocking=True, delay_sim=Gaussian(3/1e3, 1/1e3), skip=False, jitter=LATEST, delay=5/1e3)
+    world.connect(actuator, blocking=False, delay_sim=Gaussian(4/1e3), skip=True, jitter=LATEST)
 
     # Warmup nodes (pre-compile jitted functions)
     [n.warmup() for n in nodes.values()]
