@@ -350,7 +350,7 @@ class Step:
 		return traceback
 
 
-def trace(record: log_pb2.EpisodeRecord, name: str, tick: int, static: Union[bool, Dict[str, bool]] = True, verbose: bool = True, isolate: bool = True) -> log_pb2.TraceRecord:
+def trace(record: log_pb2.EpisodeRecord, name: str, tick: int = -1, static: Union[bool, Dict[str, bool]] = False, verbose: bool = True, isolate: bool = True) -> log_pb2.TraceRecord:
 	""" Trace a step in the episode record.
 	:param record: The episode record to trace.
 	:param name: The name of the node to trace.

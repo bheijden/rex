@@ -14,24 +14,29 @@ from rex.distributions import Gaussian, GMM
 from scripts.dummy import DummyNode, DummyEnv, DummyAgent
 
 
-def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = False, seed: int = 0):
+def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = False, seed: int = 0, vmap: int = 1):
+    # Record
+    gs_lst = []
+    obs_lst = []
+    ss_lst = []
+
     use_jit = use_jit and backend == "jax"
     with rjp.use(backend=backend):
-        # Get reset and step function
-        env_reset = jax.jit(env.reset) if use_jit else env.reset
-        env_step = jax.jit(env.step) if use_jit else env.step
+        rng = rjp.random_prngkey(jp.int32(seed))
 
-        gs_lst = []
-        obs_lst = []
-        ss_lst = []
+        env_reset = rjp.vmap(env.reset)
+        env_step = rjp.vmap(env.step)
+        rng = jp.random_split(rng, num=vmap)
+
+        # Get reset and step function
+        env_reset = jax.jit(env_reset) if use_jit else env_reset
+        env_step = jax.jit(env_step) if use_jit else env_step
 
         # Reset environment (warmup)
         with timer(f"{name} | jit reset", log_level=WARN):
-            rng = rjp.random_prngkey(jp.int32(seed))
             graph_state, obs = env_reset(rng)
             gs_lst.append(graph_state)
             obs_lst.append(obs)
-            # ss_new = graph_state.nodes["agent"].replace(rng=jp.array([0, 0], dtype=jp.int32))
             ss_new = graph_state.nodes["agent"]
             ss_lst.append(ss_new)
 
@@ -55,7 +60,7 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
             ss_new = graph_state.nodes["agent"]
             ss_lst.append(ss_new)
             eps_steps += 1
-            if done:
+            if done[0]:
                 # Time env stopping
                 tend = time.time()
                 env.stop()

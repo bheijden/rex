@@ -4,6 +4,7 @@ omit =
     tests/*
     examples/*
     scripts/*
+    envs/*
 
 [report]
 exclude_lines =

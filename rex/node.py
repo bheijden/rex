@@ -437,7 +437,7 @@ class BaseNode:
             _, ts_step_wc = self.now()
 
             # Grab grouped msgs
-            inputs = FrozenDict({i.name: i.q_grouped.popleft() for i in self.inputs})
+            inputs = FrozenDict({i.input_name: i.q_grouped.popleft() for i in self.inputs})
 
             # Update StepState with grouped messages
             step_state = self._step_state.replace(inputs=inputs)

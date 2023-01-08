@@ -97,6 +97,7 @@ def switch(index, branches: Sequence[Callable], *operands: Any):
 Carry = TypeVar("Carry")
 X = TypeVar("X")
 Y = TypeVar("Y")
+F = TypeVar("F", bound=Callable)
 
 
 def scan(
@@ -197,3 +198,53 @@ def take(tree: Any, i: Union[jp.ndarray, Sequence[int], int], axis: int = 0) -> 
     if isinstance(i, (list, tuple)):
         i = np.array(i, dtype=int)
     return jax.tree_util.tree_map(lambda x: np.take(x, i, axis=axis, mode="clip"), tree)
+
+
+def vmap(fun: F, include: Sequence[bool] = None) -> F:
+    """Creates a function which maps ``fun`` over argument axes.
+
+    :param fun: Function to be mapped.
+    :param include: A boolean array of the same length as the number of arguments to ``fun``.
+                    If ``include[i]`` is ``True``, then the ``i``th argument to ``fun`` is mapped over.
+                    If ``include`` is ``None``, then all arguments are mapped over.
+    """
+    # Prepare jittable version of fun.
+    in_axes = 0
+    if include:
+        in_axes = [0 if inc else None for inc in include]
+    fun_jit = jax.vmap(fun, in_axes=in_axes)
+
+    def _batched(*args, **kwargs):
+        # If we're in a jit, just call the jitted version.
+        if _in_jit():
+            return fun_jit(*args, **kwargs)
+
+        # Otherwise, we need to do the batching ourselves.
+        if include is not None and len(include) != len(args):
+            raise RuntimeError("Len of `args` list must match length of `include`.")
+
+        # by default, vectorize over every arg
+        _include = [True for _ in args] if include is None else include
+
+        # determine number of parallel evaluations to unroll into serial evals
+        batch_size = None
+        for a, inc in zip(args, _include):
+            if inc:
+                flat_args, _ = jax.tree_util.tree_flatten(a)
+                batch_size = flat_args[0].shape[0]
+                break
+
+        # rebuild b_args for each serial evaluation
+        rets = []
+        for b_idx in range(batch_size):
+            b_args = []
+            for a, inc in zip(args, _include):
+                if inc:
+                    b_args.append(take(a, b_idx))
+                else:
+                    b_args.append(a)
+            rets.append(fun(*b_args))
+
+        return jax.tree_util.tree_map(lambda *x: onp.stack(x), *rets)
+
+    return _batched
