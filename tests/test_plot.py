@@ -241,5 +241,24 @@ def test_plot():
     ax.legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
               bbox_to_anchor=(1.0, 0.50))
 
+    from rex.plot import plot_graph
+
+    # Create new plot
+    fig, ax = plt.subplots()
+    fig.set_size_inches(12, 5)
+    ax.set(facecolor=oc.ccolor("gray"), yticks=[], xticks=[])
+
+    # Draw graph
+    pos = {"world": (0, 0), "sensor": (1.5, 0), "observer": (3, 0), "agent": (4.5, 0)}
+    cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
+    plot_graph(ax, record, cscheme=cscheme, pos=pos)
+
+    # Plot legend
+    handles, labels = ax.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    by_label = dict(sorted(by_label.items()))
+    ax.legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
+              bbox_to_anchor=(1.0, 0.50))
+
 if __name__ == "__main__":
     test_plot()
