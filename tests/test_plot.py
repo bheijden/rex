@@ -224,6 +224,7 @@ def test_plot():
     ax.legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
               bbox_to_anchor=(1.0, 0.50))
 
+    # Create new plot
     fig, ax = plt.subplots()
     fig.set_size_inches(12, 5)
     ax.set(facecolor=oc.ccolor("gray"), xlabel="Depth order", yticks=[], xlim=[-1, 10])

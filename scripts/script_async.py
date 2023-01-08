@@ -5,6 +5,7 @@
 # todo: [PLOT] Record sample probabilities to GroupedRecord. How to deal with scheduling and idle phase shifts?
 #       delay.cdf(next_cb_ts - prev_cb_ts) <--- how "big" is the chance that this msg is sampled?
 # todo: [PLOT] half phase bars, and place sleep behind it
+# todo: [PLOT] fix plot_step_timing bug with isfinite.
 # todo: [PLOT] allow setting a name for plot_input_thread plots
 # todo: [PLOT] in grouped plot, do not scale y with x axis. Instead, use a fixed scale.
 # todo: [PLOT] optionally add tick numbers to callback blocks in even_thread plot --> to connect with graph plot

@@ -845,6 +845,8 @@ def plot_depth_order(ax: "matplotlib.Axes",
             for name, yy in ypos:
                 if name in record.pruned:
                     continue
+                if name == isolated_node:
+                    continue
                 # Add node to graph
                 name = f"{name}_excl({i})"
                 edgecolor = oc.ecolor.excluded
