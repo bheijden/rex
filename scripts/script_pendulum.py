@@ -84,13 +84,13 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
 
 if __name__ == "__main__":
 	# Define nodes
-	world = World("world", rate=20, delay=Gaussian(0.))
-	agent = Agent("agent", rate=20, delay=Gaussian(0.))
+	world = World("world", rate=20, delay_sim=Gaussian(0.))
+	agent = Agent("agent", rate=20, delay_sim=Gaussian(0.))
 	nodes = {n.name: n for n in [world, agent]}
 
 	# Connect
-	agent.connect(world, name="state",  window=1, blocking=True, delay=Gaussian(0.), jitter=LATEST, skip=True)
-	world.connect(agent, name="action", window=1, blocking=True, delay=Gaussian(0.), jitter=LATEST)
+	agent.connect(world, name="state",  window=1, blocking=True, delay_sim=Gaussian(0.), jitter=LATEST, skip=True)
+	world.connect(agent, name="action", window=1, blocking=True, delay_sim=Gaussian(0.), jitter=LATEST)
 
 	# Warmup nodes (pre-compile jitted functions)
 	[n.warmup() for n in nodes.values()]

@@ -10,7 +10,6 @@
 # todo: [PLOT] in grouped plot, do not scale y with x axis. Instead, use a fixed scale.
 # todo: [PLOT] optionally add tick numbers to callback blocks in even_thread plot --> to connect with graph plot
 #        link: https://matplotlib.org/stable/gallery/lines_bars_and_markers/bar_label_demo.html
-# todo: [PLOT] visualize node graph with rates, blocking, skip (and delays?).
 # todo: [API] define transform functions with the API of scipy that can be used for input transformations.
 # todo: [TRACER] make topological sort use time constraints everywhere --> lexicographical sort?
 # todo: [ASYNC] Log outputs of nodes in a deque (or list with maxlen) that can be converted to a stacked graphstate.output.
@@ -34,20 +33,20 @@ utils.set_log_level(WARN)
 
 # Create nodes
 c = 1e3
-world = DummyNode("world",           rate=c*20/1e3, delay=Gaussian(0/c), log_level=WARN, color="magenta")
-sensor = DummyNode("sensor",         rate=c*20/1e3, delay=Gaussian(7/c), log_level=WARN, color="yellow")
-observer = DummyNode("observer",     rate=c*30/1e3, delay=Gaussian(16/c), log_level=WARN, color="cyan")
-agent = DummyAgent("agent",          rate=c*45/1e3, delay=Gaussian(5/c, 1/c), log_level=WARN, color="blue", advance=True)
-actuator = DummyNode("actuator",     rate=c*45/1e3, delay=Gaussian((c/45)/c), log_level=WARN, color="green", advance=False, stateful=False)
+world = DummyNode("world",           rate=c*20/1e3, delay_sim=Gaussian(0/c), log_level=WARN, color="magenta")
+sensor = DummyNode("sensor",         rate=c*20/1e3, delay_sim=Gaussian(7/c), log_level=WARN, color="yellow")
+observer = DummyNode("observer",     rate=c*30/1e3, delay_sim=Gaussian(16/c), log_level=WARN, color="cyan")
+agent = DummyAgent("agent",          rate=c*45/1e3, delay_sim=Gaussian(5/c, 1/c), log_level=WARN, color="blue", advance=True)
+actuator = DummyNode("actuator",     rate=c*45/1e3, delay_sim=Gaussian((c/45)/c), log_level=WARN, color="green", advance=False, stateful=False)
 nodes = [world, sensor, observer, agent, actuator]
 
 # Connect
-sensor.connect(world,        blocking=False, delay=Gaussian(4/c), skip=False, jitter=LATEST)
-observer.connect(sensor,     blocking=False, delay=Gaussian(3/c), skip=False, jitter=BUFFER)
-observer.connect(agent,      blocking=False, delay=Gaussian(3/c), skip=True, jitter=LATEST)
-agent.connect(observer,      blocking=True, delay=Gaussian(3/c), skip=False, jitter=BUFFER)
-actuator.connect(agent,      blocking=True, delay=Gaussian(3/c, 1/c), skip=False, jitter=LATEST, phase=3/c)
-world.connect(actuator,      blocking=False, delay=Gaussian(4/c), skip=True, jitter=LATEST)
+sensor.connect(world,        blocking=False, delay_sim=Gaussian(4/c), skip=False, jitter=LATEST)
+observer.connect(sensor,     blocking=False, delay_sim=Gaussian(3/c), skip=False, jitter=BUFFER)
+observer.connect(agent,      blocking=False, delay_sim=Gaussian(3/c), skip=True, jitter=LATEST)
+agent.connect(observer,      blocking=True, delay_sim=Gaussian(3/c), skip=False, jitter=BUFFER)
+actuator.connect(agent,      blocking=True, delay_sim=Gaussian(3/c, 1/c), skip=False, jitter=LATEST, delay=3/c)
+world.connect(actuator,      blocking=False, delay_sim=Gaussian(4/c), skip=True, jitter=LATEST)
 
 # Warmup nodes (pre-compile jitted functions)
 [n.warmup() for n in nodes]

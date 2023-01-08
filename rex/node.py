@@ -85,7 +85,9 @@ class BaseNode:
     @property
     def record(self) -> log_pb2.NodeRecord:
         if self._record is None:
-            return log_pb2.NodeRecord(info=self.info)
+            record = log_pb2.NodeRecord(info=self.info)
+            record.inputs.extend([log_pb2.InputRecord(info=i.info) for i in self.inputs])
+            return record
         else:
             return self._record
 

@@ -907,3 +907,85 @@ def plot_depth_order(ax: "matplotlib.Axes",
     [yticks.append(i) for _, i in y.items()]
     ax.set_yticks(yticks)
     ax.tick_params(left=False, bottom=True, labelleft=False, labelbottom=True)
+
+
+def plot_graph(ax: "matplotlib.Axes",
+               record: log_pb2.EpisodeRecord,
+               cscheme: Dict[str, str] = None,
+               pos: Dict[str, Tuple[float, float]] = None,
+               node_size: int = 2000,
+               node_fontsize=10,
+               edge_linewidth=3.0,
+               node_linewidth=2.0,
+               arrowsize=10,
+               arrowstyle="->",
+               connectionstyle="arc3,rad=0.2"):
+    import rex.open_colors as oc
+
+    # Add color of nodes that are not in the cscheme
+    cscheme = cscheme if isinstance(cscheme, dict) else {}
+    for n in record.node:
+        if n.info.name not in cscheme:
+            cscheme[n.info.name] = "gray"
+        else:
+            assert cscheme[n.info.name] != "red", "Color red is a reserved color."
+
+    # Generate node color scheme
+    ecolor, fcolor = oc.cscheme_fn(cscheme)
+
+    # Determine node position
+    if pos is not None:
+        fixed_pos: Dict[str, bool] = {key: True for key in pos.keys()}
+    else:
+        fixed_pos = None
+
+    # Generate graph
+    G = nx.MultiDiGraph()
+    for n in record.node:
+        edgecolor = ecolor[n.info.name]
+        facecolor = fcolor[n.info.name]
+        name = f"{n.info.name}\n{n.info.rate} Hz"  # \n{n.info.delay:.3f} s\n{n.info.phase: .3f} s"
+        G.add_node(n.info.name, name=name, rate=n.info.rate, advance=n.info.advance, phase=n.info.phase, delay=n.info.delay,
+                   edgecolor=edgecolor,
+                   facecolor=facecolor, alpha=1.0)
+        for i in n.inputs:
+            linestyle = "-" if i.info.blocking else "--"
+            color = oc.ecolor.skip if i.info.skip else oc.ecolor.normal
+            G.add_edge(i.info.output, n.info.name, name=i.info.name, blocking=i.info.blocking, skip=i.info.skip,
+                       delay=i.info.delay,
+                       window=i.info.window, jitter=i.info.jitter, phase=i.info.phase, color=color, linestyle=linestyle,
+                       alpha=1.0)
+
+    # Get edge and node properties
+    edges = G.edges(data=True)
+    nodes = G.nodes(data=True)
+    edge_color = [data['color'] for u, v, data in edges]
+    edge_alpha = [data['alpha'] for u, v, data in edges]
+    edge_style = [data['linestyle'] for u, v, data in edges]
+    node_alpha = [data['alpha'] for n, data in nodes]
+    node_ecolor = [data['edgecolor'] for n, data in nodes]
+    node_fcolor = [data['facecolor'] for n, data in nodes]
+
+    # Get labels
+    # edge_labels = {(u, v): f"{data['delay']:.3f}" for u, v, data in edges}
+    node_labels = {n: data["name"] for n, data in nodes}
+
+    # Get position
+    pos = nx.spring_layout(G, pos=pos, fixed=fixed_pos)
+
+    # Draw graph
+    nx.draw_networkx_nodes(G, ax=ax, pos=pos, node_color=node_fcolor, alpha=node_alpha, edgecolors=node_ecolor,
+                           node_size=node_size, linewidths=node_linewidth, node_shape="s")
+    nx.draw_networkx_edges(G, ax=ax, pos=pos, edge_color=edge_color, alpha=edge_alpha, style=edge_style,
+                           arrowsize=arrowsize, arrowstyle=arrowstyle, connectionstyle=connectionstyle,
+                           width=edge_linewidth, node_size=node_size)
+
+    # Draw labels
+    nx.draw_networkx_labels(G, pos, node_labels, font_size=node_fontsize)
+    # if draw_edgelabels:
+    # 	nx.draw_networkx_edge_labels(G, pos, edge_labels, rotate=True, bbox=edge_bbox, font_size=edge_fontsize)
+
+    # Add empty plot with correct color and label for each node
+    ax.plot([], [], color=oc.ecolor.normal, label="blocking")
+    ax.plot([], [], color=oc.ecolor.skip, label="skip")
+    ax.plot([], [], color=oc.ecolor.normal, label="non-blocking", linestyle="--")
