@@ -1,5 +1,8 @@
 """
 This implementation was inspired by gymnax:
+
+https://github.com/RobertTLange/gymnax/blob/main/gymnax/environments/spaces.py
+
 """
 
 from typing import Tuple

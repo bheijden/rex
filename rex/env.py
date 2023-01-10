@@ -7,7 +7,7 @@ from rex.utils import log
 from rex.node import Node
 from rex.graph import Graph
 from rex.compiled import CompiledGraph
-from rex.base import GraphState
+from rex.base import GraphState, Params
 from rex.proto import log_pb2
 from rex.constants import SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, INTERPRETED, VECTORIZED, SEQUENTIAL, BATCHED, WARN
 from rex.agent import Agent
@@ -59,7 +59,7 @@ class BaseEnv:
         raise NotImplementedError
 
     def close(self):
-        pass
+        self.stop()
 
     def stop(self):
         return self.graph.stop()
@@ -67,13 +67,17 @@ class BaseEnv:
     def render(self):
         raise NotImplementedError
 
-    def action_space(self, graph_state: GraphState) -> gym.Space:
+    def action_space(self, params: Params = None) -> gym.Space:
         """Action space of the environment."""
         raise NotImplementedError
 
-    def observation_space(self, graph_state: GraphState) -> gym.Space:
+    def observation_space(self, params: Params = None) -> gym.Space:
         """Observation space of the environment."""
         raise NotImplementedError
+
+    @property
+    def unwrapped(self):
+        return self
 
     def log(self, id: str, value: Optional[Any] = None, log_level: Optional[int] = None):
         log_level = log_level if isinstance(log_level, int) else self.log_level

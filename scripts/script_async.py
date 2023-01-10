@@ -1,9 +1,7 @@
 # use JAX_LOG_COMPILES=1 to log JIT compilation.
+# todo: [ASYNC] Do nodes require at least one input (only when clock=SIMULATED)?
 # todo: [ASYNC] Test while running for longer period.
 # todo: [ASYNC] can we run ASYNC with SIMULATED CLOCK? --> what does this mean?
-# todo: [PLOT] Visualize graph (including sample probabilities)
-# todo: [PLOT] Record sample probabilities to GroupedRecord. How to deal with scheduling and idle phase shifts?
-#       delay.cdf(next_cb_ts - prev_cb_ts) <--- how "big" is the chance that this msg is sampled?
 # todo: [PLOT] half phase bars, and place sleep behind it
 # todo: [PLOT] fix plot_step_timing bug with isfinite.
 # todo: [PLOT] allow setting a name for plot_input_thread plots
@@ -11,7 +9,6 @@
 # todo: [PLOT] optionally add tick numbers to callback blocks in even_thread plot --> to connect with graph plot
 #        link: https://matplotlib.org/stable/gallery/lines_bars_and_markers/bar_label_demo.html
 # todo: [API] define transform functions with the API of scipy that can be used for input transformations.
-# todo: [TRACER] make topological sort use time constraints everywhere --> lexicographical sort?
 # todo: [ASYNC] Log outputs of nodes in a deque (or list with maxlen) that can be converted to a stacked graphstate.output.
 # todo: [ASYNC] what if episode length is very long? Limit number of saved records?
 # todo: [JIT] is _in_jit() True when in pmap?

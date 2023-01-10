@@ -11,10 +11,12 @@ from rex.node import Node
 from rex.agent import Agent as BaseAgent
 from rex.spaces import Box
 
+
 @struct.dataclass
 class Params:
 	"""Pendulum agent param definition"""
 	max_torque: jp.float32
+	max_speed: jp.float32
 
 
 @struct.dataclass
@@ -26,7 +28,7 @@ class State:
 @struct.dataclass
 class Output:
 	"""Pendulum agent output definition"""
-	action: jp.float32
+	action: jp.ndarray
 
 
 class Agent(BaseAgent):
@@ -35,7 +37,7 @@ class Agent(BaseAgent):
 
 	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
 		"""Default params of the agent."""
-		return Params(max_torque=jp.float32(2.0))
+		return Params(max_torque=jp.float32(2.0), max_speed=jp.float32(22.0))
 
 	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
 		"""Default state of the agent."""
@@ -43,7 +45,7 @@ class Agent(BaseAgent):
 
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
 		"""Default output of the agent."""
-		return Output(action=jp.float32(0.0))
+		return Output(action=jp.array([0.0], dtype=jp.float32))
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
 		"""Reset the agent."""
@@ -87,12 +89,12 @@ class PendulumEnv(BaseEnv):
 	def action_space(self, params: Params = None):
 		"""Action space of the environment."""
 		params = self.agent.default_params(jp.random_prngkey(0)) if params is None else params
-		return Box(low=-params.max_torque, high=params.max_torque, shape=(), dtype=jp.float32)
+		return Box(low=-1, high=1, shape=(1,), dtype=jp.float32)
 
 	def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> GraphState:
 		"""Get the graph state."""
-		if graph_state is not None:
-			raise NotImplementedError("Supplying a graph state is not yet supported for Pendulum environment.")
+		# if graph_state is not None:
+		# 	raise NotImplementedError("Supplying a graph state is not yet supported for Pendulum environment.")
 
 		# Prepare new graph state
 		new_nodes = dict()
@@ -114,7 +116,7 @@ class PendulumEnv(BaseEnv):
 			# Replace step state in graph state
 			new_nodes[name] = new_ss
 
-		return GraphState(nodes=FrozenDict(new_nodes))
+		return GraphState(step=jp.int32(0), nodes=FrozenDict(new_nodes))
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
 		"""Reset environment."""
@@ -127,26 +129,29 @@ class PendulumEnv(BaseEnv):
 		obs = self._get_obs(step_state)
 		return graph_state, obs
 
-	def step(self, graph_state: GraphState, action: jp.float32) -> Tuple[GraphState, InputState, float, bool, Dict]:
+	def step(self, graph_state: GraphState, action: jp.ndarray) -> Tuple[GraphState, InputState, float, bool, Dict]:
 		"""Perform step transition in environment."""
 		# Update step_state (if necessary)
 		step_state = self.agent.get_step_state(graph_state)
 		new_step_state = step_state
 
 		# Prepare output action
-		u = Output(action=action)
+		u = Output(action=action*step_state.params.max_torque)
+		# th = step_state.inputs["state"].data.th[0]
+		# thdot = step_state.inputs["state"].data.thdot[0]
+		# x = jp.array([th, thdot])
+		# print(f"{self.name.ljust(14)} | x: {x} | u: {u.action[0]}")
 
 		# Apply step and receive next step_state
 		graph_state, ts, step_state = self.graph.step(graph_state, new_step_state, u)
 
-		# Unpack step_state
+		# Get observation
 		obs = self._get_obs(step_state)
-
-		# Calculate cost
-		# Penalize angle error, angular velocity and input voltage
-		th = step_state.inputs["state"].data.th[0]
+		th = self._angle_normalize(step_state.inputs["state"].data.th[0])  # Normalize angle
 		thdot = step_state.inputs["state"].data.thdot[0]
-		cost = th ** 2 + 0.1 * (thdot / (1 + 10 * abs(th))) ** 2 + 0.01 * action ** 2
+
+		# Calculate cost (penalize angle error, angular velocity and input voltage)
+		cost = th ** 2 + 0.1 * (thdot / (1 + 10 * abs(th))) ** 2 + 0.01 * action[0] ** 2
 
 		# Determine done flag
 		done = self._is_terminal(graph_state)
@@ -161,4 +166,8 @@ class PendulumEnv(BaseEnv):
 		"""Get observation from environment."""
 		th = step_state.inputs["state"].data.th[0]
 		thdot = step_state.inputs["state"].data.thdot[0]
-		return jp.array([jp.cos(th), jp.sin(th), thdot], dtype=jp.float32)
+		return jp.array([jp.cos(th), jp.sin(th), thdot])
+
+	def _angle_normalize(self, th: jp.array):
+		th_norm = th - 2 * jp.pi * jp.floor((th + jp.pi) / (2 * jp.pi))
+		return th_norm

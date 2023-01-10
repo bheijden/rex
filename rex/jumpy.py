@@ -248,3 +248,11 @@ def vmap(fun: F, include: Sequence[bool] = None) -> F:
         return jax.tree_util.tree_map(lambda *x: onp.stack(x), *rets)
 
     return _batched
+
+
+def stop_gradient(x: X) -> X:
+    """Returns x with zero gradient."""
+    if jp._which_np(x) is jnp:
+        return jax.lax.stop_gradient(x)
+    else:
+        return x

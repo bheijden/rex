@@ -10,10 +10,10 @@ from rex.jumpy import use
 from rex.tracer import trace
 from rex.utils import timer
 from rex.distributions import Gaussian
-from rex.constants import LATEST, BUFFER, SILENT, DEBUG, INFO, WARN, REAL_TIME, FAST_AS_POSSIBLE, SIMULATED, \
-	WALL_CLOCK, SYNC, ASYNC, FREQUENCY, PHASE, SEQUENTIAL
+from rex.constants import LATEST, WARN, FAST_AS_POSSIBLE, SIMULATED, \
+	SYNC, PHASE, SEQUENTIAL
 
-from envs.pendulum.world_ode import World
+from envs.pendulum.ode.world import World
 from envs.pendulum.env import PendulumEnv, Agent
 
 
@@ -115,8 +115,8 @@ if __name__ == "__main__":
 	env = PendulumEnv(nodes, agent=agent, max_steps=max_steps, trace=trace_record, graph=SEQUENTIAL)
 
 	# Evaluate async env
-	gs, obs, ss = evaluate(env, name="env", backend="numpy", use_jit=False, seed=0, vmap=20)
-	# gs, obs, ss = evaluate(env, name="env", backend="jax", use_jit=True, seed=0, vmap=20)
+	# gs, obs, ss = evaluate(env, name="env", backend="numpy", use_jit=False, seed=0, vmap=2)
+	gs, obs, ss = evaluate(env, name="env", backend="jax", use_jit=True, seed=0, vmap=20)
 
 	# Compare
 	def compare(_trace, _opt):
