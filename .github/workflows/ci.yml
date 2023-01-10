@@ -78,6 +78,19 @@ jobs:
         run: |
           source .venv/bin/activate
           make pytest
+      #-----------------------------------------------
+      #             Create coverage badge
+      #-----------------------------------------------
+      - name: Create coverage badge
+        run: |
+          make coverage-badge
+      - name: Add & Commit
+        uses: EndBug/add-and-commit@v9.1.1
+        with:
+          author_name: ${{ github.actor }}
+          author_email: ${{ github.actor }}@users.noreply.github.com
+          message: "ci: Update coverage badge [ci skip]"
+          add: "coverage.svg"
 
 #  release:
 #    needs: test
@@ -99,14 +112,14 @@ jobs:
 #      #-----------------------------------------------
 #      #   Publish to PYPI in case of a new version
 #      #-----------------------------------------------
-#      - name: Semantic Release
-#        run: |
-#          pip install python-semantic-release
-#          git config --global user.name "github-actions"
-#          git config --global user.email "action@github.com"
-#          semantic-release publish -D commit_author="github-actions <action@github.com>"
-#        env:
-#          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#          REPOSITORY_USERNAME: ${{ secrets.PYPI_USERNAME }}
-#          REPOSITORY_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+  #      - name: Semantic Release
+  #        run: |
+  #          pip install python-semantic-release
+  #          git config --global user.name "github-actions"
+  #          git config --global user.email "action@github.com"
+  #          semantic-release publish -D commit_author="github-actions <action@github.com>"
+  #        env:
+  #          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+  #          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #          REPOSITORY_USERNAME: ${{ secrets.PYPI_USERNAME }}
+  #          REPOSITORY_PASSWORD: ${{ secrets.PYPI_PASSWORD }}

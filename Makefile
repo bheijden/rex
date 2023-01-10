@@ -7,6 +7,10 @@ LINT_PATHS=${PACKAGE_NAME}/
 pytest:
 	bash ./scripts/run_tests.sh
 
+coverage-badge:
+	# Generate coverage badge
+	poetry run python ./scripts/generate_coverage_badge.py
+
 check-codestyle:
 	# Reformat using black
 	poetry run black --check -l 127 ${LINT_PATHS}
