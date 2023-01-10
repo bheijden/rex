@@ -209,7 +209,7 @@ class Input:
                 else:  # self.jitter in [LATEST]:
                     # Simply uses the latest messages (and clears entire buffer until ts_step).
                     for seq, ts in self.q_ts_input:
-                        if ts > ts_step:
+                        if ts > ts_step or (self.skip and ts == ts_step):
                             break
                         num_msgs += 1
 
