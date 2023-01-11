@@ -9,6 +9,7 @@ import jumpy as jp
 import numpy as onp
 import jax
 
+from rex.graph import Graph
 from rex.spaces import Space, Discrete, Box
 from rex.env import BaseEnv
 from rex.base import GraphState
@@ -32,6 +33,8 @@ class Wrapper():
 class AutoResetWrapper(Wrapper):
     def __init__(self, env):
         super().__init__(env)
+        if isinstance(env.unwrapped.graph, Graph):
+            raise TypeError("AutoResetWrapper is only compatible with Graph environments.")
 
     def step(self, graph_state: GraphState, action: Any) -> Tuple[GraphState, Any, float, bool, Dict]:
         # Step environment
@@ -68,6 +71,7 @@ class GymWrapper(Wrapper, gym.Env):
     def action_space(self) -> gym.Space:
         if self._graph_state is None:
             self.reset()
+            self.stop()
         params = self._graph_state.nodes[self._name].params
         space = self.env.action_space(params)
         return rex_space_to_gym_space(space)
@@ -76,6 +80,7 @@ class GymWrapper(Wrapper, gym.Env):
     def observation_space(self) -> gym.Space:
         if self._graph_state is None:
             self.reset()
+            self.stop()
         params = self._graph_state.nodes[self._name].params
         space = self.env.observation_space(params)
         return rex_space_to_gym_space(space)
@@ -146,6 +151,7 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
     def _action_space(self) -> gym.Space:
         if self._graph_state is None:
             self.reset()
+            self.stop()
         params = self._graph_state.nodes[self._name].params
         single_params = jp.tree_map(lambda x: x[0], params)
         space = self.env.action_space(single_params)
@@ -155,6 +161,7 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
     def _observation_space(self) -> gym.Space:
         if self._graph_state is None:
             self.reset()
+            self.stop()
         params = self._graph_state.nodes[self._name].params
         single_params = jp.tree_map(lambda x: x[0], params)
         space = self.env.observation_space(single_params)
@@ -183,11 +190,13 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
     def close(self):
         self.env.close()
 
-    def env_is_wrapped(self, wrapper_class, indices = None):
-        return self.num_envs*[isinstance(self.env, wrapper_class)]
+    def env_is_wrapped(self, wrapper_class, indices=None):
+        raise NotImplementedError
+        # return self.num_envs*[isinstance(self.env, wrapper_class)]
 
     def env_method(self, method_name, *method_args, indices=None, **method_kwargs):
-        return self.num_envs*[getattr(self.env, method_name)(*method_args, **method_kwargs)]
+        raise NotImplementedError
+        # return self.num_envs*[getattr(self.env, method_name)(*method_args, **method_kwargs)]
 
     def seed(self, seed=None) -> List[int]:
         if seed is None:
@@ -197,22 +206,18 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
         return self.num_envs*[seed]
 
     def get_attr(self, attr_name, indices=None):
-        return self.num_envs*[getattr(self.env, attr_name)]
+        raise NotImplementedError
+        # return self.num_envs*[getattr(self.env, attr_name)]
 
     def set_attr(self, attr_name, value, indices=None):
-        return self.num_envs*[setattr(self.env, attr_name, value)]
+        raise NotImplementedError
+        # return self.num_envs*[setattr(self.env, attr_name, value)]
 
     def step_wait(self):
         self._graph_state, obs, rewards, dones, infos = self._step(self._graph_state, self._actions)
 
-        # todo: implement autoreset
-        # if dones.any():
-        #     assert dones.all(), "All environments must be done at the same time."
-        #     self._rng, self._graph_state, obs = self._reset(self._rng)
-
         # Add terminal infos
-        # todo: implement autoreset
-        if True: #"last_observation" in infos[0]: # todo: uncomment this
+        if "last_observation" in infos[0]:
             for i, done in enumerate(dones):
                 if done:
                     # save final observation where user can get it, then reset

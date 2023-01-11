@@ -2,13 +2,67 @@ from typing import Any, Dict, Tuple, Union
 import jumpy as jp
 from flax import struct
 from flax.core import FrozenDict
+import gym
 
+from rex.tracer import trace
+from rex.distributions import Gaussian
 from rex.proto import log_pb2
-from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, INTERPRETED, WARN
+from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, INTERPRETED, LATEST, BUFFER, SEQUENTIAL
 from rex.base import InputState, StepState, GraphState
 from rex.env import BaseEnv
 from rex.node import Node
 from rex.agent import Agent
+from rex.spaces import Box
+
+
+def build_dummy_compiled_env() -> Tuple["DummyEnv", "DummyEnv", Dict[str, Node]]:
+	env, nodes = build_dummy_env()
+
+	# Get spaces
+	action_space = env.action_space()
+
+	# Run environment
+	done, (graph_state, obs) = False, env.reset(jp.random_prngkey(0))
+	for _ in range(1):
+		while not done:
+			action = action_space.sample(jp.random_prngkey(0))
+			graph_state, obs, reward, done, info = env.step(graph_state, action)
+	env.stop()
+
+	# Trace record
+	record = log_pb2.EpisodeRecord()
+	[record.node.append(node.record) for node in nodes.values()]
+	trace_record = trace(record, "agent")
+
+	# Create traced environment
+	env_traced = DummyEnv(nodes, agent=env.agent, max_steps=env.max_steps, trace=trace_record, graph=SEQUENTIAL)
+	return env_traced, env, nodes
+
+
+def build_dummy_env() -> Tuple["DummyEnv", Dict[str, Node]]:
+	nodes = build_dummy_graph()
+	agent: DummyAgent = nodes["agent"]  # type: ignore
+	env = DummyEnv(nodes, agent=agent, max_steps=100, sync=SYNC, clock=SIMULATED, scheduling=PHASE, real_time_factor=FAST_AS_POSSIBLE)
+	return env, nodes
+
+
+def build_dummy_graph() -> Dict[str, Node]:
+	# Create nodes
+	world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000), color="magenta")
+	sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007), color="yellow")
+	observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016), color="cyan")
+	agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(0.005, 0.001), color="blue", advance=True)
+	actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), color="green", advance=False)
+	nodes = [world, sensor, observer, agent, actuator]
+
+	# Connect
+	sensor.connect(world, blocking=False, delay_sim=Gaussian(0.004), skip=False, jitter=LATEST, name="testworld")
+	observer.connect(sensor, blocking=False, delay_sim=Gaussian(0.003), skip=False, jitter=BUFFER)
+	observer.connect(agent, blocking=False, delay_sim=Gaussian(0.003), skip=True, jitter=LATEST)
+	agent.connect(observer, blocking=True, delay_sim=Gaussian(0.003), skip=False, jitter=BUFFER)
+	actuator.connect(agent, blocking=False, delay_sim=Gaussian(0.003, 0.001), skip=False, jitter=BUFFER, delay=0.05)
+	world.connect(actuator, blocking=False, delay_sim=Gaussian(0.004), skip=True, jitter=BUFFER)
+	return {n.name: n for n in nodes}
 
 
 @struct.dataclass
@@ -163,7 +217,7 @@ class DummyEnv(BaseEnv):
 	def _get_obs(self, step_state: StepState) -> Any:
 		"""Get observation from environment."""
 		# ***DO SOMETHING WITH StepState TO GET OBSERVATION***
-		obs = step_state.inputs
+		obs = list(step_state.inputs.values())[0][-1].data.seqs_sum
 		# ***DO SOMETHING WITH StepState TO GET OBSERVATION***
 
 		return obs
@@ -242,3 +296,11 @@ class DummyEnv(BaseEnv):
 		# ***DO SOMETHING WITH StepState TO GET OBS/reward/done/info***
 
 		return graph_state, obs, reward, done, info
+
+	def observation_space(self, params: DummyParams = None):
+		"""Observation space of the environment."""
+		return Box(low=-1, high=1, shape=(), dtype=jp.float32)
+
+	def action_space(self, params: DummyParams = None):
+		"""Action space of the environment."""
+		return Box(low=-1, high=1, shape=(1,), dtype=jp.float32)

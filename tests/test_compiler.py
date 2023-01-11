@@ -183,7 +183,7 @@ def test_compiler():
                     raise
 
     # Test InputState API
-    _ = obs_all[0]["observer"][0]
+    _ = ss_all[0].inputs["observer"][0]
 
     # Merge all logged obs, gs, and ss
     obs = jp.tree_map(lambda *args: args, obs_async, obs_opt, obs_all)

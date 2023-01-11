@@ -31,15 +31,10 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
 		rng = rjp.random_prngkey(jp.int32(seed))
 
 		# vmap env
-		# if vmap > 1:
 		env_reset = rjp.vmap(env.reset)
 		env_step = rjp.vmap(env.step)
 		rng = jp.random_split(rng, num=vmap)
 		action = rjp.vmap(action_space.sample)(rng)
-		# else:
-		# 	env_reset = env.reset
-		# 	env_step = env.step
-		# 	action = action_space.sample(rng)
 
 		# Get reset and step function
 		env_reset = jax.jit(env_reset) if use_jit else env_reset

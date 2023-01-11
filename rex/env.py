@@ -3,6 +3,7 @@ import gym
 import jumpy as jp
 import abc
 
+from rex.spaces import Space
 from rex.utils import log
 from rex.node import Node
 from rex.graph import Graph
@@ -67,11 +68,11 @@ class BaseEnv:
     def render(self):
         raise NotImplementedError
 
-    def action_space(self, params: Params = None) -> gym.Space:
+    def action_space(self, params: Params = None) -> Space:
         """Action space of the environment."""
         raise NotImplementedError
 
-    def observation_space(self, params: Params = None) -> gym.Space:
+    def observation_space(self, params: Params = None) -> Space:
         """Observation space of the environment."""
         raise NotImplementedError
 
