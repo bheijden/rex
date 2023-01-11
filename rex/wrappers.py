@@ -122,12 +122,22 @@ class GymWrapper(Wrapper, gym.Env):
 try:
     from stable_baselines3.common.vec_env import VecEnv as sb3VecEnv
 except ImportError:
-    # print("stable_baselines3 not installed. Using a proxy for DummyVecEnv.")
+    print("stable_baselines3 not installed. Using a proxy for DummyVecEnv.")
     class sb3VecEnv:
         def __init__(self, num_envs: int, observation_space: gs.Space, action_space: gs.Space):
-            self.num_envs = num_envs
-            self.observation_space = observation_space
-            self.action_space = action_space
+                self.num_envs = num_envs
+                self.observation_space = observation_space
+                self.action_space = action_space
+
+        def step(self, actions):
+            """
+            Step the environments with the given action
+
+            :param actions: the action
+            :return: observation, reward, done, information
+            """
+            self.step_async(actions)
+            return self.step_wait()
 
 
 class VecGymWrapper(Wrapper, sb3VecEnv):

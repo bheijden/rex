@@ -14,7 +14,6 @@ from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 
 if __name__ == "__main__":
 	# todo: calling action_space/observation_space already resets the graph.
-	# todo: create wrapper + tests.
 	# todo: allow for self connection with action.
 	# todo: resize observation space with observation window.
 	utils.set_log_level(WARN)

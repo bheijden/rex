@@ -66,9 +66,8 @@ def test_vec_gym_wrapper():
 	env = VecGymWrapper(env, num_envs=2)  # Wrap into vectorized environment
 
 	# Get spaces
-	env._graph_state = None  # Just to trigger autoreset to obtain action space
 	action_space = env.action_space
-	observation_space = env.observation_space
+	_action_space = env._action_space
 
 	# Jit
 	env.jit()
