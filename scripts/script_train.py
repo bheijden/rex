@@ -12,11 +12,10 @@ from rex.constants import LATEST, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, SEQU
 from envs.pendulum.env import PendulumEnv, Agent
 from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 
+
 if __name__ == "__main__":
 	# todo: env_is_wrapped
 	# todo: calling action_space/observation_space already resets the graph.
-	# todo: allow for self connection with action.
-	# todo: resize observation space with observation window.
 	utils.set_log_level(WARN)
 
 	# Define nodes

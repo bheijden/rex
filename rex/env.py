@@ -80,6 +80,9 @@ class BaseEnv:
     def unwrapped(self):
         return self
 
+    def env_is_wrapped(self, wrapper_class, indices=None):
+        return False
+
     def log(self, id: str, value: Optional[Any] = None, log_level: Optional[int] = None):
         log_level = log_level if isinstance(log_level, int) else self.log_level
         log(self.name, self.color, min(log_level, self.log_level), id, value)
