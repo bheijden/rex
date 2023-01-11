@@ -13,6 +13,7 @@ from envs.pendulum.env import PendulumEnv, Agent
 from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 
 if __name__ == "__main__":
+	# todo: env_is_wrapped
 	# todo: calling action_space/observation_space already resets the graph.
 	# todo: allow for self connection with action.
 	# todo: resize observation space with observation window.
@@ -29,7 +30,8 @@ if __name__ == "__main__":
 	nodes["agent"] = agent
 
 	# Connect
-	agent.connect(sensor, name="state",  window=1, blocking=True, delay_sim=Gaussian(0.), jitter=LATEST)
+	agent.connect(agent, name="last_action", window=2, blocking=True, skip=True, delay_sim=Gaussian(0.), delay=0., jitter=LATEST)
+	agent.connect(sensor, name="state",  window=3, blocking=True, delay_sim=Gaussian(0.), jitter=LATEST)
 	actuator.connect(agent, name="action", window=1, blocking=True, delay_sim=Gaussian(0.), jitter=LATEST)
 
 	# Warmup nodes (pre-compile jitted functions)

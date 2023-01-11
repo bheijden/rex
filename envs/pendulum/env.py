@@ -83,13 +83,19 @@ class PendulumEnv(BaseEnv):
 	def observation_space(self, params: Params = None):
 		"""Observation space of the environment."""
 		params = self.agent.default_params(jp.random_prngkey(0)) if params is None else params
-		high = jp.array([1.0, 1.0, params.max_speed], dtype=jp.float32)
+		inputs = {u.input_name: u for u in self.agent.inputs}
+
+		# Prepare
+		num_state = inputs["state"].window
+		num_last_action = inputs["last_action"].window if "last_action" in inputs else 0
+		high = [1.0] * num_state * 2 + [params.max_speed] * num_state + [params.max_torque] * num_last_action
+		high = jp.array(high, dtype=jp.float32)
 		return Box(low=-high, high=high, dtype=jp.float32)
 
 	def action_space(self, params: Params = None):
 		"""Action space of the environment."""
 		params = self.agent.default_params(jp.random_prngkey(0)) if params is None else params
-		return Box(low=-1, high=1, shape=(1,), dtype=jp.float32)
+		return Box(low=-params.max_torque, high=params.max_torque, shape=(1,), dtype=jp.float32)
 
 	def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> GraphState:
 		"""Get the graph state."""
@@ -136,7 +142,7 @@ class PendulumEnv(BaseEnv):
 		new_step_state = step_state
 
 		# Prepare output action
-		u = Output(action=action*step_state.params.max_torque)
+		u = Output(action=action)
 		# th = step_state.inputs["state"].data.th[0]
 		# thdot = step_state.inputs["state"].data.thdot[0]
 		# x = jp.array([th, thdot])
@@ -164,9 +170,12 @@ class PendulumEnv(BaseEnv):
 
 	def _get_obs(self, step_state: StepState) -> Any:
 		"""Get observation from environment."""
-		th = step_state.inputs["state"].data.th[0]
-		thdot = step_state.inputs["state"].data.thdot[0]
-		return jp.array([jp.cos(th), jp.sin(th), thdot])
+		inputs = step_state.inputs
+		th = inputs["state"].data.th
+		thdot = inputs["state"].data.thdot
+		last_action = inputs["last_action"].data.action[:, 0] if 'last_action' in inputs else jp.array([])
+		obs = jp.concatenate([jp.cos(th), jp.sin(th), thdot, last_action], axis=-1)
+		return obs
 
 	def _angle_normalize(self, th: jp.array):
 		th_norm = th - 2 * jp.pi * jp.floor((th + jp.pi) / (2 * jp.pi))

@@ -1,7 +1,5 @@
 from typing import Any, Dict, Tuple, Union
 import jumpy as jp
-import numpy as onp
-from math import ceil
 from flax import struct
 from rex.distributions import Distribution, Gaussian
 from rex.constants import WARN, LATEST

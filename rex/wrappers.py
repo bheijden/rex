@@ -201,8 +201,8 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
         self.env.close()
 
     def env_is_wrapped(self, wrapper_class, indices=None):
-        raise NotImplementedError
-        # return self.num_envs*[isinstance(self.env, wrapper_class)]
+        # raise NotImplementedError
+        return self.num_envs*[isinstance(self.env, wrapper_class)]
 
     def env_method(self, method_name, *method_args, indices=None, **method_kwargs):
         raise NotImplementedError

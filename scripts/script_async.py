@@ -14,6 +14,7 @@
 # todo: [JIT] is _in_jit() True when in pmap?
 # todo: [JIT] Test difference cond vs select (GPU, CPU, vectorized)
 # todo: [JIT] implement BATCHED graph mode.
+# todo: [TRACE] Remove static, and fully rely on stateful flag.
 
 import time
 import jax.random as rnd
