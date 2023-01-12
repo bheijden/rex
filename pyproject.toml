@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "rex"
+name = "rex-lib"
 version = "0.0.1"
 license = "Apache2.0"
 description = "Rex is a tool for creating Robotic Environments with jaX."
@@ -7,7 +7,9 @@ authors = ["Bas van der Heijden <d.s.vanderheijden@tudelft.nl>"]
 homepage = "https://github.com/bheijden/rex"
 repository = "https://github.com/bheijden/rex"
 documentation = "https://github.com/bheijden/rex"
-include = ["scripts"]
+packages = [
+    { include = "rex" },
+]
 
 [tool.poetry.dependencies]
 python = "^3.8"

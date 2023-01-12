@@ -5,7 +5,6 @@ import jumpy as jp
 import numpy as onp
 import jax.numpy as jnp
 
-
 int32 = Union[jnp.int32, onp.int32]
 float32 = Union[jnp.float32, onp.float32]
 
@@ -73,7 +72,7 @@ def switch(index, branches: Sequence[Callable], *operands: Any):
         # if True and _has_jax:
         #     return jax.lax.switch(index, branches, *operands)
         # else:
-            # index = onp.clip(index, 0, len(branches) - 1)
+        # index = onp.clip(index, 0, len(branches) - 1)
         return branches[index](*operands)
 
 
@@ -101,12 +100,12 @@ F = TypeVar("F", bound=Callable)
 
 
 def scan(
-    f: Callable[[Carry, X], Tuple[Carry, Y]],
-    init: Carry,
-    xs: X,
-    length: int = None,
-    reverse: bool = False,
-    unroll: int = 1,
+        f: Callable[[Carry, X], Tuple[Carry, Y]],
+        init: Carry,
+        xs: X,
+        length: int = None,
+        reverse: bool = False,
+        unroll: int = 1,
 ) -> Tuple[Carry, Y]:
     """Scan a function over leading array axes while carrying along state."""
     if _in_jit():
@@ -137,7 +136,7 @@ def fori_loop(lower: int, upper: int, body_fun: Callable[[int, X], X], init_val:
 
 
 def dynamic_slice(
-    operand: X, start_indices: Sequence[int], slice_sizes: Sequence[int]
+        operand: X, start_indices: Sequence[int], slice_sizes: Sequence[int]
 ) -> X:
     """Dynamic slice of ``operand`` with per-dimension ``start_indices`` and ``slice_sizes``.
 
@@ -159,7 +158,7 @@ def dynamic_slice(
 
 
 def cond(
-    pred, true_fun: Callable[..., bool], false_fun: Callable[..., bool], *operands: Any
+        pred, true_fun: Callable[..., bool], false_fun: Callable[..., bool], *operands: Any
 ):
     """Conditionally apply true_fun or false_fun to operands."""
     if _in_jit():
@@ -178,7 +177,7 @@ def random_prngkey(seed: jp.int32) -> jp.ndarray:
         return jax.random.PRNGKey(seed)
     else:
         rng = onp.random.default_rng(seed)
-        return rng.integers(low=0, high=2**32, dtype="uint32", size=2)
+        return rng.integers(low=0, high=2 ** 32, dtype="uint32", size=2)
 
 
 def index_update(x: jp.ndarray, idx: jp.ndarray, y: jp.ndarray, copy: bool = True) -> jp.ndarray:

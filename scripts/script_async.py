@@ -15,6 +15,7 @@
 # todo: [JIT] Test difference cond vs select (GPU, CPU, vectorized)
 # todo: [JIT] implement BATCHED graph mode.
 # todo: [TRACE] Remove static, and fully rely on stateful flag.
+# todo: [WRAPPER] Calling action_space/observation_space already resets the graph (GymWrapper).
 
 import time
 import jax.random as rnd
