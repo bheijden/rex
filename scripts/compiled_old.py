@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Tuple, Generator, Callable, Union
-import jumpy as jp
+import jumpy.numpy as jp
 import rex.jumpy as rjp
 from rex.graph import BaseGraph
 from rex.base import InputState, StepState, GraphState, State

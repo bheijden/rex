@@ -1,7 +1,8 @@
 import time
+import jumpy
 import jax.numpy as jnp
 import numpy as onp
-import jumpy as jp
+import jumpy.numpy as jp
 import jax
 
 import rex.jumpy as rjp
@@ -22,11 +23,11 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
 
     use_jit = use_jit and backend == "jax"
     with rjp.use(backend=backend):
-        rng = rjp.random_prngkey(jp.int32(seed))
+        rng = jumpy.random.PRNGKey(jp.int32(seed))
 
         env_reset = rjp.vmap(env.reset)
         env_step = rjp.vmap(env.step)
-        rng = jp.random_split(rng, num=vmap)
+        rng = jumpy.random.split(rng, num=vmap)
 
         # Get reset and step function
         env_reset = jax.jit(env_reset) if use_jit else env_reset
@@ -186,20 +187,20 @@ def test_compiler():
     _ = ss_all[0].inputs["observer"][0]
 
     # Merge all logged obs, gs, and ss
-    obs = jp.tree_map(lambda *args: args, obs_async, obs_opt, obs_all)
-    ss = jp.tree_map(lambda *args: args, ss_async, ss_opt, ss_all)
+    obs = jax.tree_map(lambda *args: args, obs_async, obs_opt, obs_all)
+    ss = jax.tree_map(lambda *args: args, ss_async, ss_opt, ss_all)
     params = [[__ss.params for __ss in _ss] for _ss in [ss_async, ss_opt, ss_all]]
     state = [[__ss.state for __ss in _ss] for _ss in [ss_async, ss_opt, ss_all]]
 
     # Compare observations and agent step states
     print("Comparing agent.inputs...")
-    jp.tree_map(compare, obs_async, obs_opt, obs_all)
+    jax.tree_map(compare, obs_async, obs_opt, obs_all)
     print("agent.inputs ok")
     print("Comparing agent.params...")
-    jp.tree_map(compare, *params)
+    jax.tree_map(compare, *params)
     print("agent.params ok")
     print("Comparing agent.state...")
-    jp.tree_map(compare, *state)
+    jax.tree_map(compare, *state)
     print("agent.state ok")
 
 

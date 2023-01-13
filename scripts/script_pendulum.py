@@ -1,6 +1,7 @@
 import time
 import jax
-import jumpy as jp
+import jumpy
+import jumpy.numpy as jp
 import jax.numpy as jnp
 import numpy as onp
 
@@ -28,12 +29,12 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
 
 	use_jit = use_jit and backend == "jax"
 	with use(backend=backend):
-		rng = rjp.random_prngkey(jp.int32(seed))
+		rng = jumpy.random.PRNGKey(jp.int32(seed))
 
 		# vmap env
 		env_reset = rjp.vmap(env.reset)
 		env_step = rjp.vmap(env.step)
-		rng = jp.random_split(rng, num=vmap)
+		rng = jumpy.random.split(rng, num=vmap)
 		action = rjp.vmap(action_space.sample)(rng)
 
 		# Get reset and step function
@@ -143,11 +144,11 @@ if __name__ == "__main__":
 	plt.show()
 
 	# Compare observations and agent step states
-	# jp.tree_map(compare, obs_trace, obs)
-	# jp.tree_map(compare, ss_trace, ss)
+	# jax.tree_map(compare, obs_trace, obs)
+	# jax.tree_map(compare, ss_trace, ss)
 
 	# Compare
-	compare_obs = jp.tree_map(lambda *args: args, obs_trace, obs)
-	compare_ss = jp.tree_map(lambda *args: args, ss_trace, ss)
+	compare_obs = jax.tree_map(lambda *args: args, obs_trace, obs)
+	compare_ss = jax.tree_map(lambda *args: args, ss_trace, ss)
 
 	print("finished")

@@ -1,8 +1,8 @@
 from typing import Any, Dict, Tuple, Union
-import jumpy as jp
+import jumpy
+import jumpy.numpy as jp
 from flax import struct
 from flax.core import FrozenDict
-import gym
 
 from rex.tracer import trace
 from rex.distributions import Gaussian
@@ -22,10 +22,10 @@ def build_dummy_compiled_env() -> Tuple["DummyEnv", "DummyEnv", Dict[str, Node]]
 	action_space = env.action_space()
 
 	# Run environment
-	done, (graph_state, obs) = False, env.reset(jp.random_prngkey(0))
+	done, (graph_state, obs) = False, env.reset(jumpy.random.PRNGKey(0))
 	for _ in range(1):
 		while not done:
-			action = action_space.sample(jp.random_prngkey(0))
+			action = action_space.sample(jumpy.random.PRNGKey(0))
 			graph_state, obs, reward, done, info = env.step(graph_state, action)
 	env.stop()
 
@@ -112,7 +112,7 @@ class DummyNode(Node):
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
 		"""Reset the node."""
-		rng_params, rng_state, rng_inputs, rng_step = jp.random_split(rng, num=4)
+		rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
 		params = self.default_params(rng_params, graph_state)
 		state = self.default_state(rng_state, graph_state)
 		inputs = self.default_inputs(rng_inputs, graph_state)
@@ -125,7 +125,7 @@ class DummyNode(Node):
 
 		# Split rng for step call
 		new_rng = rng
-		# new_rng, rng_step = jp.random_split(rng, num=2)  # todo: is costly if not jitted.
+		# new_rng, rng_step = jumpy.random.split(rng, num=2)  # todo: is costly if not jitted.
 
 		# Sum the sequence numbers of all inputs
 		seqs_sum = jp.int32(0)  # state.seqs_sum if self.stateful else jp.int32(0)
@@ -145,7 +145,7 @@ class DummyNode(Node):
 		new_step_state = step_state.replace(rng=new_rng, state=new_state, params=new_params)
 
 		# Print input info
-		if not jp._in_jit() and not jp._has_jax:
+		if not jumpy.core.is_jitted() and not jumpy.is_jax_installed:
 			log_msg = []
 			for name, input_state in inputs.items():
 				# ts_msgs = [round(ts_recv, 4) for ts_recv in input_state.ts_recv]
@@ -182,7 +182,7 @@ class DummyAgent(Agent):
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
 		"""Reset the agent."""
-		rng_params, rng_state, rng_inputs, rng_step = jp.random_split(rng, num=4)
+		rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
 		params = self.default_params(rng_params, graph_state)
 		state = self.default_state(rng_state, graph_state)
 		inputs = self.default_inputs(rng_inputs, graph_state)
@@ -229,11 +229,11 @@ class DummyEnv(BaseEnv):
 
 		# ***DO SOMETHING WITH graph_state TO RESET ALL NODES***
 		# Reset agent node (for which this environment is a drop-in replacement)
-		rng, rng_agent = jp.random_split(rng, num=2)
+		rng, rng_agent = jumpy.random.split(rng, num=2)
 		new_nodes[self.agent.name] = self.agent.reset(rng_agent, graph_state)
 
 		# Split rngs for other node resets
-		rngs = jp.random_split(rng, num=len(self.nodes))
+		rngs = jumpy.random.split(rng, num=len(self.nodes))
 
 		for (name, n), rng_reset in zip(self.nodes.items(), rngs):
 			# Reset node and optionally provide params, state, inputs
@@ -266,7 +266,7 @@ class DummyEnv(BaseEnv):
 		rng, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
 
 		# Split rng for step call
-		new_rng, rng_step = jp.random_split(rng, num=2)
+		new_rng, rng_step = jumpy.random.split(rng, num=2)
 
 		# Sum the sequence numbers of all inputs
 		seqs_sum = jp.int32(0)  # state.seqs_sum

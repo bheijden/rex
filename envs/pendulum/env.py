@@ -1,5 +1,6 @@
 from typing import Any, Dict, Tuple, Union
-import jumpy as jp
+import jumpy
+import jumpy.numpy as jp
 from flax import struct
 from flax.core import FrozenDict
 
@@ -49,7 +50,7 @@ class Agent(BaseAgent):
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
 		"""Reset the agent."""
-		rng_params, rng_state, rng_inputs, rng_step = jp.random_split(rng, num=4)
+		rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
 		params = self.default_params(rng_params, graph_state)
 		state = self.default_state(rng_state, graph_state)
 		inputs = self.default_inputs(rng_inputs, graph_state)
@@ -82,7 +83,7 @@ class PendulumEnv(BaseEnv):
 
 	def observation_space(self, params: Params = None):
 		"""Observation space of the environment."""
-		params = self.agent.default_params(jp.random_prngkey(0)) if params is None else params
+		params = self.agent.default_params(jumpy.random.PRNGKey(0)) if params is None else params
 		inputs = {u.input_name: u for u in self.agent.inputs}
 
 		# Prepare
@@ -94,7 +95,7 @@ class PendulumEnv(BaseEnv):
 
 	def action_space(self, params: Params = None):
 		"""Action space of the environment."""
-		params = self.agent.default_params(jp.random_prngkey(0)) if params is None else params
+		params = self.agent.default_params(jumpy.random.PRNGKey(0)) if params is None else params
 		return Box(low=-params.max_torque, high=params.max_torque, shape=(1,), dtype=jp.float32)
 
 	def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> GraphState:
@@ -107,14 +108,14 @@ class PendulumEnv(BaseEnv):
 		graph_state = GraphState(nodes=new_nodes)
 
 		# For every node, prepare the initial stepstate
-		rng, rng_agent, rng_world = jp.random_split(rng, num=3)
+		rng, rng_agent, rng_world = jumpy.random.split(rng, num=3)
 
 		# Reset world and agent (in that order)
 		new_nodes[self.world.name] = self.world.reset(rng_world, graph_state)  # Reset world node (must be done first).
 		new_nodes[self.agent.name] = self.agent.reset(rng_agent, graph_state)  # Reset agent node.
 
 		# Reset other nodes in arbitrary order
-		rngs = jp.random_split(rng, num=len(self.nodes))
+		rngs = jumpy.random.split(rng, num=len(self.nodes))
 		for (name, n), rng_reset in zip(self.nodes.items(), rngs):
 			# Reset node and optionally provide params, state, inputs
 			new_ss = n.reset(rng_reset, graph_state)  # can provide params, state, inputs here

@@ -1,7 +1,8 @@
 import time
 import jax.numpy as jnp
 import numpy as onp
-import jumpy as jp
+import jumpy.numpy as jp
+import jumpy
 import jax
 from flax import struct
 
@@ -90,7 +91,7 @@ if __name__ == "__main__":
         env_step = jax.jit(env.step) if use_jit else env.step
 
         # Get initial graph state
-        seed = jp.random_prngkey(0)
+        seed = jumpy.random.PRNGKey(0)
 
         # Reset environment (warmup)
         with timer("jit reset", log_level=WARN):

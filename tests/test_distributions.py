@@ -1,5 +1,4 @@
 from rex.distributions import Gaussian, GMM
-import jax.numpy as jnp
 import jax.random as rnd
 
 

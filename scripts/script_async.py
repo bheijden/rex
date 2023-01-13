@@ -11,7 +11,7 @@
 # todo: [API] define transform functions with the API of scipy that can be used for input transformations.
 # todo: [ASYNC] Log outputs of nodes in a deque (or list with maxlen) that can be converted to a stacked graphstate.output.
 # todo: [ASYNC] what if episode length is very long? Limit number of saved records?
-# todo: [JIT] is _in_jit() True when in pmap?
+# todo: [JIT] is jumpy.core.is_jitted() True when in pmap?
 # todo: [JIT] Test difference cond vs select (GPU, CPU, vectorized)
 # todo: [JIT] implement BATCHED graph mode.
 # todo: [TRACE] Remove static, and fully rely on stateful flag.

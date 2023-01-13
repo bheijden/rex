@@ -1,5 +1,6 @@
 from typing import Any, Dict, Tuple, Union
-import jumpy as jp
+import jumpy
+import jumpy.numpy as jp
 from math import ceil
 from flax import struct
 from rex.distributions import Distribution, Gaussian
@@ -37,7 +38,7 @@ def build_pendulum(rate: Dict[str, float] = None,
 
 	# Create nodes
 	world = World(name="world", rate=rate["world"], delay=process["world"], delay_sim=process_sim["world"], log_level=log_level["world"], color="blue")
-	actuator = Actuator(name="actuator", rate=rate["actuator"], delay=process["actuator"], delay_sim=process_sim["actuator"], log_level=log_level["actuator"], color="green")
+	actuator = Actuator(name="actuator", rate=rate["actuator"], delay=process["actuator"], delay_sim=process_sim["actuator"], log_level=log_level["actuator"], color="green", advance=False)
 	sensor = Sensor(name="sensor", rate=rate["sensor"], delay=process["sensor"], delay_sim=process_sim["sensor"], log_level=log_level["sensor"], color="yellow")
 
 	# Connect nodes
@@ -138,9 +139,9 @@ class World(Node):
 		except (AttributeError, KeyError):
 			pass
 		# Else, return default state
-		rng_th, rng_thdot = jp.random_split(rng, num=2)
-		th = jp.random_uniform(rng_th, shape=(), low=-3.14, high=3.14)
-		thdot = 0.  # jp.random_uniform(rng_thdot, shape=(), low=-9., high=9.)
+		rng_th, rng_thdot = jumpy.random.split(rng, num=2)
+		th = jumpy.random.uniform(rng_th, shape=(), low=-3.14, high=3.14)
+		thdot = 0.  # jumpy.random.uniform(rng_thdot, shape=(), low=-9., high=9.)
 		return State(th=th, thdot=thdot)
 
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
@@ -156,7 +157,7 @@ class World(Node):
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
 		"""Reset the node."""
-		rng_params, rng_state, rng_inputs, rng_step = jp.random_split(rng, num=4)
+		rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
 		params = self.default_params(rng_params, graph_state)
 		state = self.default_state(rng_state, graph_state)
 		inputs = self.default_inputs(rng_inputs, graph_state)
@@ -213,7 +214,7 @@ class Sensor(Node):
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
 		"""Reset the node."""
-		rng_params, rng_state, rng_inputs, rng_step = jp.random_split(rng, num=4)
+		rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
 		params = self.default_params(rng_params, graph_state)
 		state = self.default_state(rng_state, graph_state)
 		inputs = self.default_inputs(rng_inputs, graph_state)
@@ -251,7 +252,7 @@ class Actuator(Node):
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
 		"""Reset the node."""
-		rng_params, rng_state, rng_inputs, rng_step = jp.random_split(rng, num=4)
+		rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
 		params = self.default_params(rng_params, graph_state)
 		state = self.default_state(rng_state, graph_state)
 		inputs = self.default_inputs(rng_inputs, graph_state)

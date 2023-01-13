@@ -6,7 +6,7 @@ import sys
 from termcolor import colored
 from os import getpid
 from threading import current_thread
-import jax.numpy as jnp  # todo: replace with from brax import jumpy as jp.ndarray?
+import jax.numpy as jnp  # todo: replace with from brax import jumpy.numpy as jp.ndarray?
 
 from rex.constants import WARN, INFO, SIMULATED
 

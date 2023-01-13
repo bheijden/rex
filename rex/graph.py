@@ -1,7 +1,7 @@
 import time
 import abc
 from typing import Any, Dict, List, Tuple, Union
-import jumpy as jp
+import jumpy.numpy as jp
 import jax.numpy as jnp
 import numpy as onp
 from flax.core import FrozenDict

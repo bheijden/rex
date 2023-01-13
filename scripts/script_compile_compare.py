@@ -1,7 +1,7 @@
 import time
+import jumpy
 import jax.numpy as jnp
 import numpy as onp
-import jumpy as jp
 import jax
 
 from rex.jumpy import use
@@ -28,7 +28,7 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
 
         # Reset environment (warmup)
         with timer(f"{name} | jit reset", log_level=WARN):
-            graph_state, obs = env_reset(jp.random_prngkey(seed))
+            graph_state, obs = env_reset(jumpy.random.PRNGKey(seed))
             gs_lst.append(graph_state)
             obs_lst.append(obs)
             ss_lst.append(graph_state.nodes["agent"])
@@ -141,11 +141,11 @@ if __name__ == "__main__":
                 assert _equal_opt, msg
 
 
-    obs = jp.tree_map(lambda *args: args, obs_async, obs_opt, obs_all)
-    gs = jp.tree_map(lambda *args: args, gs_async, gs_opt, gs_all)
-    ss = jp.tree_map(lambda *args: args, ss_async, ss_opt, ss_all)
+    obs = jax.tree_map(lambda *args: args, obs_async, obs_opt, obs_all)
+    gs = jax.tree_map(lambda *args: args, gs_async, gs_opt, gs_all)
+    ss = jax.tree_map(lambda *args: args, ss_async, ss_opt, ss_all)
 
     # Compare observations and agent step states
-    jp.tree_map(compare, obs_async, obs_opt, obs_all)
-    jp.tree_map(compare, ss_all, ss_opt, ss_all)
+    jax.tree_map(compare, obs_async, obs_opt, obs_all)
+    jax.tree_map(compare, ss_all, ss_opt, ss_all)
     print("finished")

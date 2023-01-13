@@ -1,7 +1,7 @@
 from typing import Tuple, Deque, Dict
 from collections import deque
 from concurrent.futures import Future, CancelledError
-import jumpy as jp
+import jumpy.numpy as jp
 
 from rex.base import StepState, InputState, GraphState, Output, Params, State
 from rex.node import Node

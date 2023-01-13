@@ -5,7 +5,8 @@ from concurrent.futures import ThreadPoolExecutor, Future, CancelledError
 from typing import Callable, List, Tuple, Optional, Any, Union, Deque, Dict
 from collections import deque
 import traceback
-import jumpy as jp
+import jumpy
+import jumpy.numpy as jp
 import jax.numpy as jnp  # todo: replace with jumpy as jp.ndarray?
 import jax.random as rnd
 import numpy as onp
@@ -510,7 +511,7 @@ class Node(BaseNode):
 
     def default_inputs(self, rng: jp.ndarray, graph_state: GraphState = None) -> FrozenDict[str, InputState]: #Dict[str, InputState]:
         """Default inputs of the node."""
-        rngs = jp.random_split(rng, num=len(self.inputs))
+        rngs = jumpy.random.split(rng, num=len(self.inputs))
         inputs = dict()
         for i, rng_output in zip(self.inputs, rngs):
             window = i.window

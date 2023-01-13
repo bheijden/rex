@@ -1,10 +1,10 @@
-import jumpy as jp
+import jumpy
 import jax
 import numpy as onp
 
 
 def jp_prng(rng):
-	return jp.random_split(rng)
+	return jumpy.random.split(rng)
 
 
 def jax_prng(rng):
@@ -14,7 +14,7 @@ def jax_prng(rng):
 jp_prng_jit = jax.jit(jp_prng)
 jax_prng_jit = jax.jit(jax_prng)
 
-seed = jp.random_prngkey(0)
+seed = jumpy.random.PRNGKey(0)
 
 jax_key_jit = jax_prng_jit(seed)
 jax_key = jax_prng(seed)

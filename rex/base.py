@@ -1,9 +1,9 @@
-from functools import partial
 import jax
+import jumpy
 from typing import Any, Union, List, TypeVar
 from flax import struct
 from flax.core import FrozenDict
-import jumpy as jp
+import jumpy.numpy as jp
 import rex.jumpy as rjp
 
 
@@ -26,7 +26,7 @@ class InputState:
 
         The oldest message should be the first in the list.
         """
-        data = jp.tree_map(lambda *o: jp.stack(o, axis=0), *outputs)
+        data = jax.tree_map(lambda *o: jp.stack(o, axis=0), *outputs)
         return cls(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=data)
 
     def _shift(self, a: jp.ndarray, new: jp.ndarray):
@@ -43,14 +43,14 @@ class InputState:
 
         # get new values
         if size > 1:
-            new = jp.tree_map(lambda tb, t: self._shift(tb, t), tb, new_t)
+            new = jax.tree_map(lambda tb, t: self._shift(tb, t), tb, new_t)
         else:
-            new = jp.tree_map(lambda _tb, _t: rjp.index_update(_tb, jp.int32(0), _t, copy=True), tb, new_t)
+            new = jax.tree_map(lambda _tb, _t: rjp.index_update(_tb, jp.int32(0), _t, copy=True), tb, new_t)
         return InputState(*new)
 
     def __getitem__(self, val):
         tb = [self.seq, self.ts_sent, self.ts_recv, self.data]
-        return InputState(*jp.tree_map(lambda _tb: _tb[val], tb))
+        return InputState(*jax.tree_map(lambda _tb: _tb[val], tb))
 
 
 @struct.dataclass

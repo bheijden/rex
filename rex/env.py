@@ -1,6 +1,5 @@
 from typing import Any, Tuple, Dict, Union, Optional
-import gym
-import jumpy as jp
+import jumpy.numpy as jp
 import abc
 
 from rex.spaces import Space

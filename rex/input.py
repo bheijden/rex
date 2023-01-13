@@ -3,7 +3,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor, Future, CancelledError
 from threading import RLock
 from typing import Optional, Any, Deque, TYPE_CHECKING, Tuple, Callable
-import jumpy as jp
+import jumpy.numpy as jp
 from jax import numpy as jnp
 from jax import jit
 import jax.random as rnd

@@ -1,6 +1,6 @@
 from rex.proto import log_pb2
 from typing import Union, List, Tuple
-import jax.numpy as jnp  # todo: replace with from brax import jumpy as jp.ndarray?
+import jax.numpy as jnp  # todo: replace with from brax import jumpy.numpy as jp.ndarray?
 from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
 tfd = tfp.distributions
 

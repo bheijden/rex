@@ -1,3 +1,4 @@
+import jumpy
 import jax
 from rex.distributions import Gaussian
 from dummy import DummyNode, DummyEnv, DummyAgent, DummyOutput
@@ -5,7 +6,7 @@ from rex.constants import LATEST, BUFFER, WARN
 from rex.base import StepState
 from flax.core import FrozenDict
 import rex.jumpy as rjp
-import jumpy as jp
+import jumpy.numpy as jp
 import numpy as onp
 
 # Initialize nodes
@@ -29,7 +30,7 @@ world.connect(actuator, blocking=False, delay_sim=Gaussian(4 / 1e3), skip=True, 
 env = DummyEnv(nodes, agent=agent, max_steps=200)
 
 # Get initial graph_state
-base_gs = env._get_graph_state(jp.random_prngkey(0))
+base_gs = env._get_graph_state(jumpy.random.PRNGKey(0))
 
 # Replace dicts with FrozenDicts
 nodes = FrozenDict(base_gs.nodes)
@@ -41,9 +42,9 @@ for name in list(nodes.keys()):
 
 # Initial graph state & mask
 base_gs = base_gs.replace(nodes=nodes)
-base_mask = jp.tree_map(lambda x: False, base_gs)
+base_mask = jax.tree_map(lambda x: False, base_gs)
 
-must_update = lambda tree, val: jp.tree_map(lambda x: val, tree)
+must_update = lambda tree, val: jax.tree_map(lambda x: val, tree)
 
 node_names = list(base_gs.nodes.keys())
 gs_lst = []
@@ -93,10 +94,10 @@ class TreeLeaf:
 
 @jax.jit
 def update(_gs_lst, _mask_lst, old):
-    gs_choice = jp.tree_map(lambda *args: TreeLeaf(args), *_gs_lst)
-    mask_choice = jp.tree_map(lambda *args: TreeLeaf(args), *_mask_lst)
-    jp.tree_map(lambda mask, next_gs, prev_gs: print(f"{mask.c=} | {next_gs.c=} | {prev_gs=}"), mask_choice, gs_choice, old)
-    new_gs = jp.tree_map(lambda mask, next_gs, prev_gs: rjp.select(mask.c, next_gs.c, prev_gs), mask_choice, gs_choice,
+    gs_choice = jax.tree_map(lambda *args: TreeLeaf(args), *_gs_lst)
+    mask_choice = jax.tree_map(lambda *args: TreeLeaf(args), *_mask_lst)
+    jax.tree_map(lambda mask, next_gs, prev_gs: print(f"{mask.c=} | {next_gs.c=} | {prev_gs=}"), mask_choice, gs_choice, old)
+    new_gs = jax.tree_map(lambda mask, next_gs, prev_gs: rjp.select(mask.c, next_gs.c, prev_gs), mask_choice, gs_choice,
                          old)
     return new_gs
 
@@ -105,7 +106,7 @@ new_gs = update(gs_lst, mask_lst, base_gs)
 
 # def xor(*args):
 #     return print(f"xor={sum(args) == 1} | {args}",)
-# check = jp.tree_map(xor, *mask_lst)
+# check = jax.tree_map(xor, *mask_lst)
 
 import jax.numpy as jnp
 import jax

@@ -1,9 +1,9 @@
 from typing import Sequence, Callable, Any, TypeVar, Tuple, Union
-from jumpy import _in_jit
+import jumpy
 import jax
-import jumpy as jp
-import numpy as onp
+import jumpy.numpy as jp
 import jax.numpy as jnp
+import numpy as onp
 
 int32 = Union[jnp.int32, onp.int32]
 float32 = Union[jnp.float32, onp.float32]
@@ -11,34 +11,34 @@ float32 = Union[jnp.float32, onp.float32]
 
 class use_numpy:
     def __init__(self):
-        self._has_jax = jp._has_jax
+        self.is_jax_installed = jumpy.is_jax_installed
         self._float32 = jp.float32
         self._int32 = jp.int32
 
     def __enter__(self):
-        jp._has_jax = False
+        jumpy.is_jax_installed = False
         jp.float32 = onp.float32
         jp.int32 = onp.int32
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        jp._has_jax = self._has_jax
+        jumpy.is_jax_installed = self.is_jax_installed
         jp.float32 = self._float32
         jp.int32 = self._int32
 
 
 class use_jax:
     def __init__(self):
-        self._has_jax = jp._has_jax
+        self.is_jax_installed = jumpy.is_jax_installed
         self._float32 = jp.float32
         self._int32 = jp.int32
 
     def __enter__(self):
-        jp._has_jax = True
+        jumpy.is_jax_installed = True
         jp.float32 = jnp.float32
         jp.int32 = jnp.int32
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        jp._has_jax = self._has_jax
+        jumpy.is_jax_installed = self.is_jax_installed
         jp.float32 = self._float32
         jp.int32 = self._int32
 
@@ -57,25 +57,6 @@ class use:
         self._context.__exit__(exc_type, exc_val, exc_tb)
 
 
-def switch(index, branches: Sequence[Callable], *operands: Any):
-    """Conditionally apply exactly one of ``branches`` given by ``index`` operands.
-
-    Has the semantics of the following Python::
-
-        def switch(index, branches, *operands):
-          index = clamp(0, index, len(branches) - 1)
-          return branches[index](*operands)
-    """
-    if _in_jit():
-        return jax.lax.switch(index, branches, *operands)
-    else:
-        # if True and _has_jax:
-        #     return jax.lax.switch(index, branches, *operands)
-        # else:
-        # index = onp.clip(index, 0, len(branches) - 1)
-        return branches[index](*operands)
-
-
 # def select(pred, on_true, on_false):
 #     """Conditionally select between ``on_true`` and ``on_false`` given ``pred``.
 #
@@ -84,10 +65,10 @@ def switch(index, branches: Sequence[Callable], *operands: Any):
 #         def select(pred, on_true, on_false):
 #           return on_true if pred else on_false
 #     """
-#     if _in_jit():
+#     if jumpy.core.is_jitted():
 #         return jax.numpy.select(pred, on_true, on_false)
 #     else:
-#         if jp._has_jax:
+#         if jumpy.is_jax_installed:
 #             return jax.numpy.select(pred, on_true, on_false)
 #         else:
 #             return onp.select(pred, on_true, on_false)
@@ -108,7 +89,7 @@ def scan(
         unroll: int = 1,
 ) -> Tuple[Carry, Y]:
     """Scan a function over leading array axes while carrying along state."""
-    if _in_jit():
+    if jumpy.core.is_jitted():
         return jax.lax.scan(f, init, xs, length, reverse, unroll)
     else:
         # raise NotImplementedError("Must infer length correctly here.")
@@ -124,17 +105,6 @@ def scan(
         return carry, stacked_y
 
 
-def fori_loop(lower: int, upper: int, body_fun: Callable[[int, X], X], init_val: X) -> X:
-    """Call body_fun over range from lower to upper, starting with init_val."""
-    if _in_jit():
-        return jax.lax.fori_loop(lower, upper, body_fun, init_val)
-    else:
-        val = init_val
-        for i in range(lower, upper):
-            val = body_fun(i, val)
-        return val
-
-
 def dynamic_slice(
         operand: X, start_indices: Sequence[int], slice_sizes: Sequence[int]
 ) -> X:
@@ -145,10 +115,10 @@ def dynamic_slice(
         def dynamic_slice(operand, start_indices, slice_sizes):
           return operand[tuple(slice(start, start + size) for start, size in zip(start_indices, slice_sizes))]
     """
-    if _in_jit():
+    if jumpy.core.is_jitted():
         return jax.lax.dynamic_slice(operand, start_indices, slice_sizes)
     else:
-        # if jp._has_jax:
+        # if jumpy.is_jax_installed:
         #     return jax.lax.dynamic_slice(operand, start_indices, slice_sizes)
         # else:
         slices = tuple(
@@ -161,7 +131,7 @@ def cond(
         pred, true_fun: Callable[..., bool], false_fun: Callable[..., bool], *operands: Any
 ):
     """Conditionally apply true_fun or false_fun to operands."""
-    if _in_jit():
+    if jumpy.core.is_jitted():
         return jax.lax.cond(pred, true_fun, false_fun, *operands)
     else:
         if pred:
@@ -170,19 +140,19 @@ def cond(
             return false_fun(*operands)
 
 
-def random_prngkey(seed: jp.int32) -> jp.ndarray:
-    """Returns a PRNG key given a seed."""
-    # NOTE: selects backend based on seed type.
-    if jp._which_np(seed) is jnp:
-        return jax.random.PRNGKey(seed)
-    else:
-        rng = onp.random.default_rng(seed)
-        return rng.integers(low=0, high=2 ** 32, dtype="uint32", size=2)
+# def random_prngkey(seed: jp.int32) -> jp.ndarray:
+#     """Returns a PRNG key given a seed."""
+#     # NOTE: selects backend based on seed type.
+#     if jumpy.core.which_np(seed) is jnp:
+#         return jax.random.PRNGKey(seed)
+#     else:
+#         rng = onp.random.default_rng(seed)
+#         return rng.integers(low=0, high=2 ** 32, dtype="uint32", size=2)
 
 
 def index_update(x: jp.ndarray, idx: jp.ndarray, y: jp.ndarray, copy: bool = True) -> jp.ndarray:
     """Pure equivalent of x[idx] = y."""
-    if jp._which_np(x, idx, y) is jnp:
+    if jumpy.core.which_np(x, idx, y) is jnp:
         return jnp.array(x).at[idx].set(jnp.array(y))
     else:
         if copy:
@@ -191,9 +161,9 @@ def index_update(x: jp.ndarray, idx: jp.ndarray, y: jp.ndarray, copy: bool = Tru
         return x
 
 
-def take(tree: Any, i: Union[jp.ndarray, Sequence[int], int], axis: int = 0) -> Any:
+def tree_take(tree: Any, i: Union[jp.ndarray, Sequence[int], int], axis: int = 0) -> Any:
     """Returns tree sliced by i."""
-    np = jp._which_np(i)
+    np = jumpy.core.which_np(i)
     if isinstance(i, (list, tuple)):
         i = np.array(i, dtype=int)
     return jax.tree_util.tree_map(lambda x: np.take(x, i, axis=axis, mode="clip"), tree)
@@ -215,7 +185,7 @@ def vmap(fun: F, include: Sequence[bool] = None) -> F:
 
     def _batched(*args, **kwargs):
         # If we're in a jit, just call the jitted version.
-        if _in_jit():
+        if jumpy.core.is_jitted():
             return fun_jit(*args, **kwargs)
 
         # Otherwise, we need to do the batching ourselves.
@@ -239,7 +209,7 @@ def vmap(fun: F, include: Sequence[bool] = None) -> F:
             b_args = []
             for a, inc in zip(args, _include):
                 if inc:
-                    b_args.append(take(a, b_idx))
+                    b_args.append(tree_take(a, b_idx))
                 else:
                     b_args.append(a)
             rets.append(fun(*b_args))
@@ -249,9 +219,9 @@ def vmap(fun: F, include: Sequence[bool] = None) -> F:
     return _batched
 
 
-def stop_gradient(x: X) -> X:
-    """Returns x with zero gradient."""
-    if jp._which_np(x) is jnp:
-        return jax.lax.stop_gradient(x)
-    else:
-        return x
+# def stop_gradient(x: X) -> X:
+#     """Returns x with zero gradient."""
+#     if jumpy.core.which_np(x) is jnp:
+#         return jax.lax.stop_gradient(x)
+#     else:
+#         return x

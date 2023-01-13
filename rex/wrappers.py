@@ -5,13 +5,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import gym
 import gym.spaces as gs
-import jumpy as jp
-import numpy as onp
 import jax
+import jumpy
+import jumpy.numpy as jp
+import numpy as onp
 
 from rex.graph import Graph
 from rex.spaces import Space, Discrete, Box
-from rex.env import BaseEnv
 from rex.base import GraphState
 import rex.jumpy as rjp
 
@@ -55,7 +55,7 @@ class AutoResetWrapper(Wrapper):
             _done = jp.reshape(_done, list(done.shape) + [1] * (len(x.shape) - len(done.shape)))  # type: ignore
             return jp.where(_done, x, y)
 
-        next_graph_state, next_obs = jp.tree_map(where_done, (graph_state_re, obs_re), (graph_state, obs))
+        next_graph_state, next_obs = jax.tree_map(where_done, (graph_state_re, obs_re), (graph_state, obs))
         return next_graph_state, next_obs, reward, done, info
 
 
@@ -91,16 +91,16 @@ class GymWrapper(Wrapper, gym.Env):
 
     def _step(self, graph_state: GraphState, action: jp.ndarray) -> Tuple[GraphState, jp.ndarray, float, bool, Dict]:
         graph_state, obs, reward, done, info = self.env.step(graph_state, action)
-        return rjp.stop_gradient(graph_state), rjp.stop_gradient(obs), rjp.stop_gradient(reward), rjp.stop_gradient(done), info
+        return jumpy.lax.stop_gradient(graph_state), jumpy.lax.stop_gradient(obs), jumpy.lax.stop_gradient(reward), jumpy.lax.stop_gradient(done), info
 
     def step(self, action: jp.ndarray) -> Tuple[jp.ndarray, float, bool, Dict]:
         self._graph_state, obs, reward, done, info = self._step(self._graph_state, action)
         return obs, reward, done, info
 
     def _reset(self, rng: jp.ndarray) -> Tuple[jp.ndarray, GraphState, jp.ndarray]:
-        new_rng, rng_reset = jp.random_split(rng, num=2)
+        new_rng, rng_reset = jumpy.random.split(rng, num=2)
         graph_state, obs = self.env.reset(rng_reset)
-        return new_rng, rjp.stop_gradient(graph_state), rjp.stop_gradient(obs)
+        return new_rng, jumpy.lax.stop_gradient(graph_state), jumpy.lax.stop_gradient(obs)
 
     def reset(self) -> jp.ndarray:
         if self._rng is None:
@@ -112,7 +112,7 @@ class GymWrapper(Wrapper, gym.Env):
         if seed is None:
             seed = onp.random.randint(0, 2 ** 32 - 1)
         self._seed = seed
-        self._rng = rjp.random_prngkey(self._seed)
+        self._rng = jumpy.random.PRNGKey(self._seed)
         return [seed]
 
     def close(self):
@@ -163,7 +163,7 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
             self.reset()
             self.stop()
         params = self._graph_state.nodes[self._name].params
-        single_params = jp.tree_map(lambda x: x[0], params)
+        single_params = jax.tree_map(lambda x: x[0], params)
         space = self.env.action_space(single_params)
         return rex_space_to_gym_space(space)
 
@@ -173,7 +173,7 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
             self.reset()
             self.stop()
         params = self._graph_state.nodes[self._name].params
-        single_params = jp.tree_map(lambda x: x[0], params)
+        single_params = jax.tree_map(lambda x: x[0], params)
         space = self.env.observation_space(single_params)
         return rex_space_to_gym_space(space)
 
@@ -184,10 +184,10 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
     def _step(self, graph_state: GraphState, action: jp.ndarray) -> Tuple[GraphState, jp.ndarray, float, bool, List[Dict]]:
         graph_state, obs, reward, done, info = self._env_step(graph_state, action)
         new_infos = self._transpose_infos(info)
-        return rjp.stop_gradient(graph_state), rjp.stop_gradient(obs), rjp.stop_gradient(reward), rjp.stop_gradient(done), new_infos
+        return jumpy.lax.stop_gradient(graph_state), jumpy.lax.stop_gradient(obs), jumpy.lax.stop_gradient(reward), jumpy.lax.stop_gradient(done), new_infos
 
     def _reset(self, rng: jp.ndarray) -> Tuple[jp.ndarray, GraphState, jp.ndarray]:
-        new_rng, *rng_envs = jp.random_split(rng, num=self.num_envs + 1)
+        new_rng, *rng_envs = jumpy.random.split(rng, num=self.num_envs + 1)
         graph_state, obs = self._env_reset(jp.array(rng_envs))
         return new_rng, graph_state, obs
 
@@ -195,7 +195,7 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
         if self._rng is None:
             self.seed()
         self._rng, self._graph_state, obs = self._reset(self._rng)
-        return rjp.stop_gradient(obs)
+        return jumpy.lax.stop_gradient(obs)
 
     def close(self):
         self.env.close()
@@ -214,7 +214,7 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
         if seed is None:
             seed = onp.random.randint(0, 2 ** 32 - 1)
         self._seed = seed
-        self._rng = rjp.random_prngkey(seed)
+        self._rng = jumpy.random.PRNGKey(seed)
         return self.num_envs*[seed]
 
     def get_attr(self, attr_name, indices=None):

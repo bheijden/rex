@@ -1,12 +1,12 @@
 from typing import Any, Dict, List, Tuple, Callable, Union
+import jumpy
+import jax
 import jax.numpy as jnp
 import numpy as onp
-import jumpy as jp
+import jumpy.numpy as jp
 import rex.jumpy as rjp
 from collections import deque
 from copy import deepcopy
-import jax
-from flax import struct
 
 from rex.constants import SEQUENTIAL, VECTORIZED, BATCHED, WARN, SYNC, FAST_AS_POSSIBLE, PHASE, SIMULATED
 from rex.proto import log_pb2
@@ -157,7 +157,7 @@ def make_timings(nodes: Dict[str, "Node"], trace: log_pb2.TraceRecord, depths: L
 def make_default_outputs(nodes: Dict[str, "Node"], timings: Timings) -> Dict[str, Output]:
     num_ticks = dict()
     outputs = dict()
-    _seed = jp.random_prngkey(0)
+    _seed = jumpy.random.PRNGKey(0)
     for name, n in nodes.items():
         num_ticks[name] = timings[name]["tick"].max() + 1  # Number of ticks
         outputs[name] = n.default_output(_seed)  # Outputs
@@ -166,7 +166,7 @@ def make_default_outputs(nodes: Dict[str, "Node"], timings: Timings) -> Dict[str
     stack_fn = lambda *x: jp.stack(x, axis=0)
     stacked_outputs = dict()
     for name, n in nodes.items():
-        stacked_outputs[name] = jp.tree_map(stack_fn, *[outputs[name]]*(num_ticks[name]+1))
+        stacked_outputs[name] = jax.tree_map(stack_fn, *[outputs[name]]*(num_ticks[name]+1))
     return stacked_outputs
 
 
@@ -187,13 +187,13 @@ def make_splitter(trace: log_pb2.TraceRecord, timings: Timings, depths: List[Lis
             assert len(depth) == 1, "Isolated depth must have only a single steptrace."
             assert depth[0].isolate, "Isolated depth must have an isolated steptrace."
             assert depth[0].name == trace.name, "Isolated depth must have a steptrace with the same name as the trace."
-            isolate_lst.append(jp.tree_map(lambda _tb: _tb[i], timings))
+            isolate_lst.append(jax.tree_map(lambda _tb: _tb[i], timings))
             chunks.append(_last_index)
             _steps = list(reversed(range(0, _last_counter)))
             substeps += _steps
             _last_counter = 0
             _last_index = i+1
-    isolate = jp.tree_map(lambda *args: jp.array(args), *isolate_lst)
+    isolate = jax.tree_map(lambda *args: jp.array(args), *isolate_lst)
     _steps = list(reversed(range(0, _last_counter)))
     substeps += _steps
     assert len(substeps) == len(depths), "Substeps must be the same length as depths."
@@ -203,7 +203,7 @@ def make_splitter(trace: log_pb2.TraceRecord, timings: Timings, depths: List[Lis
 
 
 def update_output(buffer, output: Output, tick: int32) -> Output:
-    new_buffer = jp.tree_map(lambda _b, _o: rjp.index_update(_b, tick, _o, copy=True), buffer, output)
+    new_buffer = jax.tree_map(lambda _b, _o: rjp.index_update(_b, tick, _o, copy=True), buffer, output)
     return new_buffer
 
 
@@ -227,7 +227,7 @@ def make_update_state(name: str, stateful: bool, static: bool):
 def make_update_inputs(name: str, outputs: Dict[str, str], cond: bool = True):
 
     def __push_input(old: InputState, seq: rjp.int32, ts_sent: rjp.float32, ts_recv: rjp.float32, buffer: Output) -> InputState:
-        new_o = rjp.take(buffer, seq)
+        new_o = rjp.tree_take(buffer, seq)
         return old.push(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=new_o)
 
     def _update_inputs(graph_state: GraphState, timing: Dict) -> StepState:
@@ -244,10 +244,10 @@ def make_update_inputs(name: str, outputs: Dict[str, str], cond: bool = True):
                 ts_sent = t["ts_sent"][j]
                 ts_recv = t["ts_recv"][j]
                 if cond:
-                    _new = rjp.cond(pred, __push_input, lambda _old, *args: _old, _new, seq, ts_sent, ts_recv, buffer)
+                    _new = jumpy.lax.cond(pred, __push_input, lambda _old, *args: _old, _new, seq, ts_sent, ts_recv, buffer)
                 else:
                     _update = __push_input(_new, seq, ts_sent, ts_recv, buffer)
-                    _new = jp.tree_map(lambda _u, _o: jp.where(pred, _u, _o), _update, _new)
+                    _new = jax.tree_map(lambda _u, _o: jp.where(pred, _u, _o), _update, _new)
             new_inputs[input_name] = _new
 
         return ss.replace(inputs=ss.inputs.copy(new_inputs))
@@ -288,7 +288,7 @@ def make_run_batch_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp.ndar
     update_input_fns = {name: make_update_inputs(name, outputs) for name, outputs in batch_outputs.items()}
 
     # Determine slice sizes (depends on window size)
-    slice_sizes = jp.tree_map(lambda _tb: list(_tb.shape[1:]), timings)
+    slice_sizes = jax.tree_map(lambda _tb: list(_tb.shape[1:]), timings)
 
     def _run_batch_step(graph_state: GraphState, timing: Dict):
         new_nodes = dict()
@@ -313,11 +313,11 @@ def make_run_batch_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp.ndar
 
             # Run node step
             if cond:
-                new_ss, new_output = rjp.cond(pred, _run_node, lambda *args: (_old_ss, _old_output), graph_state, timing)
+                new_ss, new_output = jumpy.lax.cond(pred, _run_node, lambda *args: (_old_ss, _old_output), graph_state, timing)
             else:
                 _update_ss, _update_output = _run_node(graph_state, timing)
-                new_ss = jp.tree_map(lambda _u, _o: jp.where(pred, _u, _o), _update_ss, _old_ss)
-                new_output = jp.tree_map(lambda _u, _o: jp.where(pred, _u, _o), _update_output, _old_output)
+                new_ss = jax.tree_map(lambda _u, _o: jp.where(pred, _u, _o), _update_ss, _old_ss)
+                new_output = jax.tree_map(lambda _u, _o: jp.where(pred, _u, _o), _update_output, _old_output)
 
             # Store new state
             new_nodes[name] = new_ss
@@ -335,7 +335,7 @@ def make_run_batch_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp.ndar
         if graph == VECTORIZED:
             # Infer length of chunk
             chunk = rjp.dynamic_slice(chunks, (step,), (1,))[0]  # has len(num_isolated_depths)
-            timings_chunk = jp.tree_map(lambda _tb, _size: rjp.dynamic_slice(_tb, [chunk] + [0*s for s in _size], [fixed_num_steps] + _size), timings, slice_sizes)
+            timings_chunk = jax.tree_map(lambda _tb, _size: rjp.dynamic_slice(_tb, [chunk] + [0*s for s in _size], [fixed_num_steps] + _size), timings, slice_sizes)
             # Run chunk
             graph_state, _ = rjp.scan(_run_batch_step, graph_state, timings_chunk, length=fixed_num_steps, unroll=fixed_num_steps)
         else:
@@ -359,7 +359,7 @@ def make_run_sequential_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp
 
         # Get timings of this step
         step_index = chunk + substep
-        timings_step = rjp.take(timings, step_index)
+        timings_step = rjp.tree_take(timings, step_index)
 
         # determine which nodes to run
         must_run_lst = [timings_step[name]["run"] for name in batch_nodes.keys()]
@@ -367,7 +367,7 @@ def make_run_sequential_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp
 
         # Run node
         # new_graph_state = run_node_fns[0](graph_state, timings_step)
-        new_graph_state = rjp.switch(must_run, run_node_fns, graph_state, timings_step)
+        new_graph_state = jumpy.lax.switch(must_run, run_node_fns, graph_state, timings_step)
 
         return new_graph_state, chunk
 
@@ -380,7 +380,7 @@ def make_run_sequential_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp
         num_steps = rjp.dynamic_slice(substeps, (chunk,), (1,))[0]
         # Run chunk
         initial_carry = (graph_state, chunk)
-        graph_state, _ = rjp.fori_loop(0, num_steps, _run_step, initial_carry)
+        graph_state, _ = jumpy.lax.fori_loop(0, num_steps, _run_step, initial_carry)
         return graph_state
 
     return _run_sequential_chunk
@@ -439,7 +439,7 @@ def make_graph_reset(trace: log_pb2.TraceRecord, name: str, default_outputs, iso
         _next_graph_state = run_chunk(graph_state)
 
         # Update input
-        next_timing = rjp.take(isolate, step)
+        next_timing = rjp.tree_take(isolate, step)
         next_ss = update_input(_next_graph_state, next_timing)
         next_graph_state = _next_graph_state.replace(nodes=_next_graph_state.nodes.copy({name: next_ss}))
 
@@ -475,7 +475,7 @@ def make_graph_step(trace: log_pb2.TraceRecord, name: str, isolate: Timings, run
 
     def _graph_step(graph_state: GraphState, step_state: StepState, action: Any) -> Tuple[GraphState, jp.float32, StepState]:
         # Update graph_state with action
-        timing = rjp.take(isolate, graph_state.step)
+        timing = rjp.tree_take(isolate, graph_state.step)
         new_graph_state = update_state(graph_state, timing, step_state, action)
 
         # Grab step
@@ -487,7 +487,7 @@ def make_graph_step(trace: log_pb2.TraceRecord, name: str, isolate: Timings, run
         _next_graph_state = run_chunk(new_graph_state.replace(step=next_step))
 
         # Update input
-        next_timing = rjp.take(isolate, next_step)
+        next_timing = rjp.tree_take(isolate, next_step)
         next_ss = update_input(_next_graph_state, next_timing)
         next_graph_state = _next_graph_state.replace(nodes=_next_graph_state.nodes.copy({name: next_ss}))
 
