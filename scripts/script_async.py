@@ -2,20 +2,21 @@
 # todo: [ASYNC] Do nodes require at least one input (only when clock=SIMULATED)?
 # todo: [ASYNC] Test while running for longer period.
 # todo: [ASYNC] can we run ASYNC with SIMULATED CLOCK? --> what does this mean?
+# todo: [ASYNC] Log outputs of nodes in a deque (or list with maxlen) that can be converted to a stacked graphstate.output.
+# todo: [ASYNC] what if episode length is very long? Limit number of saved records?
+# todo: [API] define transform functions with the API of scipy that can be used for input transformations.
+# todo: [JIT] is jumpy.core.is_jitted() True when in pmap?
+# todo: [JIT] Test difference cond vs select (GPU, CPU, vectorized)
+# todo: [JIT] implement BATCHED graph mode.
+# todo: [TRACE] Remove static, and fully rely on stateful flag.
+# todo: [WRAPPER] Calling action_space/observation_space already resets the graph (GymWrapper).
+# todo: [ASYNC] All node resets happen on the same thread. This is not ideal, as it can cause a bottleneck.
 # todo: [PLOT] half phase bars, and place sleep behind it
 # todo: [PLOT] fix plot_step_timing bug with isfinite.
 # todo: [PLOT] allow setting a name for plot_input_thread plots
 # todo: [PLOT] in grouped plot, do not scale y with x axis. Instead, use a fixed scale.
 # todo: [PLOT] optionally add tick numbers to callback blocks in even_thread plot --> to connect with graph plot
 #        link: https://matplotlib.org/stable/gallery/lines_bars_and_markers/bar_label_demo.html
-# todo: [API] define transform functions with the API of scipy that can be used for input transformations.
-# todo: [ASYNC] Log outputs of nodes in a deque (or list with maxlen) that can be converted to a stacked graphstate.output.
-# todo: [ASYNC] what if episode length is very long? Limit number of saved records?
-# todo: [JIT] is jumpy.core.is_jitted() True when in pmap?
-# todo: [JIT] Test difference cond vs select (GPU, CPU, vectorized)
-# todo: [JIT] implement BATCHED graph mode.
-# todo: [TRACE] Remove static, and fully rely on stateful flag.
-# todo: [WRAPPER] Calling action_space/observation_space already resets the graph (GymWrapper).
 
 import time
 import jax.random as rnd

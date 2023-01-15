@@ -1,26 +1,12 @@
-import functools
-import time
+from typing import Callable, Tuple
 import os
 from concurrent.futures.process import _sendback_result, _ExceptionWithTraceback
 from concurrent.futures import _base, Future, CancelledError, ProcessPoolExecutor
 import traceback
 import jumpy
-import jumpy.numpy as jp
 
-from rex.constants import WARN, ERROR
+from rex.constants import ERROR
 from rex.utils import log
-from rex.base import StepState, Output
-from scripts.dummy import build_dummy_env
-
-# Built dummy environment and extract graph_state
-env, nodes = build_dummy_env()
-graph_state, obs = env.reset(jumpy.random.PRNGKey(0))
-env.stop()
-
-sensor = nodes["sensor"]
-step_state = graph_state.nodes[sensor.name]
-
-log(name="mainprocess", color="red", log_level=WARN, id="main_thread", msg=f"START")
 
 
 def _process_worker(fn, call_queue, result_queue, initializer, initargs):
@@ -40,9 +26,9 @@ def _process_worker(fn, call_queue, result_queue, initializer, initargs):
 	if initializer is not None:
 		try:
 			initializer(fn, *initargs)
-		except BaseException as e:
-			error_msg = "".join(traceback.format_exception(None, e, e.__traceback__))
-			log(initializer.__qualname__, "red", ERROR, "worker", error_msg)
+		except BaseException as _e:
+			# error_msg = "".join(traceback.format_exception(None, e, e.__traceback__))
+			# log(initializer.__qualname__, "red", ERROR, "worker", error_msg)
 			_base.LOGGER.critical('Exception in initializer:', exc_info=True)
 			# The parent will notice that the process stopped and
 			# mark the pool broken
@@ -67,12 +53,10 @@ def _process_worker(fn, call_queue, result_queue, initializer, initargs):
 		del call_item
 
 
-class Proxy:
+class _NewProcess:
 	# todo: BaseNode.push_step must call submit, while CompiledGraph must call __call__.
-	# todo: define initializer method for nodes.
-	# todo: wraps a step/reset function?
 	# Design patterns in 10 min: https://www.youtube.com/watch?v=tv-_1er1mWI
-	def __init__(self, fn, max_workers=1, initializer=None, initargs=()):
+	def __init__(self, fn: Callable, max_workers: int = 1, initializer: Callable = None, initargs: Tuple = ()):
 		self._unwrapped_fn = fn
 		executor = ProcessPoolExecutor(max_workers=max_workers, initializer=initializer, initargs=initargs)
 		self._executor = executor
@@ -98,10 +82,18 @@ class Proxy:
 		executor._adjust_process_count = _adjust_process_count
 
 	def __call__(self, *args, **kwargs):
-		"""Per default, the wrapped function is synchronously called in the caller's process."""
-		return self._unwrapped_fn(*args, **kwargs)
+		"""Call the wrapped function synchronously in a separate process.
 
-	def _f_callback(self, f: Future):
+		When we are tracing, we call the wrapped function directly,
+		because tracing must happen in the same thread.
+		"""
+		if jumpy.core.is_jitted():
+			return self._unwrapped_fn(*args, **kwargs)
+		else:
+			f = self.submit(*args, **kwargs)
+			return f.result()
+
+	def _done_callback(self, f: Future):
 		"""Callback function that is called when the future is done."""
 		e = f.exception()
 		if e is not None and e is not CancelledError:
@@ -117,45 +109,16 @@ class Proxy:
 		"""Calls the wrapped function asynchronously in a separate process."""
 		# Schedule work item
 		f = self._executor.submit(self._dummy_fn, *args, **kwargs)
-		f.add_done_callback(self._f_callback)
-
+		f.add_done_callback(self._done_callback)
 		return f
 
 
-def new_process(max_workers=1, initializer=None, initargs=()):
-	def decorator(fn):
-		return Proxy(fn, max_workers=max_workers, initializer=initializer, initargs=initargs)
-	return decorator
+def new_process(fn: Callable, max_workers: int = 1, initializer: Callable = None, initargs: Tuple = ()) -> _NewProcess:
+	return _NewProcess(fn, max_workers=max_workers, initializer=initializer, initargs=initargs)
 
 
-def initializer(fn, *args):
-	print("INITIALIZER", fn, args)
-	# fn.__self__.pid = os.getpid()
-
-
-class Node:
-	def __init__(self):
-		self.pid = os.getpid()
-
-	@new_process(max_workers=1, initializer=initializer, initargs=("TEST_ARG"))
-	def step(self, ts, step_state):
-		time.sleep(1)
-		log("worker", "blue", WARN, "worker", f"pid={self.pid} | step {ts}")
-		return step_state, "OUTPUT"
-
-
-n = Node()
-
-# n.step = Proxy(sensor.step, max_workers=5, initializer=initializer, initargs=("SOME_ARG",))
-
-# Sync step
-sync_ss, sync_output = sensor.step(0.5, step_state)
-
-# Async step
-fs = []
-for i in range(100000):
-	f = n.step.submit(i, step_state)
-	fs.append(f)
-print("Submitted all")
-[f.result() for f in fs]
-print("DONE")
+# This is a decorator (does not work with class methods...)
+# def new_process(max_workers=1, initializer=None, initargs=()):
+# 	def decorator(fn):
+# 		return _NewProcess(fn, max_workers=max_workers, initializer=initializer, initargs=initargs)
+# 	return decorator

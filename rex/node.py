@@ -448,6 +448,8 @@ class BaseNode:
             inputs = FrozenDict({i.input_name: i.q_grouped.popleft() for i in self.inputs})
 
             # Update StepState with grouped messages
+            # todo: have a single buffer for step_state used for both in and out
+            # todo: Makes a copy of the message. Is this necessary? Can we do in-place updates?
             step_state = self._step_state.replace(inputs=inputs)
 
             # Run step and get msg

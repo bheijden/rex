@@ -127,29 +127,6 @@ def dynamic_slice(
         return operand[slices]
 
 
-def cond(
-        pred, true_fun: Callable[..., bool], false_fun: Callable[..., bool], *operands: Any
-):
-    """Conditionally apply true_fun or false_fun to operands."""
-    if jumpy.core.is_jitted():
-        return jax.lax.cond(pred, true_fun, false_fun, *operands)
-    else:
-        if pred:
-            return true_fun(*operands)
-        else:
-            return false_fun(*operands)
-
-
-# def random_prngkey(seed: jp.int32) -> jp.ndarray:
-#     """Returns a PRNG key given a seed."""
-#     # NOTE: selects backend based on seed type.
-#     if jumpy.core.which_np(seed) is jnp:
-#         return jax.random.PRNGKey(seed)
-#     else:
-#         rng = onp.random.default_rng(seed)
-#         return rng.integers(low=0, high=2 ** 32, dtype="uint32", size=2)
-
-
 def index_update(x: jp.ndarray, idx: jp.ndarray, y: jp.ndarray, copy: bool = True) -> jp.ndarray:
     """Pure equivalent of x[idx] = y."""
     if jumpy.core.which_np(x, idx, y) is jnp:
@@ -218,10 +195,3 @@ def vmap(fun: F, include: Sequence[bool] = None) -> F:
 
     return _batched
 
-
-# def stop_gradient(x: X) -> X:
-#     """Returns x with zero gradient."""
-#     if jumpy.core.which_np(x) is jnp:
-#         return jax.lax.stop_gradient(x)
-#     else:
-#         return x

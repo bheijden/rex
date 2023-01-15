@@ -6,6 +6,7 @@ import jumpy.numpy as jp
 import jax
 
 import rex.jumpy as rjp
+from rex.multiprocessing import new_process
 from rex.tracer import trace
 from rex.utils import timer
 from rex.constants import LATEST, BUFFER, SILENT, DEBUG, INFO, WARN, REAL_TIME, FAST_AS_POSSIBLE, SIMULATED, \
@@ -107,6 +108,9 @@ def test_compiler():
     actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1/45), log_level=WARN, color="green", advance=False, stateful=False)
     nodes = [world, sensor, observer, agent, actuator]
     nodes = {n.name: n for n in nodes}
+
+    # Place observer step in separate process
+    observer.step = new_process(observer.step, max_workers=2)
 
     # Connect
     sensor.connect(world, blocking=False, delay_sim=Gaussian(4/1e3), skip=False, jitter=LATEST, window=2, name="testworld")

@@ -21,8 +21,6 @@ if TYPE_CHECKING:
 
 class Input:
     def __init__(self, node: "Node", output: "Output", window: int, blocking: bool, skip: bool, jitter: int, delay: float, delay_sim: Distribution, log_level: int, color: str, name: str):
-        # todo: add this constraint?
-        # assert not (skip and not blocking), "You can only skip blocking connections."
         self.node = node
         self.output = output
         self.input_name = name
@@ -335,6 +333,7 @@ class Input:
                 # Only add messages that will not get pushed out immediately.
                 for (seq, ts_sent, ts_recv, msg) in grouped[-self.window:]:
                     # self._input_state.push(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=msg)
+                    # todo: makes a copy of the message. Is this necessary?
                     self._input_state = self._input_state.push(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=msg)
 
                 # Add grouped message to queue
