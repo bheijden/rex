@@ -8,6 +8,7 @@
 # todo: [JIT] is jumpy.core.is_jitted() True when in pmap?
 # todo: [JIT] Test difference cond vs select (GPU, CPU, vectorized)
 # todo: [JIT] implement BATCHED graph mode.
+# todo: [ASYNC] Only compiled graphs can be transformed with vmap.
 # todo: [TRACE] Remove static, and fully rely on stateful flag.
 # todo: [WRAPPER] Calling action_space/observation_space already resets the graph (GymWrapper).
 # todo: [ASYNC] All node resets happen on the same thread. This is not ideal, as it can cause a bottleneck.

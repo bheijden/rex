@@ -13,7 +13,7 @@ import numpy as onp
 from flax.core import FrozenDict
 from jax import jit
 
-from rex.base import GraphState, StepState, InputState, State,  Output, Params
+from rex.base import GraphState, StepState, InputState, State,  Output, Params, Empty
 from rex.constants import READY, RUNNING, STOPPING, STOPPED, RUNNING_STATES, PHASE, FREQUENCY, SIMULATED, \
     FAST_AS_POSSIBLE, SYNC, BUFFER, DEBUG, INFO, WARN, ERROR, WALL_CLOCK, LATEST
 from rex.input import Input
@@ -505,11 +505,11 @@ class BaseNode:
 class Node(BaseNode):
     def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
         """Default params of the node."""
-        raise NotImplementedError
+        return Empty()
 
     def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
         """Default state of the node."""
-        raise NotImplementedError
+        return Empty()
 
     def default_inputs(self, rng: jp.ndarray, graph_state: GraphState = None) -> FrozenDict[str, InputState]: #Dict[str, InputState]:
         """Default inputs of the node."""
@@ -531,7 +531,12 @@ class Node(BaseNode):
 
     @abc.abstractmethod
     def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-        raise NotImplementedError
+        """Reset the node."""
+        rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
+        params = self.default_params(rng_params, graph_state)
+        state = self.default_state(rng_state, graph_state)
+        inputs = self.default_inputs(rng_inputs, graph_state)
+        return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
     @abc.abstractmethod
     def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:

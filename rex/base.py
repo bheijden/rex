@@ -13,6 +13,10 @@ Params = TypeVar('Params')
 
 
 @struct.dataclass
+class Empty: pass
+
+
+@struct.dataclass
 class InputState:
     """A ring buffer that holds the inputs for a node's input channel."""
     seq: jp.ndarray

@@ -7,8 +7,10 @@ from rex.distributions import Distribution, Gaussian
 from rex.constants import WARN, LATEST
 from rex.base import StepState, GraphState
 from rex.node import Node
+from rex.multiprocessing import new_process
 
 from envs.pendulum.env import Output as ActuatorOutput
+from envs.pendulum.render import Render
 
 
 def build_pendulum(rate: Dict[str, float] = None,
@@ -26,7 +28,7 @@ def build_pendulum(rate: Dict[str, float] = None,
 	log_level = log_level or {}
 
 	# Fill in default values
-	names = ["world", "actuator", "sensor"]
+	names = ["world", "actuator", "sensor", "render"]
 	for name in names:
 		rate[name] = rate.get(name, rate.get("world", 30.0))
 		process[name] = process.get(name, None)
@@ -40,11 +42,17 @@ def build_pendulum(rate: Dict[str, float] = None,
 	world = World(name="world", rate=rate["world"], delay=process["world"], delay_sim=process_sim["world"], log_level=log_level["world"], color="blue")
 	actuator = Actuator(name="actuator", rate=rate["actuator"], delay=process["actuator"], delay_sim=process_sim["actuator"], log_level=log_level["actuator"], color="green", advance=False)
 	sensor = Sensor(name="sensor", rate=rate["sensor"], delay=process["sensor"], delay_sim=process_sim["sensor"], log_level=log_level["sensor"], color="yellow")
+	render = Render(name="render", rate=rate["render"], delay=process["sensor"], delay_sim=process_sim["sensor"], log_level=log_level["render"], color="blue")
 
 	# Connect nodes
 	world.connect(actuator, window=1, blocking=False, skip=False, delay_sim=trans_sim["actuator"], delay=trans["actuator"], jitter=LATEST)
 	sensor.connect(world, window=1, blocking=False, skip=True, delay_sim=trans_sim["sensor"], delay=trans["sensor"], jitter=LATEST)
-	return dict(world=world, actuator=actuator, sensor=sensor)
+	render.connect(sensor, window=1, blocking=False, skip=False, delay_sim=Gaussian(mean=0., var=0.), delay=0.0, jitter=LATEST)
+	# render.connect(actuator, window=1, blocking=False, skip=False, delay_sim=Gaussian(mean=0., var=0.), delay=0.0, jitter=LATEST)
+
+	render.step = new_process(render.step)
+
+	return dict(world=world, actuator=actuator, sensor=sensor, render=render)
 
 
 @struct.dataclass

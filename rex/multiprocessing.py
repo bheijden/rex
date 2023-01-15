@@ -54,8 +54,6 @@ def _process_worker(fn, call_queue, result_queue, initializer, initargs):
 
 
 class _NewProcess:
-	# todo: BaseNode.push_step must call submit, while CompiledGraph must call __call__.
-	# Design patterns in 10 min: https://www.youtube.com/watch?v=tv-_1er1mWI
 	def __init__(self, fn: Callable, max_workers: int = 1, initializer: Callable = None, initargs: Tuple = ()):
 		self._unwrapped_fn = fn
 		executor = ProcessPoolExecutor(max_workers=max_workers, initializer=initializer, initargs=initargs)
@@ -65,7 +63,7 @@ class _NewProcess:
 			"""This monkey patches the _adjust_process_count method of the executor.
 
 			We need to do this, because with original method requires fn to be pickleable.
-			This is not the case for our functions, because nodes cannot be pickled.
+			This is in general not the case for most functions (e.g. step, reset), because nodes cannot be pickled.
 			 """
 			for _ in range(len(executor._processes), executor._max_workers):
 				p = executor._mp_context.Process(

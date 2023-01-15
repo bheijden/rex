@@ -1,5 +1,6 @@
-from typing import Any, Dict, Tuple, Union
+from typing import Any, Dict, Tuple, Union, List
 import jumpy
+import numpy as onp
 import jumpy.numpy as jp
 from flax import struct
 
@@ -9,6 +10,8 @@ from rex.base import StepState, GraphState
 from rex.node import Node
 
 from envs.pendulum.env import Output as ActuatorOutput
+from envs.pendulum.real.pid import PID
+
 
 # Import ROS specific functions
 try:
@@ -90,8 +93,18 @@ class Empty: pass
 
 
 class World(Node):
-	def __init__(self, *args, **kwargs):
+	def __init__(self, *args, gains: List[float] = None, downward_reset: bool = True, **kwargs):
 		super().__init__(*args, **kwargs)
+		assert error_rospy is None, "Failed to import rospy: {}".format(error_rospy)
+		assert error_dcsc_setups is None, "Failed to import dcsc_setups: {}".format(error_dcsc_setups)
+		self.srv_read = rospy.ServiceProxy("/mops/read", dcsc_setups.MopsRead)
+		self.srv_write = rospy.ServiceProxy("/mops/write", dcsc_setups.MopsWrite)
+		self.srv_read.wait_for_service()
+		self.srv_write.wait_for_service()
+		self._rospy_rate = rospy.Rate(20)
+		gains = gains or [2.0, 0.2, 1.0]
+		self._downward_reset = downward_reset
+		self._controller = PID(u0=0.0, kp=gains[0], kd=gains[1], ki=gains[2], dt=1 / self.rate)
 
 	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
 		"""Default params of the node."""
@@ -113,6 +126,10 @@ class World(Node):
 		params = self.default_params(rng_params, graph_state)
 		state = self.default_state(rng_state, graph_state)
 		inputs = self.default_inputs(rng_inputs, graph_state)
+
+		# todo: reset the pendulum to downward position
+		if self._downward_reset:
+			self._to_downward()
 		return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
 	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Empty]:
@@ -120,6 +137,48 @@ class World(Node):
 		# Prepare output
 		new_step_state = step_state
 		return new_step_state, Empty()
+
+	def _wrap_angle(self, angle):
+		return angle - 2 * jp.pi * jp.floor((angle + jp.pi) / (2 * jp.pi))
+
+	def _apply_action(self, action):
+		"""Call ROS service and send action to mops."""
+		req = dcsc_setups.MopsWriteRequest()
+		req.actuators.digital_outputs = 1
+		req.actuators.voltage0 = action
+		req.actuators.voltage1 = 0.0
+		req.actuators.timeout = 0.5
+		self.srv_write.call(req)
+
+	def _to_downward(self):
+		"""Set the pendulum to downward position."""
+		self._controller.reset()
+		goal = jp.array([0.0, 0.0])
+		done = False
+		tstart = rospy.get_time()
+		while not done:
+			# Theta=0 here is downward position (different from the simulation)
+			res = self.srv_read.call(dcsc_setups.MopsReadRequest())
+			th, thdot = res.sensors.position0, res.sensors.speed
+			th = self._wrap_angle(th)  # Wrap angle
+
+			# Get action
+			action = self._controller.next_action(th, ref=goal[0])
+			action = jp.clip(action, -2.0, 2.0)
+			self._apply_action(action)
+
+			# Sleep
+			self._rospy_rate.sleep()
+
+			# Determine if we have reached our goal state
+			done = onp.isclose(jp.array([th, thdot]), goal, atol=0.1).all()
+
+			# Check timeout
+			now = rospy.get_time()
+			done = done or (now - tstart > 5.0)
+
+		# Set initial action to 0
+		self._apply_action(0.)
 
 
 class Sensor(Node):
@@ -168,8 +227,8 @@ class Actuator(Node):
 		super().__init__(*args, **kwargs)
 		assert error_rospy is None, "Failed to import rospy: {}".format(error_rospy)
 		assert error_dcsc_setups is None, "Failed to import dcsc_setups: {}".format(error_dcsc_setups)
-		self.write_srv = rospy.ServiceProxy("/mops/write", dcsc_setups.MopsWrite)
-		self.write_srv.wait_for_service()
+		self.srv_write = rospy.ServiceProxy("/mops/write", dcsc_setups.MopsWrite)
+		self.srv_write.wait_for_service()
 
 	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
 		"""Default params of the node."""
@@ -205,11 +264,15 @@ class Actuator(Node):
 		action = jp.clip(output.action[0], -2, 2)
 
 		# Call ROS service and send action to mops
+		self._apply_action(action)
+
+		return new_step_state, output
+
+	def _apply_action(self, action):
+		"""Call ROS service and send action to mops."""
 		req = dcsc_setups.MopsWriteRequest()
 		req.actuators.digital_outputs = 1
 		req.actuators.voltage0 = action
 		req.actuators.voltage1 = 0.0
 		req.actuators.timeout = 0.5
-		self.write_srv.call(req)
-
-		return new_step_state, output
+		self.srv_write.call(req)

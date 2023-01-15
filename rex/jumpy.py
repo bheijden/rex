@@ -14,16 +14,19 @@ class use_numpy:
         self.is_jax_installed = jumpy.is_jax_installed
         self._float32 = jp.float32
         self._int32 = jp.int32
+        self._uint8 = jp.uint8
 
     def __enter__(self):
         jumpy.is_jax_installed = False
         jp.float32 = onp.float32
         jp.int32 = onp.int32
+        jp.uint8 = onp.uint8
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         jumpy.is_jax_installed = self.is_jax_installed
         jp.float32 = self._float32
         jp.int32 = self._int32
+        jp.uint8 = self._uint8
 
 
 class use_jax:
@@ -31,16 +34,19 @@ class use_jax:
         self.is_jax_installed = jumpy.is_jax_installed
         self._float32 = jp.float32
         self._int32 = jp.int32
+        self._uint8 = jp.uint8
 
     def __enter__(self):
         jumpy.is_jax_installed = True
         jp.float32 = jnp.float32
         jp.int32 = jnp.int32
+        jp.uint8 = jnp.uint8
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         jumpy.is_jax_installed = self.is_jax_installed
         jp.float32 = self._float32
         jp.int32 = self._int32
+        jp.uint8 = self._uint8
 
 
 class use:
