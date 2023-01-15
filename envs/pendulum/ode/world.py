@@ -5,7 +5,7 @@ from math import ceil
 from flax import struct
 from rex.distributions import Distribution, Gaussian
 from rex.constants import WARN, LATEST
-from rex.base import StepState, GraphState
+from rex.base import StepState, GraphState, Empty
 from rex.node import Node
 from rex.multiprocessing import new_process
 
@@ -42,7 +42,7 @@ def build_pendulum(rate: Dict[str, float] = None,
 	world = World(name="world", rate=rate["world"], delay=process["world"], delay_sim=process_sim["world"], log_level=log_level["world"], color="blue")
 	actuator = Actuator(name="actuator", rate=rate["actuator"], delay=process["actuator"], delay_sim=process_sim["actuator"], log_level=log_level["actuator"], color="green", advance=False)
 	sensor = Sensor(name="sensor", rate=rate["sensor"], delay=process["sensor"], delay_sim=process_sim["sensor"], log_level=log_level["sensor"], color="yellow")
-	render = Render(name="render", rate=rate["render"], delay=process["sensor"], delay_sim=process_sim["sensor"], log_level=log_level["render"], color="blue")
+	render = Render(name="render", rate=rate["render"], delay=process["render"], delay_sim=process_sim["render"], log_level=log_level["render"], color="blue")
 
 	# Connect nodes
 	world.connect(actuator, window=1, blocking=False, skip=False, delay_sim=trans_sim["actuator"], delay=trans["actuator"], jitter=LATEST)
@@ -83,10 +83,6 @@ class Output:
 
 	th: jp.float32
 	thdot: jp.float32
-
-
-@struct.dataclass
-class Empty: pass
 
 
 def runge_kutta4(ode, dt, params, x, u):
@@ -163,14 +159,6 @@ class World(Node):
 			thdot = jp.float32(0.)
 		return Output(th=th, thdot=thdot)
 
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-		"""Reset the node."""
-		rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
-		params = self.default_params(rng_params, graph_state)
-		state = self.default_state(rng_state, graph_state)
-		inputs = self.default_inputs(rng_inputs, graph_state)
-		return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
-
 	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
 		"""Step the node."""
 
@@ -201,14 +189,6 @@ class Sensor(Node):
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 
-	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
-		"""Default params of the node."""
-		return Empty()
-
-	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
-		"""Default state of the node."""
-		return Empty()
-
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
 		"""Default output of the node."""
 		# Grab output from state
@@ -219,14 +199,6 @@ class Sensor(Node):
 			th = jp.float32(0.)
 			thdot = jp.float32(0.)
 		return Output(th=th, thdot=thdot)
-
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-		"""Reset the node."""
-		rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
-		params = self.default_params(rng_params, graph_state)
-		state = self.default_state(rng_state, graph_state)
-		inputs = self.default_inputs(rng_inputs, graph_state)
-		return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
 	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
 		"""Step the node."""
@@ -246,25 +218,9 @@ class Actuator(Node):
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 
-	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
-		"""Default params of the node."""
-		return Empty()
-
-	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
-		"""Default state of the node."""
-		return Empty()
-
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
 		"""Default output of the node."""
 		return ActuatorOutput(action=jp.array([0.0], dtype=jp.float32))
-
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-		"""Reset the node."""
-		rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
-		params = self.default_params(rng_params, graph_state)
-		state = self.default_state(rng_state, graph_state)
-		inputs = self.default_inputs(rng_inputs, graph_state)
-		return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
 	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
 		"""Step the node."""

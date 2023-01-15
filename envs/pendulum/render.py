@@ -7,8 +7,14 @@ from rex.distributions import Distribution, Gaussian
 from rex.constants import WARN, LATEST
 from rex.base import StepState, GraphState
 from rex.node import Node
-import cv2
-import time
+from rex.utils import log
+
+try:
+	import cv2
+except ImportError as e:
+	cv2 = None
+	log("main", "red", WARN, "rendering", "Could not import cv2. Rendering will not work.")
+
 
 @struct.dataclass
 class Image:
@@ -46,7 +52,7 @@ class Render(Node):
 
 		# Prepare new image
 		data = jp.zeros(self._shape, jp.uint8)
-		if not jumpy.core.is_jitted():
+		if not jumpy.core.is_jitted() and cv2 is not None:
 			if self._visual == "disc":
 				data = disc_pendulum_render_fn(data, th, thdot)
 			else:

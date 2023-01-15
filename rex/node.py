@@ -13,7 +13,7 @@ import numpy as onp
 from flax.core import FrozenDict
 from jax import jit
 
-from rex.base import GraphState, StepState, InputState, State,  Output, Params, Empty
+from rex.base import GraphState, StepState, InputState, State, Output as BaseOutput, Params, Empty
 from rex.constants import READY, RUNNING, STOPPING, STOPPED, RUNNING_STATES, PHASE, FREQUENCY, SIMULATED, \
     FAST_AS_POSSIBLE, SYNC, BUFFER, DEBUG, INFO, WARN, ERROR, WALL_CLOCK, LATEST
 from rex.input import Input
@@ -525,9 +525,9 @@ class Node(BaseNode):
         return FrozenDict(inputs)
 
     @abc.abstractmethod
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
+    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BaseOutput:
         """Default output of the node."""
-        raise NotImplementedError
+        return Empty()
 
     @abc.abstractmethod
     def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:

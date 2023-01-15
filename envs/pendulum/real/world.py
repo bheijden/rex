@@ -6,11 +6,12 @@ from flax import struct
 
 from rex.distributions import Distribution, Gaussian
 from rex.constants import WARN, LATEST
-from rex.base import StepState, GraphState
+from rex.base import StepState, GraphState, Empty
 from rex.node import Node
 
 from envs.pendulum.env import Output as ActuatorOutput
 from envs.pendulum.real.pid import PID
+from envs.pendulum.render import Render
 
 
 # Import ROS specific functions
@@ -46,7 +47,7 @@ def build_pendulum(rate: Dict[str, float] = None,
 	log_level = log_level or {}
 
 	# Fill in default values
-	names = ["world", "actuator", "sensor"]
+	names = ["world", "actuator", "sensor", "render"]
 	for name in names:
 		rate[name] = rate.get(name, rate.get("world", 30.0))
 		process[name] = process.get(name, None)
@@ -63,13 +64,17 @@ def build_pendulum(rate: Dict[str, float] = None,
 	                    log_level=log_level["actuator"], color="green", advance=False)
 	sensor = Sensor(name="sensor", rate=rate["sensor"], delay=process["sensor"], delay_sim=process_sim["sensor"],
 	                log_level=log_level["sensor"], color="yellow")
+	render = Render(name="render", rate=rate["render"], delay=process["render"], delay_sim=process_sim["render"],
+	                log_level=log_level["render"], color="blue")
 
 	# Connect nodes
 	world.connect(actuator, window=1, blocking=False, skip=False, delay_sim=trans_sim["actuator"], delay=trans["actuator"],
 	              jitter=LATEST)
 	sensor.connect(world, window=1, blocking=False, skip=True, delay_sim=trans_sim["sensor"], delay=trans["sensor"],
 	               jitter=LATEST)
-	return dict(world=world, actuator=actuator, sensor=sensor)
+	render.connect(sensor, window=1, blocking=False, skip=False, delay_sim=Gaussian(mean=0., var=0.), delay=0.0, jitter=LATEST)
+	# render.connect(actuator, window=1, blocking=False, skip=False, delay_sim=Gaussian(mean=0., var=0.), delay=0.0, jitter=LATEST)
+	return dict(world=world, actuator=actuator, sensor=sensor, render=render)
 
 
 @struct.dataclass
@@ -88,10 +93,6 @@ class Output:
 	thdot: jp.float32
 
 
-@struct.dataclass
-class Empty: pass
-
-
 class World(Node):
 	def __init__(self, *args, gains: List[float] = None, downward_reset: bool = True, **kwargs):
 		super().__init__(*args, **kwargs)
@@ -106,20 +107,6 @@ class World(Node):
 		self._downward_reset = downward_reset
 		self._controller = PID(u0=0.0, kp=gains[0], kd=gains[1], ki=gains[2], dt=1 / self.rate)
 
-	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
-		"""Default params of the node."""
-		# Try to grab params from graph_state
-		return Empty()
-
-	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
-		"""Default state of the node."""
-		return Empty()
-
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
-		"""Default output of the node."""
-		# Grab output from state
-		return Empty()
-
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
 		"""Reset the node."""
 		rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
@@ -127,7 +114,6 @@ class World(Node):
 		state = self.default_state(rng_state, graph_state)
 		inputs = self.default_inputs(rng_inputs, graph_state)
 
-		# todo: reset the pendulum to downward position
 		if self._downward_reset:
 			self._to_downward()
 		return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
@@ -189,26 +175,10 @@ class Sensor(Node):
 		self.srv_read = rospy.ServiceProxy("/mops/read", dcsc_setups.MopsRead)
 		self.srv_read.wait_for_service()
 
-	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
-		"""Default params of the node."""
-		return Empty()
-
-	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
-		"""Default state of the node."""
-		return Empty()
-
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
 		"""Default output of the node."""
 		# Grab output from state
 		return Output(th=jp.float32(0.), thdot=jp.float32(0.))
-
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-		"""Reset the node."""
-		rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
-		params = self.default_params(rng_params, graph_state)
-		state = self.default_state(rng_state, graph_state)
-		inputs = self.default_inputs(rng_inputs, graph_state)
-		return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
 	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
 		"""Step the node."""
@@ -230,25 +200,9 @@ class Actuator(Node):
 		self.srv_write = rospy.ServiceProxy("/mops/write", dcsc_setups.MopsWrite)
 		self.srv_write.wait_for_service()
 
-	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
-		"""Default params of the node."""
-		return Empty()
-
-	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
-		"""Default state of the node."""
-		return Empty()
-
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
 		"""Default output of the node."""
 		return ActuatorOutput(action=jp.array([0.0], dtype=jp.float32))
-
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-		"""Reset the node."""
-		rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
-		params = self.default_params(rng_params, graph_state)
-		state = self.default_state(rng_state, graph_state)
-		inputs = self.default_inputs(rng_inputs, graph_state)
-		return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
 	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
 		"""Step the node."""
