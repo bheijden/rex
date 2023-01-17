@@ -16,7 +16,7 @@ from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 
 
 if __name__ == "__main__":
-	# todo: Log outputs
+	# todo: Log experiments (trace, hyper parameters, model, tensorboard, w & b, data?)
 	# todo: Visualise performance on simulated pendulum
 	# todo: Visualise communication
 	utils.set_log_level(WARN)
@@ -39,7 +39,7 @@ if __name__ == "__main__":
 
 	# Make real environment
 	# import envs.pendulum.real as real
-	# nodes_real = real.build_pendulum(rate=dict(world=world_rate, actuator=rate, sensor=rate))
+	# nodes_real = real.build_pendulum(rate=dict(world=world_rate, actuator=rate, sensor=rate, render=rate))
 	import envs.pendulum.ode as ode
 	nodes_real = ode.build_pendulum(rate=dict(world=world_rate, actuator=rate, sensor=rate, render=rate))
 
@@ -69,10 +69,10 @@ if __name__ == "__main__":
 	action, _states = model_real.predict(env_real.observation_space.sample(), deterministic=True)
 
 	# Run environment
-	for _ in range(200):
-		tstart = time.time()
+	for _ in range(2):
 		cum_reward = 0.
 		done, obs = False, env_real.reset()
+		tstart = time.time()
 		while not done:
 			# Call model.predict to include transmission overhead.
 			action, _states = model_real.predict(obs, deterministic=True)

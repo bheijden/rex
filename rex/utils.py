@@ -1,12 +1,9 @@
 from typing import TYPE_CHECKING, List, Deque, Callable
-import re
-from functools import wraps
+import importlib
 from time import time
-import sys
 from termcolor import colored
 from os import getpid
 from threading import current_thread
-import jax.numpy as jnp  # todo: replace with from brax import jumpy.numpy as jp.ndarray?
 
 from rex.constants import WARN, INFO, SIMULATED
 
@@ -27,6 +24,18 @@ LOG_LEVEL = WARN
 #                 return fn(*args, **kwargs)
 #         return inner
 #     return wrapper
+
+
+def load(attribute: str):
+    """Loads an attribute from a module.
+
+    :param attribute: The attribute to load. Has the form "module/attribute".
+    :return: The attribute.
+    """
+    module, attribute = attribute.split("/")
+    module = importlib.import_module(module)
+    attribute = getattr(module, attribute)
+    return attribute
 
 
 def log(

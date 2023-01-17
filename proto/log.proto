@@ -5,7 +5,6 @@ package logging;
 
 message EpisodeRecord {
     repeated NodeRecord node = 1;  // Contains all node timings
-//    repeated TraceRecord trace = 2;  // Records a traced episode
 }
 
 message NodeRecord {
@@ -15,6 +14,7 @@ message NodeRecord {
     uint32 scheduling = 4;  // Phase (=0) or frequency (=1)
     float real_time_factor = 5;  // Fast-as-possible (=0), real-time (=1), or any other value > 0.
     float ts_start = 6;  // Wall-clock timestamp of episode start.
+    repeated uint32 rng = 7;  // PRNG key (seeds the delay_sim of the output & initial step_state.rng).
     repeated InputRecord inputs = 8; // Input info and timing info on received messages.
     repeated StepRecord steps = 9;  // Timing info on executed steps
 }
@@ -37,7 +37,8 @@ message StepRecord {
 
 message InputRecord {
     InputInfo info = 1;
-    repeated GroupedRecord grouped = 2;
+    repeated uint32 rng = 2;  // PRNG key (seeds the delay_sim of the input).
+    repeated GroupedRecord grouped = 3;
 }
 
 message GroupedRecord {
@@ -69,13 +70,14 @@ message GraphInfo {
 
 message NodeInfo {
     string name = 1; // Name of the node
-    float rate = 2; // Rate of the node
-    bool stateful = 3;  // Whether the node is stateful (=True) or stateless (=False).
-    bool advance = 4;  // Whether the node may advance its step (=True) or not (=False).
-    float phase = 5; // Phase shift
-    GMM delay_sim = 6; // Computation delay distribution of the node step
-    float delay = 7; // Computation delay that is taken into account.
-    repeated InputInfo inputs = 8;  // Registered inputs
+    string cls = 2; // Class of the node (module/attribute)
+    float rate = 3; // Rate of the node
+    bool stateful = 4;  // Whether the node is stateful (=True) or stateless (=False).
+    bool advance = 5;  // Whether the node may advance its step (=True) or not (=False).
+    float phase = 6; // Phase shift
+    GMM delay_sim = 7; // Computation delay distribution of the node step
+    float delay = 8; // Computation delay that is taken into account.
+    repeated InputInfo inputs = 9;  // Registered inputs
 }
 
 message InputInfo {

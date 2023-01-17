@@ -1,5 +1,6 @@
 from rex.proto import log_pb2
 from typing import Union, List, Tuple
+import numpy as onp
 import jax.numpy as jnp  # todo: replace with from brax import jumpy.numpy as jp.ndarray?
 from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
 tfd = tfp.distributions
@@ -7,22 +8,20 @@ tfd = tfp.distributions
 
 class Gaussian:
     def __init__(self, mean: float, var: float = 0, percentile: float = 0.01):
-        assert mean >= 0, "Mean must be non-negative"
         assert var >= 0, "var must be non-negative"
+        percentile = max(percentile, 1e-7)
         assert percentile > 0, "There must be a truncating percentile > 0."
         self._mean = mean
         self._var = var
         self._std = var ** (1/2)
         self._percentile = percentile
-        self._low = tfd.Normal(loc=mean, scale=var).quantile(percentile).tolist()
+        self._low = 0.  # tfd.Normal(loc=mean, scale=var).quantile(percentile).tolist()
         self._high = tfd.Normal(loc=mean, scale=var).quantile(1-percentile).tolist()
+        assert self._high < onp.inf, "The maximum value must be bounded"
         if var > 0:
             self._dist = tfd.TruncatedNormal(loc=mean, scale=var, low=self._low, high=self._high)
         else:
             self._dist = tfd.Deterministic(loc=mean)
-
-        # Verify that the delay is always non-negative
-        assert self._low >= 0, "Samples should always be positive."
 
     def __repr__(self):
         return f"Gaussian | {1.0: .2f}*N({self.mean: .4f}, {self.var: .4f}) | percentile={self.percentile}"
@@ -110,7 +109,7 @@ class GMM:
 
     def __repr__(self):
         msg = " | ".join([f"{w: .2f}*N({m: .4f}, {v: .4f})" for w, m, v in zip(self.weights, self.means, self.vars)])
-        return f"GMM | {msg} | percentile={self.percentile}"
+        return f"GMM | {msg} | percentiles={self.percentiles}"
 
     def __add__(self, other: "Distribution"):
         # Convert to GMM
@@ -121,12 +120,13 @@ class GMM:
         if not isinstance(other, GMM):
             raise NotImplementedError("Not yet implemented")
 
-        percentile = max(other.percentile, self.percentile)
         gaussians, weights = [], []
-        for w, m, v in zip(self.weights, self.means, self.vars):
-            for ow, om, ov in zip(other.weights, other.means, other.vars):
+        for w, m, v, p in zip(self.weights, self.means, self.vars, self.percentiles):
+            for ow, om, ov, op in zip(other.weights, other.means, other.vars, other.percentiles):
                 weights.append(w*ow)
-                gaussians.append(Gaussian(m + om, v + ov, percentile=percentile))
+                # if p != op:
+                #     print(f"WARNING: Percentiles do not match. {p} != {op}. Gaussian with higher percentile will be used.")
+                gaussians.append(Gaussian(m + om, v + ov, percentile=max(p, op)))
         return GMM(gaussians, weights)
 
     def pdf(self, x: jnp.ndarray):
@@ -159,8 +159,8 @@ class GMM:
         return cls(gaussians, weights)
 
     @property
-    def percentile(self):
-        return max([g.percentile for g in self._gaussians])
+    def percentiles(self):
+        return [g.percentile for g in self._gaussians]
 
     @property
     def weights(self):

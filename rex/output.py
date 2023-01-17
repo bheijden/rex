@@ -85,7 +85,7 @@ class Output:
         self._phase, self._phase_dist = None, None
         self._phase_dist = self.phase_dist
         self._phase = self.phase
-        self.q_sample = deque() #if self.q_sample is None else self.q_sample
+        self.q_sample = deque()
         self._rng = rng
 
         # Set running state

@@ -121,7 +121,8 @@ class BaseNode:
 
     @property
     def info(self) -> log_pb2.NodeInfo:
-        info = log_pb2.NodeInfo(name=self.name, rate=self.rate, stateful=self.stateful, advance=self.advance, phase=self.phase,
+        cls_str = self.__class__.__module__ + "/" + self.__class__.__qualname__
+        info = log_pb2.NodeInfo(name=self.name, cls=cls_str, rate=self.rate, stateful=self.stateful, advance=self.advance, phase=self.phase,
                                 delay_sim=self.output.delay_sim.info, delay=self.output.delay)
         info.inputs.extend([i.info for i in self.inputs])
         return info
@@ -245,14 +246,13 @@ class BaseNode:
         self.q_rng_step = deque()
 
         # Get rng for delay sampling
-        # This is hacky because we reuse the seed.
-        # However, changing the seed of the step_state would break the reproducibility between graphs (compiled, async).
         rng = self._step_state.rng
-        rng = rnd.PRNGKey(rng[0]) if isinstance(rng, onp.ndarray) else rng
+        rng = jnp.array(rng) if isinstance(rng, onp.ndarray) else rng  # Keys will differ for jax vs numpy
 
         # Reset output
-        rng_out, rng = rnd.split(rng, num=2)
-        self.output.reset(rng_out)
+        # NOTE: This is hacky because we reuse the seed.
+        # However, changing the seed of the step_state would break the reproducibility between graphs (compiled, async).
+        self.output.reset(rng)
 
         # Reset all inputs and output
         rngs_in = rnd.split(rng, num=len(self.inputs))
@@ -272,7 +272,7 @@ class BaseNode:
         # Create logging record
         self._set_ts_start(start)
         self._record = log_pb2.NodeRecord(info=self.info, sync=self._sync, clock=self._clock, scheduling=self._scheduling,
-                                          real_time_factor=self._real_time_factor, ts_start=start)
+                                          real_time_factor=self._real_time_factor, ts_start=start, rng=self.output._rng.tolist())  # todo: log rng, class name
 
         # Start all inputs and output
         [i.start(record=self._record.inputs.add()) for i in self.inputs]
@@ -288,11 +288,12 @@ class BaseNode:
 
         # Push scheduled ts
         _f = self._submit(self.push_scheduled_ts)
+        return _f
 
     def _stop(self, timeout: Optional[float] = None) -> Future:
         # Pass here, if we are not running
         if self._state not in [RUNNING]:
-            self.log(f"{self.name} is not running, so it cannot be stopped.", log_level=DEBUG)
+            self.log("", f"{self.name} is not running, so it cannot be stopped.", log_level=DEBUG)
             f = Future()
             f.set_result(None)
             return f

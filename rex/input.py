@@ -146,7 +146,7 @@ class Input:
         self.q_expected_ts_max = deque()
         self.q_grouped = deque()
         self.q_ts_next_step = deque()
-        self.q_sample = deque() #if self.q_sample is None else self.q_sample
+        self.q_sample = deque()
 
         # Set running state
         self._state = READY
@@ -162,6 +162,7 @@ class Input:
         # Store running configuration
         self._record = record
         self._record.info.CopyFrom(self.info)
+        self._record.rng.extend(self._rng.tolist())
 
     def stop(self) -> Future:
         assert self._state in [RUNNING], f"Input {self.name} of {self.node.name} must be running in order to stop."
