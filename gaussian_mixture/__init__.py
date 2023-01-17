@@ -433,6 +433,7 @@ class GMMEstimator:
             else:
                 break
         w, s, m = w[prune_idx:], s[prune_idx:], m[prune_idx:]
+        w = normalize_weights(w)
 
         # Define non-truncated gmm
         cdist = tfd.Normal(loc=m, scale=s)
@@ -447,16 +448,16 @@ class GMMEstimator:
             grid_min=np.min(self.data)*0.9,
             grid_max=np.max(self.data)*1.1,
         )[0]
-        percentiles = 1 - cdist.cdf(q)
-        high = np.array(len(w)*[q])
-        low = np.zeros(high.shape)
+        percentiles = 1 - cdist.cdf(q)  # Get percentile per component
+        # high = np.array(len(w)*[q])
+        # low = np.zeros(high.shape)
 
         # Prepare truncated GMM
         gaussians = []
         for _p, _s, _m in zip(percentiles, s, m):
             g = Gaussian(_m, _s, float(_p))
             gaussians.append(g)
-        gmm = GMM(gaussians, w)
+        gmm = GMM(gaussians, w.tolist())
         return gmm
 
 

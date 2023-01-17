@@ -101,7 +101,7 @@ message GMM {
 message Gaussian {
     float weight = 1;
     float mean = 2;
-    float var = 3;
+    float std = 3;
     float percentile = 4;
     float low = 5;
     float high = 6;

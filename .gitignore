@@ -133,3 +133,5 @@ dmypy.json
 
 # experiments
 logs/
+*.zip
+*.mp4

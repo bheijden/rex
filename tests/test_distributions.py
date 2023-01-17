@@ -21,9 +21,9 @@ def test_distributions():
     print(g1)
     print(gmm1)
     _ = gmm1.weights
-    _ = gmm1.percentile
+    _ = gmm1.percentiles
     _ = gmm1.info
-
+    _ = gmm1.vars
 
     _ = gmm1.sample(rnd.PRNGKey(0))
     _ = gmm1.pdf(0.5)

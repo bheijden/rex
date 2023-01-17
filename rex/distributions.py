@@ -7,32 +7,32 @@ tfd = tfp.distributions
 
 
 class Gaussian:
-    def __init__(self, mean: float, var: float = 0, percentile: float = 0.01):
-        assert var >= 0, "var must be non-negative"
+    def __init__(self, mean: float, std: float = 0, percentile: float = 0.01):
+        assert std >= 0, "std must be non-negative"
         percentile = max(percentile, 1e-7)
         assert percentile > 0, "There must be a truncating percentile > 0."
         self._mean = mean
-        self._var = var
-        self._std = var ** (1/2)
+        self._var = std ** 2
+        self._std = std
         self._percentile = percentile
-        self._low = 0.  # tfd.Normal(loc=mean, scale=var).quantile(percentile).tolist()
-        self._high = tfd.Normal(loc=mean, scale=var).quantile(1-percentile).tolist()
+        self._low = 0.
+        self._high = tfd.Normal(loc=mean, scale=std).quantile(1-percentile).tolist()
         assert self._high < onp.inf, "The maximum value must be bounded"
-        if var > 0:
-            self._dist = tfd.TruncatedNormal(loc=mean, scale=var, low=self._low, high=self._high)
+        if std > 0:
+            self._dist = tfd.TruncatedNormal(loc=mean, scale=std, low=self._low, high=self._high)
         else:
             self._dist = tfd.Deterministic(loc=mean)
 
     def __repr__(self):
-        return f"Gaussian | {1.0: .2f}*N({self.mean: .4f}, {self.var: .4f}) | percentile={self.percentile}"
+        return f"Gaussian | {1.0: .2f}*N({self.mean: .4f}, {self.std: .4f}) | percentile={self.percentile}"
 
     def __add__(self, other: "Distribution"):
         """Summation of two distributions"""
         if isinstance(other, Gaussian):
             mean = self.mean + other.mean
-            var = self.var + other.var
+            std = (self.var + other.var) ** (1/2)
             percentile = max(self.percentile, other.percentile)
-            return Gaussian(mean, var, percentile=percentile)
+            return Gaussian(mean, std, percentile=percentile)
         elif isinstance(other, GMM):
             return other + self
         else:
@@ -54,13 +54,13 @@ class Gaussian:
         if isinstance(info, log_pb2.GMM):
             assert len(info.gaussians) == 1, "The GMM log should only contain a single Gaussian."
             info = info.gaussians[0]
-        mean, var, percentile = info.mean, info.var, info.percentile
-        return cls(mean, var, percentile)
+        mean, std, percentile = info.mean, info.std, info.percentile
+        return cls(mean, std, percentile)
 
     @property
     def info(self) -> log_pb2.GMM:
         info = log_pb2.GMM()
-        g = log_pb2.Gaussian(weight=1, mean=self.mean, var=self.var, percentile=self.percentile, low=self.low, high=self.high)
+        g = log_pb2.Gaussian(weight=1, mean=self.mean, std=self.std, percentile=self.percentile, low=self.low, high=self.high)
         info.gaussians.append(g)
         return info
 
@@ -75,6 +75,10 @@ class Gaussian:
     @property
     def var(self):
         return self._var
+
+    @property
+    def std(self):
+        return self._std
 
     @property
     def low(self):
@@ -94,7 +98,7 @@ class GMM:
         self._gaussians = gaussians
 
         # Check if distributions are from the same family
-        deterministic = [v == 0 for v in self.vars]
+        deterministic = [v == 0 for v in self.stds]
         assert all(deterministic) or not any(deterministic), "Either all distributions must be deterministic (ie var=0) or stochastic (var>0)"
 
         if all(deterministic):
@@ -103,12 +107,12 @@ class GMM:
         else:
             self._dist = tfd.MixtureSameFamily(mixture_distribution=tfd.Categorical(probs=self._weights),
                                                components_distribution=tfd.TruncatedNormal(loc=self.means,
-                                                                                           scale=self.vars,
+                                                                                           scale=self.stds,
                                                                                            low=[g.low for g in self._gaussians],
                                                                                            high=[g.high for g in self._gaussians]))
 
     def __repr__(self):
-        msg = " | ".join([f"{w: .2f}*N({m: .4f}, {v: .4f})" for w, m, v in zip(self.weights, self.means, self.vars)])
+        msg = " | ".join([f"{w: .2f}*N({m: .4f}, {v: .4f})" for w, m, v in zip(self.weights, self.means, self.stds)])
         return f"GMM | {msg} | percentiles={self.percentiles}"
 
     def __add__(self, other: "Distribution"):
@@ -126,7 +130,7 @@ class GMM:
                 weights.append(w*ow)
                 # if p != op:
                 #     print(f"WARNING: Percentiles do not match. {p} != {op}. Gaussian with higher percentile will be used.")
-                gaussians.append(Gaussian(m + om, v + ov, percentile=max(p, op)))
+                gaussians.append(Gaussian(m + om, (v + ov) ** (1/2), percentile=max(p, op)))
         return GMM(gaussians, weights)
 
     def pdf(self, x: jnp.ndarray):
@@ -173,6 +177,10 @@ class GMM:
     @property
     def vars(self):
         return [g.var for g in self._gaussians]
+
+    @property
+    def stds(self):
+        return [g.std for g in self._gaussians]
 
     @property
     def low(self):
