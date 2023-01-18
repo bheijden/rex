@@ -108,4 +108,4 @@ def test_gmm_estimator():
 	est_step["agent"].plot_normalized_weights()
 	anim_agent = est_step["agent"].animate_training()
 
-	plt.show()
+	# plt.show()
