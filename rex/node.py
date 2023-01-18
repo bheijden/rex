@@ -451,15 +451,15 @@ class BaseNode:
             # Update StepState with grouped messages
             # todo: have a single buffer for step_state used for both in and out
             # todo: Makes a copy of the message. Is this necessary? Can we do in-place updates?
-            try:
-                step_state = self._step_state.replace(inputs=inputs)
-            except AttributeError as e:
-                s = RUNNING_STATES[self._state]
-                e = self._eps
-                t = self._tick
-                info = f"state={s} | eps={e} | tick={t}"
-                self.log("BUG", f"Why is step_state None here? | {info}", log_level=ERROR)
-                raise e
+            # try:
+            step_state = self._step_state.replace(inputs=inputs)
+            # except AttributeError as e:
+            #     s = RUNNING_STATES[self._state]
+            #     e = self._eps
+            #     t = self._tick
+            #     info = f"state={s} | eps={e} | tick={t}"
+            #     self.log("BUG", f"Why is step_state None here? | {info}", log_level=ERROR)
+            #     raise e
 
             # Run step and get msg
             new_step_state, output = self.step(jp.float32(ts_step_sc), step_state)
