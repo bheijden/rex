@@ -99,7 +99,7 @@ class GMM:
 
         # Check if distributions are from the same family
         deterministic = [v == 0 for v in self.stds]
-        assert all(deterministic) or not any(deterministic), "Either all distributions must be deterministic (ie var=0) or stochastic (var>0)"
+        assert all(deterministic) or not any(deterministic), "Either all distributions must be deterministic (ie std=0) or stochastic (var>0)"
 
         if all(deterministic):
             self._dist = tfd.MixtureSameFamily(mixture_distribution=tfd.Categorical(probs=self._weights),

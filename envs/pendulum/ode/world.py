@@ -32,11 +32,11 @@ def build_pendulum(rate: Dict[str, float] = None,
 	for name in names:
 		rate[name] = rate.get(name, rate.get("world", 30.0))
 		process[name] = process.get(name, None)
-		process_sim[name] = process_sim.get(name, Gaussian(mean=0., var=0.))
+		process_sim[name] = process_sim.get(name, Gaussian(mean=0., std=0.))
 		log_level[name] = log_level.get(name, WARN)
 		if name in ["actuator", "sensor"]:
 			trans[name] = trans.get(name, None)
-			trans_sim[name] = trans_sim.get(name, Gaussian(mean=0., var=0.))
+			trans_sim[name] = trans_sim.get(name, Gaussian(mean=0., std=0.))
 
 	# Create nodes
 	world = World(name="world", rate=rate["world"], delay=process["world"], delay_sim=process_sim["world"], log_level=log_level["world"], color="blue")
@@ -47,8 +47,8 @@ def build_pendulum(rate: Dict[str, float] = None,
 	# Connect nodes
 	world.connect(actuator, window=1, blocking=False, skip=False, delay_sim=trans_sim["actuator"], delay=trans["actuator"], jitter=LATEST)
 	sensor.connect(world, window=1, blocking=False, skip=True, delay_sim=trans_sim["sensor"], delay=trans["sensor"], jitter=LATEST)
-	render.connect(sensor, window=1, blocking=False, skip=False, delay_sim=Gaussian(mean=0., var=0.), delay=0.0, jitter=LATEST)
-	# render.connect(actuator, window=1, blocking=False, skip=False, delay_sim=Gaussian(mean=0., var=0.), delay=0.0, jitter=LATEST)
+	render.connect(sensor, window=1, blocking=False, skip=False, delay_sim=Gaussian(mean=0., std=0.), delay=0.0, jitter=LATEST)
+	# render.connect(actuator, window=1, blocking=False, skip=False, delay_sim=Gaussian(mean=0., std=0.), delay=0.0, jitter=LATEST)
 
 	render.step = new_process(render.step)
 

@@ -4,11 +4,14 @@ from time import time
 from termcolor import colored
 from os import getpid
 from threading import current_thread
+import numpy as onp
+import jax
 
+from rex.proto import log_pb2
 from rex.constants import WARN, INFO, SIMULATED
 
-if TYPE_CHECKING:
-    from rex.node import Node
+# if TYPE_CHECKING:
+#     from rex.node import Node
 
 
 # Global log level
@@ -164,3 +167,31 @@ class AttrDict(dict):
         self.__dict__ = self
 
 
+def get_delay_data(record: log_pb2.ExperimentRecord):
+    get_step_delay = lambda s: s.delay  # todo: use comp_delay?
+    get_input_delay = lambda m: m.delay  # todo: use comm_delay?
+
+    exp_data, exp_info = [], []
+    for e in record.episode:
+        data, info = dict(inputs=dict(), step=dict()), dict(inputs=dict(), step=dict())
+        exp_data.append(data), exp_info.append(info)
+        for n in e.node:
+            node_name = n.info.name
+            # Fill info tree
+            info["inputs"][node_name] = dict()
+            info["step"][node_name] = n.info
+            for i in n.inputs:
+                input_name = i.info.name
+                info["inputs"][node_name][input_name] = (n.info, i.info)
+
+            # Fill data tree
+            delays = [get_step_delay(s) for s in n.steps]
+            data["step"][node_name] = onp.array(delays)
+            data["inputs"][node_name] = dict()
+            for i in n.inputs:
+                input_name = i.info.name
+                delays = [get_input_delay(m) for g in i.grouped for m in g.messages]
+                data["inputs"][node_name][input_name] = onp.array(delays)
+    data = jax.tree_map(lambda *x: onp.concatenate(x, axis=0), *exp_data)
+    info = jax.tree_map(lambda *x: x[0], *exp_info)
+    return data, info

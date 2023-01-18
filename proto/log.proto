@@ -2,6 +2,10 @@ syntax = "proto3";
 
 package logging;
 
+message ExperimentRecord {
+    repeated EpisodeRecord episode = 1;
+}
+
 
 message EpisodeRecord {
     repeated NodeRecord node = 1;  // Contains all node timings

@@ -33,7 +33,7 @@ class Render(Node):
         :param shape: Shape of the image to be rendered.
         :param kwargs: Kwargs for Node base class.
         """
-		super().__init__(*args, **kwargs)
+		super().__init__(*args, stateful=False, **kwargs)
 		self._visual = visual
 		self._mode = mode
 		self._shape = shape or [480, 480, 3]

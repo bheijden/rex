@@ -30,13 +30,13 @@ data_mixture = random.permutation(key_perm, np.abs(np.concatenate(draws)))
 
 import seaborn as sns
 from rex.open_colors import ecolor, fcolor
-from gaussian_mixture import GMMEstimator
+from rex.gmm_estimator import GMMEstimator
 sns.set()
 
 estimator = GMMEstimator(data_mixture)
 ax = estimator.plot_hist(edgecolor=ecolor.communication, facecolor=fcolor.communication, bins=100)
 estimator.fit(num_steps=500, num_components=2, step_size=0.05, seed=1)
-gmm = estimator.get_truncated_gmm()
+gmm = estimator.get_dist()
 x = np.linspace(data_mixture.min(), data_mixture.max(), num=1000)
 y = gmm.pdf(x)
 ax.plot(x, y, color='yellow')

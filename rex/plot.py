@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Dict, List, Tuple, Union
 import numpy as onp
 import networkx as nx
+import jax
 
 from rex.utils import AttrDict
 from rex.constants import SIMULATED
@@ -8,12 +9,30 @@ from rex.distributions import GMM, Gaussian
 from rex.proto import log_pb2
 
 import matplotlib
+import matplotlib.pyplot as plt
 from matplotlib.legend import Legend
 from matplotlib import collections as mc
 import matplotlib.patches as mpatches
 
 if TYPE_CHECKING:
     from rex.distributions import Distribution
+
+
+def get_subplots(tree, figsize=(10, 10), sharex=False, sharey=False, major="row"):
+    _, treedef = jax.tree_util.tree_flatten(tree)
+    num = treedef.num_leaves
+    nrows, ncols = onp.ceil(onp.sqrt(num)).astype(int), onp.ceil(onp.sqrt(num)).astype(int)
+    if nrows * (ncols - 1) >= num:
+        if major == "row":
+            ncols -= 1
+        else:
+            nrows -= 1
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize, sharex=sharex, sharey=sharey)
+    tree_axes = jax.tree_util.tree_unflatten(treedef, axes.flatten()[0:num].tolist())
+    if len(axes.flatten()) > num:
+        for ax in axes.flatten()[num:]:
+            ax.remove()
+    return fig, tree_axes
 
 
 def plot_input_thread(ax: "matplotlib.Axes",

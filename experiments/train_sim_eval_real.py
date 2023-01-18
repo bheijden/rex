@@ -22,6 +22,7 @@ if __name__ == "__main__":
 	utils.set_log_level(WARN)
 
 	# Parameters
+	log_dir = "/home/r2ci/rex/logs"
 	preload_model = "works_sac_pendulum"
 	new_model_name = "sac_pendulum"
 	scheduling = PHASE
@@ -61,15 +62,18 @@ if __name__ == "__main__":
 
 	# Initialize model
 	try:
-		model_real = SAC.load(preload_model, env=env_real)
+		model_real = SAC.load(f"{log_dir}/{preload_model}", env=env_real)
 		new_model = False
-	except FileNotFoundError:
+	except FileNotFoundError as e:
+		print(e)
 		new_model = True
 		model_real = SAC("MlpPolicy", env_real)
 	action, _states = model_real.predict(env_real.observation_space.sample(), deterministic=True)
 
 	# Run environment
-	for _ in range(2):
+	exp_record = log_pb2.ExperimentRecord()
+	eps_record = None
+	for _ in range(3):
 		cum_reward = 0.
 		done, obs = False, env_real.reset()
 		tstart = time.time()
@@ -83,12 +87,21 @@ if __name__ == "__main__":
 			# print(f"{action=} | {obs=}")
 		tend = time.time()
 		print(f"ASYNC | steps={max_steps} | t_s={(tstart - tend): 2.4f} sec | fps={max_steps / (tend - tstart): 2.4f} | cum_reward={onp.mean(cum_reward)}")
-	env_real.stop()
+		env_real.stop()  # NOTE: This is required to make the number of ticks equal to max_steps for compiled graph
+
+		# Save record
+		eps_record = log_pb2.EpisodeRecord()
+		[eps_record.node.append(node.record) for node in nodes_real.values()]
+		exp_record.episode.append(eps_record)
+	# env_real.stop()
+
+	# Save experiment record
+	# with open(f"/home/r2ci/rex//logs/{new_model_name}.pb", "wb") as f:
+	# 	f.write(exp_record.SerializeToString())
 
 	# Trace record
-	record = log_pb2.EpisodeRecord()
-	[record.node.append(node.record) for node in nodes_real.values()]
-	trace_record = trace(record, "agent")
+	assert eps_record is not None, "No episode record found."
+	trace_record = trace(exp_record.episode[0], "agent")
 
 	# Visualize trace
 	must_plot = True
@@ -143,10 +156,10 @@ if __name__ == "__main__":
 	# Initialize model
 	model_ode = SAC("MlpPolicy", env_ode, verbose=1)
 	model_ode.learn(total_timesteps=80_000, progress_bar=True)
-	model_ode.save(new_model_name)
+	model_ode.save(f"{log_dir}/{new_model_name}")
 
 	# Reload real model
-	model_real = SAC.load(new_model_name, env=env_real)
+	model_real = SAC.load(f"{log_dir}/{new_model_name}", env=env_real)
 	model_real.predict(env_real.observation_space.sample(), deterministic=True)  # warm up
 
 	# Run environment (simulation environment)
