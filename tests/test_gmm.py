@@ -35,7 +35,7 @@ def test_gmm_estimator():
 
 		# Save record
 		eps_record = log_pb2.EpisodeRecord()
-		[eps_record.node.append(node.record) for node in nodes.values()]
+		[eps_record.node.append(node.record()) for node in nodes.values()]
 		exp_record.episode.append(eps_record)
 
 	# Prepare data

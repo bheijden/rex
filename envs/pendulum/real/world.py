@@ -36,15 +36,13 @@ def build_pendulum(rate: Dict[str, float] = None,
                    process: Dict[str, float] = None,
                    process_sim: Dict[str, Distribution] = None,
                    trans: Dict[str, float] = None,
-                   trans_sim: Dict[str, Distribution] = None,
-                   log_level: Dict[str, int] = None
+                   trans_sim: Dict[str, Distribution] = None
                    ) -> Dict[str, Node]:
 	rate = rate or {}
 	process = process or {}
 	process_sim = process_sim or {}
 	trans = trans or {}
 	trans_sim = trans_sim or {}
-	log_level = log_level or {}
 
 	# Fill in default values
 	names = ["world", "actuator", "sensor", "render"]
@@ -52,20 +50,15 @@ def build_pendulum(rate: Dict[str, float] = None,
 		rate[name] = rate.get(name, rate.get("world", 30.0))
 		process[name] = process.get(name, None)
 		process_sim[name] = process_sim.get(name, Gaussian(mean=0., std=0.))
-		log_level[name] = log_level.get(name, WARN)
 		if name in ["actuator", "sensor"]:
 			trans[name] = trans.get(name, None)
 			trans_sim[name] = trans_sim.get(name, Gaussian(mean=0., std=0.))
 
 	# Create nodes
-	world = World(name="world", rate=rate["world"], delay=process["world"], delay_sim=process_sim["world"],
-	              log_level=log_level["world"], color="blue")
-	actuator = Actuator(name="actuator", rate=rate["actuator"], delay=process["actuator"], delay_sim=process_sim["actuator"],
-	                    log_level=log_level["actuator"], color="green", advance=False)
-	sensor = Sensor(name="sensor", rate=rate["sensor"], delay=process["sensor"], delay_sim=process_sim["sensor"],
-	                log_level=log_level["sensor"], color="yellow")
-	render = Render(name="render", rate=rate["render"], delay=process["render"], delay_sim=process_sim["render"],
-	                log_level=log_level["render"], color="blue")
+	world = World(name="world", rate=rate["world"], delay=process["world"], delay_sim=process_sim["world"])
+	actuator = Actuator(name="actuator", rate=rate["actuator"], delay=process["actuator"], delay_sim=process_sim["actuator"], advance=False)
+	sensor = Sensor(name="sensor", rate=rate["sensor"], delay=process["sensor"], delay_sim=process_sim["sensor"])
+	render = Render(name="render", rate=rate["render"], delay=process["render"], delay_sim=process_sim["render"])
 
 	# Connect nodes
 	world.connect(actuator, window=1, blocking=False, skip=False, delay_sim=trans_sim["actuator"], delay=trans["actuator"],

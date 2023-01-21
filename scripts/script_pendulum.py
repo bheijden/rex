@@ -100,7 +100,7 @@ if __name__ == "__main__":
 
 	# Gather record
 	record = log_pb2.EpisodeRecord()
-	[record.node.append(node.record) for node in nodes.values()]
+	[record.node.append(node.record()) for node in nodes.values()]
 	r = {n.info.name: n for n in record.node}
 
 	# Trace

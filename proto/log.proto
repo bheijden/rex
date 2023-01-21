@@ -21,6 +21,11 @@ message NodeRecord {
     repeated uint32 rng = 7;  // PRNG key (seeds the delay_sim of the output & initial step_state.rng).
     repeated InputRecord inputs = 8; // Input info and timing info on received messages.
     repeated StepRecord steps = 9;  // Timing info on executed steps
+    Serialization outputs = 10;  // Serialized output trajectory.
+    Serialization rngs = 11;  // Serialized RNG state trajectory.
+    Serialization states = 12;  // Serialized state trajectory.
+    Serialization params = 13;  // Serialized parameter trajectory.
+    Serialization step_states = 14;  // Serialized step_state trajectory. Already includes rng, state, and params.
 }
 
 message StepRecord {
@@ -74,15 +79,17 @@ message GraphInfo {
 
 message NodeInfo {
     string name = 1; // Name of the node
-    string cls = 2; // Class of the node (module/attribute)
-    float rate = 3; // Rate of the node
-    bool stateful = 4;  // Whether the node is stateful (=True) or stateless (=False).
-    bool advance = 5;  // Whether the node may advance its step (=True) or not (=False).
-    float phase = 6; // Phase shift
-    GMM delay_sim = 7; // Computation delay distribution of the node step
-    float delay = 8; // Computation delay that is taken into account.
-    repeated InputInfo inputs = 9;  // Registered inputs
+    string cls = 2; // Class of the node as a string `module/attribute`
+    bytes state = 3; // Pickled state of the node. Can be used to reconstruct the node. See Node.__getstate__ and Node.__setstate__.
+    float rate = 4; // Rate of the node
+    bool stateful = 5;  // Whether the node is stateful (=True) or stateless (=False).
+    bool advance = 6;  // Whether the node may advance its step (=True) or not (=False).
+    float phase = 7; // Phase shift
+    GMM delay_sim = 8; // Computation delay distribution of the node step
+    float delay = 9; // Computation delay that is taken into account.
+    repeated InputInfo inputs = 10;  // Registered inputs
 }
+
 
 message InputInfo {
     string name = 1; // name of the input argument
@@ -156,4 +163,12 @@ message Target {
     uint32 tick = 3;        // Tick of current step call (=input and state dependency).
     double ts = 4;          // Timestamp of received input message (=input dependency) or ts_step (=state dependency).
     Target rerouted = 5;    // Rerouted target (if any).
+}
+
+message Serialization {
+    // Flax serialization of data.
+    // Use `flax.serialization.from_bytes(pickle.load(target), encoded_bytes[idx])` to deserialize.
+    // If the target cannot be pickled, use `flax.serialization.msgpack_restore(encoded_bytes)` instead to retrieve a state-dict.
+    bytes target = 1; // Template object (pickled) with state-dict registrations that matches the structure being deserialized from `encoded_bytes`.
+    repeated bytes encoded_bytes = 2; // Encoded bytes (each element in the list can be reconstructed to target).
 }

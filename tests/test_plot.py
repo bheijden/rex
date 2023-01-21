@@ -17,11 +17,11 @@ utils.set_log_level(WARN)
 
 def test_plot():
     # Create nodes
-    world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000), log_level=WARN, color="magenta")
-    sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007), log_level=WARN, color="yellow")
-    observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016), log_level=WARN, color="cyan")
-    agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(0.005, 0.001), log_level=WARN, color="blue", advance=True)
-    actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), log_level=WARN, color="green", advance=False,
+    world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000))
+    sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007))
+    observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016))
+    agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
+    actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), advance=False,
                          stateful=True)
     nodes = [world, sensor, observer, agent, actuator]
 
@@ -88,7 +88,7 @@ def test_plot():
 
     # Gather the records
     record = log_pb2.EpisodeRecord()
-    [record.node.append(node.record) for node in nodes]
+    [record.node.append(node.record()) for node in nodes]
     d = {n.info.name: n for n in record.node}
 
     from rex.plot import plot_input_thread, plot_event_thread

@@ -126,7 +126,7 @@ test-no-codebase = ["pytest", "matplotlib", "pillow"]
 
 [[package]]
 name = "coverage"
-version = "7.0.0"
+version = "7.0.5"
 description = "Code coverage measurement for Python"
 category = "dev"
 optional = false
@@ -153,6 +153,17 @@ description = "Decorators for Humans"
 category = "main"
 optional = false
 python-versions = ">=3.5"
+
+[[package]]
+name = "dill"
+version = "0.3.6"
+description = "serialize all of python"
+category = "main"
+optional = false
+python-versions = ">=3.7"
+
+[package.extras]
+graph = ["objgraph (>=1.7.2)"]
 
 [[package]]
 name = "dm-tree"
@@ -843,7 +854,7 @@ testing = ["pytest (>=6)", "pytest-checkdocs (>=2.4)", "flake8 (<5)", "pytest-co
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.8"
-content-hash = "856f201357aba0acc57684094dab16afc2e3c6417dee2405c55fe6378008e9f9"
+content-hash = "3958b211d2c3809d42dbe94a89c74bef38653da46f2595ce5e922ab6578743d2"
 
 [metadata.files]
 absl-py = []
@@ -871,6 +882,7 @@ decorator = [
     {file = "decorator-5.1.1-py3-none-any.whl", hash = "sha256:b8c3f85900b9dc423225913c5aace94729fe1fa9763b38939a95226f02d37186"},
     {file = "decorator-5.1.1.tar.gz", hash = "sha256:637996211036b6385ef91435e4fae22989472f9d571faba8927ba8253acbc330"},
 ]
+dill = []
 dm-tree = []
 etils = []
 exceptiongroup = []

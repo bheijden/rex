@@ -1,5 +1,6 @@
 from rex.distributions import Gaussian, GMM
 import jax.random as rnd
+import pickle
 
 
 def test_distributions():
@@ -31,5 +32,9 @@ def test_distributions():
     _ = g1.sample(rnd.PRNGKey(0))
     _ = g1.pdf(0.5)
     _ = g1.cdf(0.5)
+
+    # Test pickle API
+    g1 = pickle.loads(pickle.dumps(g1))
+    gmm1 = pickle.loads(pickle.dumps(gmm1))
 
 

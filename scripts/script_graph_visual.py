@@ -19,7 +19,7 @@ if __name__ == "__main__":
 
 	# Get record
 	record = log_pb2.EpisodeRecord()
-	[record.node.append(node.record) for node in nodes.values()]
+	[record.node.append(node.record()) for node in nodes.values()]
 
 	# Create new plot
 	fig, ax = plt.subplots()

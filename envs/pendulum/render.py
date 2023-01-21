@@ -36,7 +36,20 @@ class Render(Node):
 		super().__init__(*args, stateful=False, **kwargs)
 		self._visual = visual
 		self._mode = mode
+		self._encoding = encoding
 		self._shape = shape or [480, 480, 3]
+
+	def __getstate__(self):
+		args, kwargs, inputs = super().__getstate__()
+		kwargs.pop("stateful")  # Node is always stateless
+		kwargs.update(dict(visual=self._visual, mode=self._mode, encoding=self._encoding, shape=self._shape))
+		return args, kwargs, inputs
+
+	def __setstate__(self, state):
+		args, kwargs, inputs = state
+		self.__init__(*args, **kwargs)
+		# At this point, the inputs are not yet fully unpickled.
+		self.inputs = inputs
 
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Image:
 		"""Default output of the node."""

@@ -10,11 +10,11 @@ import jumpy.numpy as jp
 import numpy as onp
 
 # Initialize nodes
-world = DummyNode("world", rate=20, delay_sim=Gaussian(0 / 1e3), log_level=WARN, color="magenta")
-sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(7 / 1e3), log_level=WARN, color="yellow")
-observer = DummyNode("observer", rate=30, delay_sim=Gaussian(16 / 1e3), log_level=WARN, color="cyan")
-agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(5 / 1e3, 1 / 1e3), log_level=WARN, color="blue", advance=True)
-actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), log_level=WARN, color="green", advance=False, stateful=False)
+world = DummyNode("world", rate=20, delay_sim=Gaussian(0 / 1e3))
+sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(7 / 1e3))
+observer = DummyNode("observer", rate=30, delay_sim=Gaussian(16 / 1e3))
+agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(5 / 1e3, 1 / 1e3), advance=True)
+actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), advance=False, stateful=False)
 nodes = [world, sensor, observer, agent, actuator]
 nodes = {n.name: n for n in nodes}
 

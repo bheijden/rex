@@ -14,10 +14,8 @@ if TYPE_CHECKING:
 
 
 class Output:
-    def __init__(self, node: "Node", log_level: int, color: str, delay: float, delay_sim: Distribution):
+    def __init__(self, node: "Node", delay: float, delay_sim: Distribution):
         self.node = node
-        self.log_level = log_level
-        self.color = color
         self.inputs = []
         self.delay_sim = delay_sim
         self._state = STOPPED
@@ -34,6 +32,14 @@ class Output:
         self._phase = None
         self.q_sample = None
         self._rng = None
+
+    @property
+    def log_level(self):
+        return self.node.log_level
+
+    @property
+    def color(self):
+        return self.node.color
 
     @property
     def name(self) -> str:

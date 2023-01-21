@@ -31,7 +31,7 @@ def build_dummy_compiled_env() -> Tuple["DummyEnv", "DummyEnv", Dict[str, Node]]
 
 	# Trace record
 	record = log_pb2.EpisodeRecord()
-	[record.node.append(node.record) for node in nodes.values()]
+	[record.node.append(node.record()) for node in nodes.values()]
 	trace_record = trace(record, "agent")
 
 	# Create traced environment
@@ -48,11 +48,11 @@ def build_dummy_env() -> Tuple["DummyEnv", Dict[str, Node]]:
 
 def build_dummy_graph() -> Dict[str, Node]:
 	# Create nodes
-	world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000), color="magenta")
-	sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007), color="yellow")
-	observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016), color="cyan")
-	agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(0.005, 0.001), color="blue", advance=True)
-	actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), color="green", advance=False)
+	world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000))
+	sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007))
+	observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016))
+	agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
+	actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), advance=False)
 	nodes = [world, sensor, observer, agent, actuator]
 
 	# Connect
@@ -91,8 +91,6 @@ class DummyOutput:
 
 
 class DummyNode(Node):
-	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs)
 
 	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyParams:
 		"""Default params of the node."""
@@ -161,8 +159,6 @@ class DummyNode(Node):
 
 
 class DummyAgent(Agent):
-	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs)
 
 	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyParams:
 		"""Default params of the agent."""

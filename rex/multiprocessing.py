@@ -1,5 +1,6 @@
 from typing import Callable, Tuple
 import os
+import multiprocessing as mp
 from concurrent.futures.process import _sendback_result, _ExceptionWithTraceback
 from concurrent.futures import _base, Future, CancelledError, ProcessPoolExecutor
 import traceback
@@ -54,9 +55,17 @@ def _process_worker(fn, call_queue, result_queue, initializer, initargs):
 
 
 class _NewProcess:
-	def __init__(self, fn: Callable, max_workers: int = 1, initializer: Callable = None, initargs: Tuple = ()):
+	def __init__(self, fn: Callable, max_workers: int = 1, initializer: Callable = None, initargs: Tuple = (), method: str = "fork"):
 		self._unwrapped_fn = fn
-		executor = ProcessPoolExecutor(max_workers=max_workers, initializer=initializer, initargs=initargs)
+
+		# In general we fork, so that we inherit all global variables of the parent process.
+		# Fork is not threadsafe, so we may need to use 'forkserver' as the start method.
+		# More info: https://docs.python.org/3/library/multiprocessing.html#contexts-and-start-methods
+		# As a consequence of inheriting all global variables, re-initializing pubs/subs in worker process seem to fail when
+		# the main process was already initialized as a ros node.
+		mp_context = mp.get_context(method)
+
+		executor = ProcessPoolExecutor(max_workers=max_workers, initializer=initializer, initargs=initargs, mp_context=mp_context)
 		self._executor = executor
 
 		def _adjust_process_count():
@@ -72,7 +81,8 @@ class _NewProcess:
 					      executor._call_queue,
 					      executor._result_queue,
 					      executor._initializer,
-					      executor._initargs))
+					      executor._initargs),
+				)
 				p.start()
 				executor._processes[p.pid] = p
 

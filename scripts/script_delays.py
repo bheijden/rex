@@ -71,7 +71,7 @@ if __name__ == "__main__":
 
 	# Load episode record
 	exp_record = log_pb2.ExperimentRecord()
-	with open(f"{log_dir}/sac_pendulum.pb", "rb") as f:
+	with open(f"{log_dir}/all_logged_sac_pendulum.pb", "rb") as f:
 		exp_record.ParseFromString(f.read())
 
 	# Prepare data

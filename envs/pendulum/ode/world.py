@@ -39,14 +39,16 @@ def build_pendulum(rate: Dict[str, float] = None,
 			trans_sim[name] = trans_sim.get(name, Gaussian(mean=0., std=0.))
 
 	# Create nodes
-	world = World(name="world", rate=rate["world"], delay=process["world"], delay_sim=process_sim["world"], log_level=log_level["world"], color="blue")
-	actuator = Actuator(name="actuator", rate=rate["actuator"], delay=process["actuator"], delay_sim=process_sim["actuator"], log_level=log_level["actuator"], color="green", advance=False)
-	sensor = Sensor(name="sensor", rate=rate["sensor"], delay=process["sensor"], delay_sim=process_sim["sensor"], log_level=log_level["sensor"], color="yellow")
-	render = Render(name="render", rate=rate["render"], delay=process["render"], delay_sim=process_sim["render"], log_level=log_level["render"], color="blue")
+	world = World(name="world", rate=rate["world"], delay=process["world"], delay_sim=process_sim["world"])
+	actuator = Actuator(name="actuator", rate=rate["actuator"], delay=process["actuator"], delay_sim=process_sim["actuator"], advance=False)
+	sensor = Sensor(name="sensor", rate=rate["sensor"], delay=process["sensor"], delay_sim=process_sim["sensor"])
+	render = Render(name="render", rate=rate["render"], delay=process["render"], delay_sim=process_sim["render"])
 
 	# Connect nodes
-	world.connect(actuator, window=1, blocking=False, skip=False, delay_sim=trans_sim["actuator"], delay=trans["actuator"], jitter=LATEST)
-	sensor.connect(world, window=1, blocking=False, skip=True, delay_sim=trans_sim["sensor"], delay=trans["sensor"], jitter=LATEST)
+	world.connect(actuator, window=1, blocking=False, skip=False, delay_sim=trans_sim["actuator"], delay=trans["actuator"],
+	              jitter=LATEST)
+	sensor.connect(world, window=1, blocking=False, skip=True, delay_sim=trans_sim["sensor"], delay=trans["sensor"],
+	               jitter=LATEST)
 	render.connect(sensor, window=1, blocking=False, skip=False, delay_sim=Gaussian(mean=0., std=0.), delay=0.0, jitter=LATEST)
 	# render.connect(actuator, window=1, blocking=False, skip=False, delay_sim=Gaussian(mean=0., std=0.), delay=0.0, jitter=LATEST)
 
@@ -108,11 +110,22 @@ def sigmoid(x):
 
 
 class World(Node):
-	def __init__(self, *args, dt_ode: float = 1/100, **kwargs):
+	def __init__(self, *args, dt_ode: float = 1 / 100, **kwargs):
 		super().__init__(*args, **kwargs)
-		dt = 1/self.rate
+		dt = 1 / self.rate
 		self.substeps = ceil(dt / dt_ode)
 		self.dt_ode = dt / self.substeps
+
+	def __getstate__(self):
+		args, kwargs, inputs = super().__getstate__()
+		kwargs.update(dict(dt_ode=self.dt_ode))
+		return args, kwargs, inputs
+
+	def __setstate__(self, state):
+		args, kwargs, inputs = state
+		self.__init__(*args, **kwargs)
+		# At this point, the inputs are not yet fully unpickled.
+		self.inputs = inputs
 
 	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
 		"""Default params of the node."""
@@ -186,8 +199,6 @@ class World(Node):
 
 
 class Sensor(Node):
-	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs)
 
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
 		"""Default output of the node."""
@@ -215,8 +226,6 @@ class Sensor(Node):
 
 
 class Actuator(Node):
-	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs)
 
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
 		"""Default output of the node."""

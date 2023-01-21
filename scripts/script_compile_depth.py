@@ -41,6 +41,7 @@ def _plot(new_record):
 
 
 if __name__ == "__main__":
+    raise NotImplementedError("This script must be refactored to use pickle.")
 
     # Load protobuf trace
     with open("/home/r2ci/rex/scripts/record_1.pb", "rb") as f:
@@ -50,11 +51,11 @@ if __name__ == "__main__":
     inputs = {n.info.name: {i.info.name: i for i in n.inputs} for n in record.episode.node}
 
     # Re-initialize nodes
-    world = DummyNode.from_info(d["world"].info, log_level=WARN, color="magenta")
-    sensor = DummyNode.from_info(d["sensor"].info, log_level=WARN, color="yellow")
-    observer = DummyNode.from_info(d["observer"].info, log_level=WARN, color="cyan")
-    agent = DummyAgent.from_info(d["agent"].info, log_level=WARN, color="blue")
-    actuator = DummyNode.from_info(d["actuator"].info, log_level=WARN, color="green")
+    world = DummyNode.from_info(d["world"].info)
+    sensor = DummyNode.from_info(d["sensor"].info)
+    observer = DummyNode.from_info(d["observer"].info)
+    agent = DummyAgent.from_info(d["agent"].info)
+    actuator = DummyNode.from_info(d["actuator"].info)
     nodes = [world, sensor, observer, agent, actuator]
     nodes = {n.name: n for n in nodes}
 

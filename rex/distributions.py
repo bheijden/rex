@@ -1,7 +1,7 @@
 from rex.proto import log_pb2
 from typing import Union, List, Tuple
 import numpy as onp
-import jax.numpy as jnp  # todo: replace with from brax import jumpy.numpy as jp.ndarray?
+import jumpy.numpy as jp
 from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
 tfd = tfp.distributions
 
@@ -38,13 +38,24 @@ class Gaussian:
         else:
             raise NotImplementedError("Not yet implemented")
 
-    def pdf(self, x: jnp.ndarray):
+    def __getstate__(self):
+        """Used for pickling"""
+        args = ()
+        kwargs = dict(mean=self.mean, std=self.std, percentile=self.percentile)
+        return args, kwargs
+
+    def __setstate__(self, state):
+        """Used for unpickling"""
+        args, kwargs = state
+        self.__init__(*args, **kwargs)
+
+    def pdf(self, x: jp.ndarray):
         return self._dist.prob(x)
 
-    def cdf(self, x: jnp.ndarray):
+    def cdf(self, x: jp.ndarray):
         return self._dist.cdf(x)
 
-    def sample(self, rng: jnp.ndarray, shape: Union[int, Tuple] = None):
+    def sample(self, rng: jp.ndarray, shape: Union[int, Tuple] = None):
         if shape is None:
             shape = ()
         return self._dist.sample(sample_shape=shape, seed=rng)
@@ -133,13 +144,24 @@ class GMM:
                 gaussians.append(Gaussian(m + om, (v + ov) ** (1/2), percentile=max(p, op)))
         return GMM(gaussians, weights)
 
-    def pdf(self, x: jnp.ndarray):
+    def __getstate__(self):
+        """Used for pickling"""
+        args = ()
+        kwargs = dict(gaussians=self._gaussians, weights=self._weights)
+        return args, kwargs
+
+    def __setstate__(self, state):
+        """Used for unpickling"""
+        args, kwargs = state
+        self.__init__(*args, **kwargs)
+
+    def pdf(self, x: jp.ndarray):
         return self._dist.prob(x)
 
-    def cdf(self, x: jnp.ndarray):
+    def cdf(self, x: jp.ndarray):
         return self._dist.cdf(x)
 
-    def sample(self, rng: jnp.ndarray, shape: Union[int, Tuple] = None):
+    def sample(self, rng: jp.ndarray, shape: Union[int, Tuple] = None):
         if shape is None:
             shape = ()
         return self._dist.sample(sample_shape=shape, seed=rng)
@@ -189,7 +211,6 @@ class GMM:
     @property
     def high(self):
         return max([g.high for g in self._gaussians])
-
 
 
 Distribution = Union[Gaussian, GMM]

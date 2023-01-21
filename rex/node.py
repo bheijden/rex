@@ -1,3 +1,6 @@
+# import codecs
+# import pickle
+import dill as pickle
 import abc
 import time
 from threading import RLock
@@ -11,29 +14,33 @@ import jax.numpy as jnp  # todo: replace with jumpy as jp.ndarray?
 import jax.random as rnd
 import numpy as onp
 from flax.core import FrozenDict
-from jax import jit
+from flax import serialization
 
 from rex.base import GraphState, StepState, InputState, State, Output as BaseOutput, Params, Empty
 from rex.constants import READY, RUNNING, STOPPING, STOPPED, RUNNING_STATES, PHASE, FREQUENCY, SIMULATED, \
     FAST_AS_POSSIBLE, SYNC, BUFFER, DEBUG, INFO, WARN, ERROR, WALL_CLOCK, LATEST
 from rex.input import Input
 from rex.output import Output
-from rex.utils import log
+from rex.utils import log, NODE_COLOR, NODE_LOG_LEVEL
 from rex.distributions import Distribution, Gaussian, GMM
 import rex.proto.log_pb2 as log_pb2
 
 
 class BaseNode:
-    def __init__(self, name: str, rate: float, delay_sim: Distribution, delay: float = None, advance: bool = True,
-                 stateful: bool = True, log_level: int = WARN, color: str = "green"):
+    def __init__(self, name: str, rate: float, delay_sim: Distribution = None, delay: float = None, advance: bool = True, stateful: bool = True):
         self.name = name
         self.rate = rate
-        self.log_level = log_level
-        self.color = color
         self.advance = advance
         self.stateful = stateful
         self.inputs: List[Input] = []
-        self.output = Output(self, self.log_level, self.color, delay, delay_sim)
+
+        # Initialize output
+        delay_sim = delay_sim if delay_sim is not None else Gaussian(0., 0.)
+        self.output = Output(self, delay, delay_sim)
+
+        # The following attributes are used to keep track of the state of the node
+        self._unpickled = True  # Used to determine whether this node is fully unpickled (ignores if all(inputs.unpickled)).
+        self._from_info = False  # Used to determine whether this node is created from an InputInfo proto log.
 
         # State and episode counter
         self._eps = 0
@@ -55,6 +62,12 @@ class BaseNode:
         self._scheduling = None
         self._real_time_factor = 1.
 
+        # Log
+        self._discarded = None
+        self._max_records = 10000  # todo: make this configurable. Must be > 1.
+        self._record_step_states: Deque[StepState] = None
+        self._record_outputs: Deque[Output] = None
+
         # Set starting ts
         self._ts_start = Future()
         self._set_ts_start(0.)
@@ -73,10 +86,27 @@ class BaseNode:
                                 f" the output phase ({self.output.phase=:.6f} s)."
                                 " This may lead to large (accumulating) delays.", WARN)
 
-    def warmup(self):
-        # Warms-up the jitted functions (i.e. pre-compiles)
-        # batch_split_rng(rnd.PRNGKey(0), self._jit_split, deque(), num=self._num_buffer)  # Only to trigger jit compilation
+    def __getstate__(self):
+        """Used for pickling
 
+        Does not pickle the connections, because it is not pickleable.
+        """
+        args = ()
+        kwargs = dict(name=self.name, rate=self.rate, delay_sim=self.output.delay_sim, delay=self.output.delay, advance=self.advance, stateful=self.stateful)
+        inputs = self.inputs
+        return args, kwargs, inputs
+
+    def __setstate__(self, state):
+        """Used for unpickling"""
+        args, kwargs, inputs = state
+        self.__init__(*args, **kwargs)
+        # At this point, the inputs are not yet fully unpickled.
+        self.inputs = inputs
+        # If the node is not fully unpickled after setting the state, consider setting self._unpickled to `False`.
+        # For example, some attributes may need to be replaced with references to objects, initialized somewhere else.
+        self._unpickled = True
+
+    def warmup(self):
         # Warms-up jitted functions in the output (i.e. pre-compiles)
         self.output.warmup()
 
@@ -84,13 +114,83 @@ class BaseNode:
         [i.warmup() for i in self.inputs]
 
     @property
-    def record(self) -> log_pb2.NodeRecord:
+    def unpickled(self):
+        return self._unpickled
+
+    @property
+    def log_level(self):
+        return NODE_LOG_LEVEL.get(self, WARN)
+
+    @property
+    def color(self):
+        return NODE_COLOR.get(self, "green")
+
+    def record(self, node: bool = False, outputs: bool = False,
+               rngs: bool = False, states: bool = False, params: bool = False,
+               step_states: bool = False) -> log_pb2.NodeRecord:
+        """Returns a NodeRecord proto log.
+
+        Recording all the data can be very memory intensive. It is recommended to only record the data you need. In particular,
+        recording the step states can be excessively memory intensive, because it contains inputs that are duplicates of the
+        outputs of other nodes.
+
+        If you want to record all data with minimal duplication,
+        set `node=True, outputs=True, rngs=True, states=True, params=True, step_states=False`.
+
+        :param node: Whether to record the (pickled) node state.
+        :param outputs: Whether to record the outputs.
+        :param rngs: Whether to record the random number generator state.
+        :param states: Whether to record the (pickled) state.
+        :param params: Whether to record the (pickled) params.
+        :param step_states: Whether to record the step states.
+        :return: A NodeRecord proto log.
+        """
+        assert self._state not in [RUNNING], "Cannot extract the record while running. Stop first (by calling .stop())."
+
+        # If records were discarded, warn the user that the record is incomplete.
+        if self._discarded > 0:
+            self.log("WARNING", f"Discarded {self._discarded} records. Incomplete records may lead to errors when tracing.", WARN)
+
+        # Get timing record
         if self._record is None:
+            # Create new record if not yet created.
             record = log_pb2.NodeRecord(info=self.info)
             record.inputs.extend([log_pb2.InputRecord(info=i.info) for i in self.inputs])
-            return record
         else:
-            return self._record
+            # Copy record from self._record.
+            record = log_pb2.NodeRecord()
+            record.CopyFrom(self._record)
+
+        # Store (pickled) node state
+        if node:
+            record.info.state = pickle.dumps(self)
+
+        # Store output trajectory
+        record.outputs.target = pickle.dumps(self._record_outputs[0])
+        if outputs and len(self._record_outputs) > 0:
+            record.outputs.encoded_bytes.extend([serialization.to_bytes(o) for o in self._record_outputs])
+
+        # Store random number generator state trajectory
+        record.rngs.target = pickle.dumps(self._record_step_states[0].rng)
+        if rngs and len(self._record_step_states) > 0:
+            record.rngs.encoded_bytes.extend([serialization.to_bytes(s.rng) for s in self._record_step_states])
+
+        # Store state trajectory
+        record.states.target = pickle.dumps(self._record_step_states[0].state)
+        if states and len(self._record_step_states) > 0:
+            record.states.encoded_bytes.extend([serialization.to_bytes(s.state) for s in self._record_step_states])
+
+        # Store params trajectory
+        record.params.target = pickle.dumps(self._record_step_states[0].params)
+        if params and len(self._record_step_states) > 0:
+            record.params.encoded_bytes.extend([serialization.to_bytes(s.params) for s in self._record_step_states])
+
+        # Store step_state trajectory
+        record.step_states.target = pickle.dumps(self._record_step_states[0])
+        if step_states and len(self._record_step_states) > 0:
+            record.step_states.encoded_bytes.extend([serialization.to_bytes(ss) for ss in self._record_step_states])
+
+        return record
 
     @property
     def eps(self) -> int:
@@ -122,29 +222,62 @@ class BaseNode:
     @property
     def info(self) -> log_pb2.NodeInfo:
         cls_str = self.__class__.__module__ + "/" + self.__class__.__qualname__
-        info = log_pb2.NodeInfo(name=self.name, cls=cls_str, rate=self.rate, stateful=self.stateful, advance=self.advance, phase=self.phase,
-                                delay_sim=self.output.delay_sim.info, delay=self.output.delay)
+
+        info = log_pb2.NodeInfo(name=self.name, cls=cls_str, rate=self.rate, stateful=self.stateful,
+                                advance=self.advance, phase=self.phase, delay_sim=self.output.delay_sim.info,
+                                delay=self.output.delay)
         info.inputs.extend([i.info for i in self.inputs])
         return info
 
-    @classmethod
-    def from_info(cls, info: log_pb2.NodeInfo, log_level: int = WARN, color: str = "green", **kwargs):
+    @staticmethod
+    def from_info(info: log_pb2.NodeInfo) -> "BaseNode":
+        """Creates a BaseNode object from a node info object.
+
+        Make sure to call connect_from_info() on the resulting BaseNode object to connect it to the rest of the graph.
+
+        A Basenode object is instantiated instead of the subclass. This means that subclass information is ignored and
+        lost silently. Some notes:
+        - This is useful for reconstructing a node if you want to use the node for inferring basic properties (e.g. phase).
+        - This is not useful for simulation (and will fail).
+        - Use pickling and unpickling if you want to use the node for simulation (e.g. step, reset, etc...).
+        """
         # Initializes a node from a NodeInfo proto log
-        node = cls(name=info.name, rate=info.rate, delay_sim=GMM.from_info(info.delay_sim), delay=info.delay, advance=info.advance,
-                   stateful=info.stateful, log_level=log_level, color=color, **kwargs)
+        node = BaseNode(name=info.name, rate=info.rate, delay_sim=GMM.from_info(info.delay_sim), delay=info.delay,
+                        advance=info.advance, stateful=info.stateful)
+        # todo: reconnect inputs
         return node
 
-    def connect_from_info(self, info: log_pb2.InputInfo, node: "Node", log_level: Optional[int] = None, color: Optional[str] = None):
-        # Connects a node to another node from an InputInfo proto log
-        self.connect(node,
-                     blocking=info.blocking,
-                     skip=info.skip,
-                     delay_sim=GMM.from_info(info.delay_sim),
-                     delay=info.delay,
-                     jitter=info.jitter,
-                     name=info.name,
-                     color=color,
-                     log_level=log_level)
+    def unpickle(self, nodes: Dict[str, "Node"]):
+        """Unpickles the connections of the node.
+
+        This is done after all nodes are created, so that the connections can be set to the correct nodes.
+
+        If the node is not fully unpickled after __setstate__, set self._unpickled to `False` in __setstate__
+        and overwrite this unpickle method (where you can set self._unpickled to `True` after this method is called).
+        This may happen in situations where:
+         - Some attributes need to be replaced with references to objects
+         - Some attributes need to be re-initialized (e.g. sockets, publishers, subscribers, etc.)
+        """
+        for i, input in enumerate(self.inputs):
+            input.unpickle(nodes)  # Returns directly if already unpickled
+
+    def connect_from_info(self, infos: List[log_pb2.InputInfo], nodes: Dict[str, "BaseNode"]):
+        # Convert to list
+        if isinstance(infos, log_pb2.InputInfo):
+            infos = [infos]
+
+        for info in infos:
+            output_name = info.output
+            output_node = nodes[output_name]
+
+            # Connects a node to another node from an InputInfo proto log
+            self.connect(output_node,
+                         blocking=info.blocking,
+                         skip=info.skip,
+                         delay_sim=GMM.from_info(info.delay_sim),
+                         delay=info.delay,
+                         jitter=info.jitter,
+                         name=info.name)
 
     def log(self, id: str, value: Optional[Any] = None, log_level: Optional[int] = None):
         log_level = log_level if isinstance(log_level, int) else self.log_level
@@ -197,13 +330,12 @@ class BaseNode:
             time.sleep(wc_sleep)
 
     def connect(self, node: "Node", blocking: bool, delay_sim: Distribution, delay: float = None, window: int = 1, skip: bool = False,
-                jitter: int = LATEST, name: Optional[str] = None, log_level: Optional[int] = None, color: Optional[str] = None):
+                jitter: int = LATEST, name: Optional[str] = None):
         # Create new input
-        assert node.name not in [i.output.node.name for i in self.inputs], "Cannot use the same output source for more than one input."
-        log_level = log_level if isinstance(log_level, int) else self.log_level
-        color = color if isinstance(color, str) else self.color
         name = name if isinstance(name, str) else node.output.name
-        i = Input(self, node.output, window, blocking, skip, jitter, delay, delay_sim, log_level, color, name)
+        assert name not in [i.input_name for i in self.inputs], "Cannot use the same input name for more than one input."
+        assert node.name not in [i.output.node.name for i in self.inputs], "Cannot use the same output source for more than one input."
+        i = Input(self, node.output, window, blocking, skip, jitter, delay, delay_sim, name)
         self.inputs.append(i)
 
         # Register the input with the output of the specified node
@@ -214,6 +346,9 @@ class BaseNode:
         raise NotImplementedError
 
     def _reset(self, graph_state: GraphState, sync: int = SYNC, clock: int = SIMULATED, scheduling: int = PHASE, real_time_factor: Union[int, float] = FAST_AS_POSSIBLE):
+        assert self.unpickled, "Node must be fully unpickled before it can be reset. " \
+                               "This may mean that the node has some additional unpickling routines to do." \
+                               "For example, some node attributes may need to be set after the node has been unpickled."
         assert self._state in [STOPPED, READY], f"{self.name} must first be stopped, before it can be reset"
         assert not (clock in [WALL_CLOCK] and sync in [SYNC]), "You can only simulate synchronously, if the clock=`SIMULATED`."
 
@@ -234,6 +369,11 @@ class BaseNode:
         self._phase_dist = self.phase_dist
         self._record = None
         self._step_state = graph_state.nodes[self.name]
+
+        # Log
+        self._discarded = 0  # Number of discarded records after reaching self._max_records
+        self._record_step_states: List[Union[StepState, bytes]] = []
+        self._record_outputs: List[Union[Output, bytes]] = []
 
         # Set starting ts
         self._ts_start = Future()  #: The starting timestamp of the episode.
@@ -273,6 +413,9 @@ class BaseNode:
         self._set_ts_start(start)
         self._record = log_pb2.NodeRecord(info=self.info, sync=self._sync, clock=self._clock, scheduling=self._scheduling,
                                           real_time_factor=self._real_time_factor, ts_start=start, rng=self.output._rng.tolist())  # todo: log rng, class name
+
+        # Record initial step_state
+        self._record_step_states.append(self._step_state)
 
         # Start all inputs and output
         [i.start(record=self._record.inputs.add()) for i in self.inputs]
@@ -451,15 +594,7 @@ class BaseNode:
             # Update StepState with grouped messages
             # todo: have a single buffer for step_state used for both in and out
             # todo: Makes a copy of the message. Is this necessary? Can we do in-place updates?
-            # try:
             step_state = self._step_state.replace(inputs=inputs)
-            # except AttributeError as e:
-            #     s = RUNNING_STATES[self._state]
-            #     e = self._eps
-            #     t = self._tick
-            #     info = f"state={s} | eps={e} | tick={t}"
-            #     self.log("BUG", f"Why is step_state None here? | {info}", log_level=ERROR)
-            #     raise e
 
             # Run step and get msg
             new_step_state, output = self.step(jp.float32(ts_step_sc), step_state)
@@ -467,6 +602,10 @@ class BaseNode:
             # Update step_state
             if new_step_state is not None:
                 self._step_state = new_step_state
+
+                # Log step state
+                if len(self._record_step_states) < self._max_records+1:  # +1 because we add the initial step state as well.
+                    self._record_step_states.append(self._step_state)
 
             # Determine output timestamp
             if self._clock in [SIMULATED]:
@@ -499,8 +638,19 @@ class BaseNode:
             if output is not None:  # Agent returns None when we are stopping/resetting.
                 self.output.push_output(output, header)
 
+                # Log output
+                if len(self._record_outputs) < self._max_records:
+                    self._record_outputs.append(output)
+
             # Add step record
-            self._record.steps.append(record_step)
+            if len(self._record.steps) < self._max_records:
+                self._record.steps.append(record_step)
+            elif len(self._record.steps) == self._max_records:
+                self.log("recording", "Reached max number of records (timings, outputs, step_state). So no longer recording.",
+                         log_level=WARN)
+                self._discarded += 1
+            else:
+                self._discarded += 1
 
             # Only schedule next step if we are running
             if self._state in [RUNNING]:
@@ -551,3 +701,4 @@ class Node(BaseNode):
     @abc.abstractmethod
     def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
         raise NotImplementedError
+

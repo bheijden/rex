@@ -2,7 +2,7 @@ import traceback
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, Future, CancelledError
 from threading import RLock
-from typing import Optional, Any, Deque, TYPE_CHECKING, Tuple, Callable
+from typing import Optional, Any, Deque, TYPE_CHECKING, Tuple, Callable, Dict
 import jumpy.numpy as jp
 from jax import numpy as jnp
 from jax import jit
@@ -15,12 +15,12 @@ from rex.proto import log_pb2 as log_pb2
 from rex.utils import log
 
 if TYPE_CHECKING:
-    from rex.node import Node
+    from rex.node import BaseNode
     from rex.output import Output
 
 
 class Input:
-    def __init__(self, node: "Node", output: "Output", window: int, blocking: bool, skip: bool, jitter: int, delay: float, delay_sim: Distribution, log_level: int, color: str, name: str):
+    def __init__(self, node: "BaseNode", output: "Output", window: int, blocking: bool, skip: bool, jitter: int, delay: float, delay_sim: Distribution, name: str):
         self.node = node
         self.output = output
         self.input_name = name
@@ -29,11 +29,10 @@ class Input:
         self.delay_sim = delay_sim  #: Communication delay
         self.skip = skip            #: Skip first dependency
         self.jitter = jitter        #: Jitter mode
-        self.log_level = log_level
-        self.color = color
         self.delay = delay if delay is not None else delay_sim.high
         assert self.delay >= 0, "Phase should be non-negative."
         self._state = STOPPED
+        self._unpickled = True  # Used to determine whether this input is fully unpickled or not.
 
         # Jit function (call self.warmup() to pre-compile)
         self._num_buffer = 50
@@ -41,7 +40,9 @@ class Input:
         self._jit_split = jit(rnd.split, static_argnums=1)
 
         # Executor
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"{self.node.name}/{self.output.name}")
+        node_name = self.node if isinstance(node, str) else self.node.name
+        output_name = self.output if isinstance(output, str) else self.output.name
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"{node_name}/{output_name}")
         self._q_task: Deque[Tuple[Future, Callable, Any, Any]] = deque(maxlen=10)
         self._lock = RLock()
 
@@ -62,6 +63,32 @@ class Input:
         self.q_grouped: Deque[InputState] = None
         self.q_ts_next_step: Deque[Tuple[int, float]] = None
         self.q_sample: Deque = None
+
+    def __getstate__(self):
+        """Used for pickling"""
+        args = ()
+        kwargs = dict(node=self.node.name, output=self.output.name, window=self.window, blocking=self.blocking, skip=self.skip,
+                      jitter=self.jitter, delay=self.delay, delay_sim=self.delay_sim, name=self.input_name)
+        return args, kwargs
+
+    def __setstate__(self, state):
+        """Used for unpickling"""
+        args, kwargs = state
+        self.__init__(*args, **kwargs)
+        # Only once the input is fully unpickled, (i.e. node & output are replaced with actual objects)
+        self._unpickled = False
+
+    @property
+    def unpickled(self):
+        return self._unpickled
+
+    @property
+    def log_level(self):
+        return self.node.log_level
+
+    @property
+    def color(self):
+        return self.node.color
 
     @property
     def name(self) -> str:
@@ -104,6 +131,24 @@ class Input:
                                  skip=self.skip, jitter=self.jitter, phase=self.phase, phase_dist=self.phase_dist.info,
                                  delay_sim=self.delay_sim.info, delay=self.delay)
 
+    def unpickle(self, nodes: Dict[str, "BaseNode"]):
+        """Unpickle the input after the node and output are unpickled."""
+        if self.unpickled:
+            return
+
+        # Attempt to unpickle the node
+        if isinstance(self.node, str):
+            self.node = nodes.get(self.node)
+        if isinstance(self.output, str):
+            self.output = nodes.get(self.output).output
+            self.output.connect(self)
+
+        # Node is only fully unpickled once the node and output are replaced with actual objects
+        from rex.node import BaseNode
+        from rex.output import Output
+        if isinstance(self.node, BaseNode) and isinstance(self.output, Output):
+            self._unpickled = True
+
     def log(self, id: str, value: Optional[Any] = None, log_level: Optional[int] = None):
         log_level = log_level if isinstance(log_level, int) else self.log_level
         log(f"{self.node.name}/{self.name}", self.color, min(log_level, self.log_level), id, value)
@@ -127,6 +172,8 @@ class Input:
             log(f"{self.node.name}/{self.name}", "red", ERROR, "ERROR", error_msg)
 
     def reset(self, rng: jnp.ndarray, input_state: InputState):
+        assert self.unpickled, "Input must be fully unpickled before being reset. " \
+                               "This means that self.node and self.output must be replaced with actual nodes."
         assert self._state in [STOPPED, READY], f"Input {self.name} of {self.node.name} must first be stopped, before it can be reset."
 
         # Empty queues

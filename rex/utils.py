@@ -1,4 +1,6 @@
 from typing import TYPE_CHECKING, List, Deque, Callable
+import pickle
+from functools import wraps
 import importlib
 from time import time
 from termcolor import colored
@@ -10,13 +12,14 @@ import jax
 from rex.proto import log_pb2
 from rex.constants import WARN, INFO, SIMULATED
 
-# if TYPE_CHECKING:
-#     from rex.node import Node
+if TYPE_CHECKING:
+    from rex.node import BaseNode
 
 
-# Global log level
+# Global log levels
 LOG_LEVEL = WARN
-
+NODE_LOG_LEVEL = {}
+NODE_COLOR = {}
 
 # def synchronized(lock):
 #     """A decorator for synchronizing access to a given function."""
@@ -56,9 +59,15 @@ def log(
         print(colored(log_msg, color))
 
 
-def set_log_level(log_level: int):
-    import rex.utils as utils
-    utils.LOG_LEVEL = log_level
+def set_log_level(log_level: int, node: "BaseNode" = None, color: str = None):
+    if node is not None:
+        NODE_LOG_LEVEL[node] = log_level
+        if color is not None:
+            NODE_COLOR[node] = color
+    else:
+        global LOG_LEVEL
+        LOG_LEVEL = log_level
+        assert color is None, "Cannot set color without node"
 
 
 # def timing(num: int = 1):
@@ -195,3 +204,30 @@ def get_delay_data(record: log_pb2.ExperimentRecord):
     data = jax.tree_map(lambda *x: onp.concatenate(x, axis=0), *exp_data)
     info = jax.tree_map(lambda *x: x[0], *exp_info)
     return data, info
+
+
+# import codecs
+# def record_init(init):
+#     """Decorator to record the initialization of a class.
+#
+#     This stores the arguments and keyword arguments used to call cls.__init__().
+#     """
+#     @wraps(init)
+#     def wrapper(self, *args, **kwargs):
+#         # Only store if not already stored (by subclass)
+#         if not hasattr(self, "_init"):
+#             init_cls = init.__module__ + "/" + init.__qualname__.split(".")[0]
+#             init_args = codecs.encode(pickle.dumps(args), "base64").decode()
+#             init_kwargs = codecs.encode(pickle.dumps(kwargs), "base64").decode()
+#             self._init = log_pb2.InitInfo(cls=init_cls, args=init_args, kwargs=init_kwargs)
+#         return init(self, *args, **kwargs)
+#     return wrapper
+#
+#
+# def reload_class_from_init(init: log_pb2.InitInfo):
+#     # Reconstruction of class
+#     args = pickle.loads(codecs.decode(init.args.encode(), "base64"))
+#     kwargs = pickle.loads(codecs.decode(init.kwargs.encode(), "base64"))
+#     cls = load(init.cls)
+#     obj = cls(*args, **kwargs)
+#     return obj

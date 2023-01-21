@@ -1,8 +1,6 @@
 # use JAX_LOG_COMPILES=1 to log JIT compilation.
 # todo: [ASYNC] Do nodes require at least one input (only when clock=SIMULATED)?
 # todo: [ASYNC] Can we run ASYNC with SIMULATED CLOCK? --> what does this mean?
-# todo: [ASYNC] Log outputs of nodes in a deque (or list with maxlen) that can be converted to a stacked graphstate.output.
-# todo: [ASYNC] What if episode length is very long? Limit number of saved records?
 # todo: [ASYNC] Only compiled graphs can be transformed with vmap.
 # todo: [ASYNC] We reuse the initial step_state.key for seeding the inputs. Is this a problem?
 # todo: [API] Define transform functions with the API of scipy that can be used for input transformations.
@@ -36,11 +34,11 @@ utils.set_log_level(WARN)
 
 # Create nodes
 c = 1e3
-world = DummyNode("world",           rate=c*20/1e3, delay_sim=Gaussian(0/c), log_level=WARN, color="magenta")
-sensor = DummyNode("sensor",         rate=c*20/1e3, delay_sim=Gaussian(7/c), log_level=WARN, color="yellow")
-observer = DummyNode("observer",     rate=c*30/1e3, delay_sim=Gaussian(16/c), log_level=WARN, color="cyan")
-agent = DummyAgent("agent",          rate=c*45/1e3, delay_sim=Gaussian(5/c, 1/c), log_level=WARN, color="blue", advance=True)
-actuator = DummyNode("actuator",     rate=c*45/1e3, delay_sim=Gaussian((c/45)/c), log_level=WARN, color="green", advance=False, stateful=False)
+world = DummyNode("world",           rate=c*20/1e3, delay_sim=Gaussian(0/c))
+sensor = DummyNode("sensor",         rate=c*20/1e3, delay_sim=Gaussian(7/c))
+observer = DummyNode("observer",     rate=c*30/1e3, delay_sim=Gaussian(16/c))
+agent = DummyAgent("agent",          rate=c*45/1e3, delay_sim=Gaussian(5/c, 1/c), advance=True)
+actuator = DummyNode("actuator",     rate=c*45/1e3, delay_sim=Gaussian((c/45)/c), advance=False, stateful=False)
 nodes = [world, sensor, observer, agent, actuator]
 
 # Connect
@@ -73,7 +71,7 @@ while True:
 
             # Gather record
             record = log_pb2.EpisodeRecord()
-            [record.node.append(node.record) for node in nodes]
+            [record.node.append(node.record()) for node in nodes]
             d = {n.info.name: n for n in record.node}
 
             print(f"agent_steps={num_steps} | node_steps={[n._i for n in nodes]} | t={(tend - tstart): 2.4f} sec | fps={num_steps / (tend - tstart): 2.4f}")

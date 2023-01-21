@@ -58,7 +58,7 @@ if __name__ == "__main__":
 
 	# Trace record
 	record = log_pb2.EpisodeRecord()
-	[record.node.append(node.record) for node in nodes.values()]
+	[record.node.append(node.record()) for node in nodes.values()]
 	trace_record = trace(record, "agent")
 
 	# Create trace environment

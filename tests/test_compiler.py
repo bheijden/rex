@@ -5,6 +5,7 @@ import numpy as onp
 import jumpy.numpy as jp
 import jax
 
+import rex.utils as utils
 import rex.jumpy as rjp
 from rex.multiprocessing import new_process
 from rex.tracer import trace
@@ -101,13 +102,18 @@ def _plot(new_record):
 
 
 def test_compiler():
-    world = DummyNode("world", rate=20, delay_sim=Gaussian(0/1e3), log_level=WARN, color="magenta")
-    sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(7/1e3), log_level=WARN, color="yellow")
-    observer = DummyNode("observer", rate=30, delay_sim=Gaussian(16/1e3), log_level=WARN, color="cyan")
-    agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(5/1e3, 1/1e3), log_level=WARN, color="blue", advance=True)
-    actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1/45), log_level=WARN, color="green", advance=False, stateful=False)
+    # Create environment
+    world = DummyNode("world", rate=20, delay_sim=Gaussian(0/1e3))
+    sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(7/1e3))
+    observer = DummyNode("observer", rate=30, delay_sim=Gaussian(16/1e3))
+    agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(5/1e3, 1/1e3), advance=True)
+    actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1/45), advance=False, stateful=False)
     nodes = [world, sensor, observer, agent, actuator]
     nodes = {n.name: n for n in nodes}
+
+    # Set log level
+    utils.set_log_level(WARN)
+    utils.set_log_level(DEBUG, world, "blue")
 
     # Place observer step in separate process
     observer.step = new_process(observer.step, max_workers=2)
@@ -132,7 +138,7 @@ def test_compiler():
 
     # Gather record
     record = log_pb2.EpisodeRecord()
-    [record.node.append(node.record) for node in nodes.values()]
+    [record.node.append(node.record()) for node in nodes.values()]
 
     # Trace
     trace_opt = trace(record, "agent", -1, static=True)

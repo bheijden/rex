@@ -16,15 +16,16 @@ from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 
 
 if __name__ == "__main__":
+	# todo: remove color and log_level from all nodes --> use global log & color settings.
 	# todo: Log experiments (trace, hyper parameters, model, tensorboard, w & b, data?)
 	# todo: Visualise performance on simulated pendulum
 	# todo: Visualise communication
-	utils.set_log_level(WARN)
+	utils.set_log_level(WARN)  # todo: set log level for each node with color.
 
 	# Parameters
 	log_dir = "/home/r2ci/rex/logs"
 	preload_model = "works_sac_pendulum"
-	new_model_name = "sac_pendulum"
+	new_model_name = "all_logged_sac_pendulum"
 	scheduling = PHASE
 	jitter = BUFFER
 	clock = WALL_CLOCK  # WALL_CLOCK, SIMULATED
@@ -73,7 +74,7 @@ if __name__ == "__main__":
 	# Run environment
 	exp_record = log_pb2.ExperimentRecord()
 	eps_record = None
-	for _ in range(3):
+	for _ in range(2):
 		cum_reward = 0.
 		done, obs = False, env_real.reset()
 		tstart = time.time()
@@ -91,13 +92,13 @@ if __name__ == "__main__":
 
 		# Save record
 		eps_record = log_pb2.EpisodeRecord()
-		[eps_record.node.append(node.record) for node in nodes_real.values()]
+		[eps_record.node.append(node.record(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True)) for node in nodes_real.values()]
 		exp_record.episode.append(eps_record)
-	# env_real.stop()
 
 	# Save experiment record
-	# with open(f"/home/r2ci/rex//logs/{new_model_name}.pb", "wb") as f:
-	# 	f.write(exp_record.SerializeToString())
+	with open(f"/home/r2ci/rex//logs/{new_model_name}.pb", "wb") as f:
+		f.write(exp_record.SerializeToString())
+	exit()
 
 	# Trace record
 	assert eps_record is not None, "No episode record found."
