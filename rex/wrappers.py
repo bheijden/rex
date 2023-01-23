@@ -127,8 +127,10 @@ class GymWrapper(Wrapper, gym.Env):
 
 try:
     from stable_baselines3.common.vec_env import VecEnv as sb3VecEnv
-except ImportError:
+except ImportError:  # pragma: no cover
     print("stable_baselines3 not installed. Using a proxy for DummyVecEnv.")
+
+
     class sb3VecEnv:
         def __init__(self, num_envs: int, observation_space: gs.Space, action_space: gs.Space):
                 self.num_envs = num_envs
@@ -207,7 +209,7 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
         self.env.close()
 
     def env_is_wrapped(self, wrapper_class, indices=None):
-        if isinstance(self.env, wrapper_class):
+        if isinstance(self, wrapper_class) or isinstance(self.env, wrapper_class):
             return self.num_envs*[True]
         else:
             return self.num_envs*[self.env.env_is_wrapped(wrapper_class, indices)]

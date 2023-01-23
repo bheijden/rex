@@ -167,7 +167,7 @@ class BaseNode:
             record.info.state = pickle.dumps(self)
 
         # Store output trajectory
-        if len(self._record_outputs) > 0:
+        if self._record_outputs and len(self._record_outputs) > 0:
             record.outputs.target = pickle.dumps(self._record_outputs[0])
             if outputs:
                 # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_outputs)
@@ -175,7 +175,7 @@ class BaseNode:
                 record.outputs.encoded_bytes.extend([serialization.to_bytes(o) for o in self._record_outputs])
 
         # Store random number generator state trajectory
-        if len(self._record_step_states) > 0:
+        if self._record_step_states and len(self._record_step_states) > 0:
             record.rngs.target = pickle.dumps(self._record_step_states[0].rng)
             if rngs:
                 # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states).rng
@@ -183,7 +183,7 @@ class BaseNode:
                 record.rngs.encoded_bytes.extend([serialization.to_bytes(s.rng) for s in self._record_step_states])
 
         # Store state trajectory
-        if len(self._record_step_states) > 0:
+        if self._record_step_states and len(self._record_step_states) > 0:
             record.states.target = pickle.dumps(self._record_step_states[0].state)
             if states:
                 # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states).state
@@ -191,7 +191,7 @@ class BaseNode:
                 record.states.encoded_bytes.extend([serialization.to_bytes(s.state) for s in self._record_step_states])
 
         # Store params trajectory
-        if len(self._record_step_states) > 0:
+        if self._record_step_states and len(self._record_step_states) > 0:
             record.params.target = pickle.dumps(self._record_step_states[0].params)
             if params:
                 # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states).params
@@ -199,7 +199,7 @@ class BaseNode:
                 record.params.encoded_bytes.extend([serialization.to_bytes(s.params) for s in self._record_step_states])
 
         # Store step_state trajectory
-        if len(self._record_step_states) > 0:
+        if self._record_step_states and len(self._record_step_states) > 0:
             record.step_states.target = pickle.dumps(self._record_step_states[0])
             if step_states:
                 # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states)
@@ -309,14 +309,14 @@ class BaseNode:
             if self._state in [READY, RUNNING] or stopping:
                 f = self._executor.submit(fn, *args, **kwargs)
                 self._q_task.append((f, fn, args, kwargs))
-                f.add_done_callback(self._f_callback)
+                f.add_done_callback(self._done_callback)
             else:
                 self.log("SKIPPED", fn.__name__, log_level=DEBUG)
                 f = Future()
                 f.cancel()
         return f
 
-    def _f_callback(self, f: Future):
+    def _done_callback(self, f: Future):
         e = f.exception()
         if e is not None and e is not CancelledError:
             error_msg = "".join(traceback.format_exception(None, e, e.__traceback__))
@@ -345,8 +345,11 @@ class BaseNode:
             wc_sleep = max(0., wc_passed_target-wc_passed)
             time.sleep(wc_sleep)
 
-    def connect(self, node: "Node", blocking: bool, delay_sim: Distribution, delay: float = None, window: int = 1, skip: bool = False,
+    def connect(self, node: "Node", blocking: bool, delay_sim: Distribution = None, delay: float = None, window: int = 1, skip: bool = False,
                 jitter: int = LATEST, name: Optional[str] = None):
+        # Use zero deterministic delay if no simulated delay distribution is specified
+        delay_sim = delay_sim if delay_sim is not None else Gaussian(0., 0.)
+
         # Create new input
         name = name if isinstance(name, str) else node.output.name
         assert name not in [i.input_name for i in self.inputs], "Cannot use the same input name for more than one input."
@@ -661,7 +664,7 @@ class BaseNode:
             # Add step record
             if len(self._record.steps) < self._max_records:
                 self._record.steps.append(record_step)
-            elif len(self._record.steps) == self._max_records:
+            elif self._discarded == 0:
                 self.log("recording", "Reached max number of records (timings, outputs, step_state). So no longer recording.",
                          log_level=WARN)
                 self._discarded += 1

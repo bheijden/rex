@@ -9,7 +9,7 @@ import numpy as onp
 
 from rex.utils import set_log_level
 from rex.tracer import trace
-from rex.wrappers import GymWrapper
+from rex.wrappers import GymWrapper, VecGymWrapper
 from rex.constants import WARN, ERROR, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, DEBUG
 from rex.proto import log_pb2
 from scripts.dummy import build_dummy_env, DummyEnv
@@ -144,3 +144,39 @@ def test_reinitialize_nodes_from_recording():
 				except AssertionError as e:
 					print(f"FAILED | name={name} | eps={idx} | `{k}`")
 					raise e
+
+
+def test_record_overflow():
+	# Grab the dummy environment
+	env, nodes = build_dummy_env()
+
+	# Grab record before any simulation
+	_ = nodes["agent"].record()
+
+	# Apply wrapper
+	env = GymWrapper(env)  # Wrap into gym wrapper
+
+	# Test env api
+	env.log("test_api", "test_api", log_level=WARN)
+
+	# Set max record size
+	nodes["agent"]._max_records = 10
+
+	# Seed the environment
+	env.seed(0)
+	action_space = env.action_space
+
+	# Run environment
+	exp_record = log_pb2.ExperimentRecord()
+	for _ in range(2):
+		done, obs = False, env.reset()
+		while not done:
+			action = action_space.sample()
+			obs, reward, done, info = env.step(action)
+		env.stop()
+
+		# Save record
+		eps_record = log_pb2.EpisodeRecord()
+		[eps_record.node.append(node.record(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True))
+		 for node in nodes.values()]
+		exp_record.episode.append(eps_record)

@@ -16,13 +16,13 @@ class Agent(Node):
         self._q_obs: Deque[Future]
         super().__init__(*args, **kwargs)
 
-    def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
-        """Default params of the node."""
-        raise NotImplementedError
-
-    def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
-        """Default state of the node."""
-        raise NotImplementedError
+    # def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
+    #     """Default params of the node."""
+    #     raise NotImplementedError
+    #
+    # def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
+    #     """Default state of the node."""
+    #     raise NotImplementedError
 
     def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
         """Default output of the node."""
@@ -32,9 +32,9 @@ class Agent(Node):
         """Default inputs of the node."""
         return super().default_inputs(rng, graph_state)
 
-    def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-        """Reset the agent."""
-        raise NotImplementedError
+    # def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
+    #     """Reset the agent."""
+    #     raise NotImplementedError
 
     def get_step_state(self, graph_state: GraphState) -> StepState:
         """Get the step state of the agent."""

@@ -30,11 +30,14 @@ class BaseGraph:
 
     def __setstate__(self, state):
         args, kwargs = state
-        self.__init__(*args, **kwargs)
 
         # Unpickle nodes
-        for node in self.nodes_and_agent.values():
-            node.unpickle(self.nodes_and_agent)
+        nodes, agent = kwargs["nodes"], kwargs["agent"]
+        nodes_and_agent = {**nodes, agent.name: agent}
+        for node in nodes_and_agent.values():
+            node.unpickle(nodes_and_agent)
+
+        self.__init__(*args, **kwargs)
 
     @abc.abstractmethod
     def reset(self, graph_state: GraphState) -> Tuple[GraphState, float32, StepState]:

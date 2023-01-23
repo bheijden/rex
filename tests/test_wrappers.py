@@ -66,6 +66,10 @@ def test_vec_gym_wrapper():
 	env = AutoResetWrapper(env)  # Wrap into auto reset wrapper
 	env = VecGymWrapper(env, num_envs=2)  # Wrap into vectorized environment
 
+	# Call api
+	env.env_is_wrapped(VecGymWrapper)
+	env.env_is_wrapped(GymWrapper)
+
 	# Get spaces
 	action_space = env.action_space
 	_action_space = env._action_space

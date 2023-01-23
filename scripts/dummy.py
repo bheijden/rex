@@ -102,19 +102,16 @@ class DummyNode(Node):
 
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyOutput:
 		"""Default output of the node."""
-		if graph_state is not None:
-			seqs_sum = graph_state.nodes[self.name].state.seqs_sum
-		else:
-			seqs_sum = jp.int32(0)
+		seqs_sum = jp.int32(0)
 		return DummyOutput(seqs_sum=seqs_sum, dummy_1=jp.array([0.0, 1.0], dtype=jp.float32))
 
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-		"""Reset the node."""
-		rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
-		params = self.default_params(rng_params, graph_state)
-		state = self.default_state(rng_state, graph_state)
-		inputs = self.default_inputs(rng_inputs, graph_state)
-		return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
+	# def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
+	# 	"""Reset the node."""
+	# 	rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
+	# 	params = self.default_params(rng_params, graph_state)
+	# 	state = self.default_state(rng_state, graph_state)
+	# 	inputs = self.default_inputs(rng_inputs, graph_state)
+	# 	return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
 	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, DummyOutput]:
 		"""Step the node."""
@@ -160,29 +157,29 @@ class DummyNode(Node):
 
 class DummyAgent(Agent):
 
-	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyParams:
-		"""Default params of the agent."""
-		return DummyParams(jp.float32(99.0), jp.array([0.0, 1.0], dtype=jp.float32))
+	# def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyParams:
+	# 	"""Default params of the agent."""
+	# 	return DummyParams(jp.float32(99.0), jp.array([0.0, 1.0], dtype=jp.float32))
 
-	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyState:
-		"""Default state of the agent."""
-		return DummyState(step=jp.int32(0), seqs_sum=jp.int32(0), dummy_1=jp.array([0.0, 1.0], dtype=jp.float32))
+	# def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyState:
+	# 	"""Default state of the agent."""
+	# 	return DummyState(step=jp.int32(0), seqs_sum=jp.int32(0), dummy_1=jp.array([0.0, 1.0], dtype=jp.float32))
 
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyOutput:
 		"""Default output of the agent."""
-		if graph_state is not None:
-			seqs_sum = graph_state.nodes[self.name].state.seqs_sum
-		else:
-			seqs_sum = jp.int32(0)
+		# if graph_state is not None:
+		# 	seqs_sum = graph_state.nodes[self.name].state.seqs_sum
+		# else:
+		seqs_sum = jp.int32(0)
 		return DummyOutput(seqs_sum=seqs_sum, dummy_1=jp.array([0.0, 1.0], dtype=jp.float32))
 
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-		"""Reset the agent."""
-		rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
-		params = self.default_params(rng_params, graph_state)
-		state = self.default_state(rng_state, graph_state)
-		inputs = self.default_inputs(rng_inputs, graph_state)
-		return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
+	# def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
+	# 	"""Reset the agent."""
+	# 	rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
+	# 	params = self.default_params(rng_params, graph_state)
+	# 	state = self.default_state(rng_state, graph_state)
+	# 	inputs = self.default_inputs(rng_inputs, graph_state)
+	# 	return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
 
 class DummyEnv(BaseEnv):
@@ -270,10 +267,10 @@ class DummyEnv(BaseEnv):
 			seqs_sum += jp.sum(i.seq)
 
 		# Update params (optional)
-		new_params = params.replace(param_1=jp.float32(0.0))
+		new_params = params
 
 		# Update state
-		new_state = state.replace(step=state.step + 1, seqs_sum=seqs_sum)
+		new_state = state  # state.replace(step=state.step + 1, seqs_sum=seqs_sum)
 
 		# Prepare output
 		action = DummyOutput(seqs_sum=seqs_sum, dummy_1=jp.array([1.0, 2.0], jp.float32))

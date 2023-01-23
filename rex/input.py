@@ -158,14 +158,14 @@ class Input:
             if self._state in [READY, RUNNING] or stopping:
                 f = self._executor.submit(fn, *args, **kwargs)
                 self._q_task.append((f, fn, args, kwargs))
-                f.add_done_callback(self._f_callback)
+                f.add_done_callback(self._done_callback)
             else:
                 self.log("SKIPPED", fn.__name__, log_level=DEBUG)
                 f = Future()
                 f.cancel()
         return f
 
-    def _f_callback(self, f: Future):
+    def _done_callback(self, f: Future):
         e = f.exception()
         if e is not None and e is not CancelledError:
             error_msg = "".join(traceback.format_exception(None, e, e.__traceback__))

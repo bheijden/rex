@@ -1,6 +1,6 @@
 from scripts.dummy import DummyNode, DummyAgent
 from rex.distributions import Distribution, Gaussian, GMM
-from rex.constants import LATEST, BUFFER, WARN, DEBUG, ERROR
+from rex.constants import LATEST, BUFFER, WARN, DEBUG, ERROR, READY
 import rex.utils as utils
 import pickle
 
@@ -34,7 +34,10 @@ def test_node_api():
     reload_nodes = {n.name: n for n in reload_nodes}
 
     # Re-initialize connections with info
-    [n.connect_from_info(nodes[name].info.inputs, reload_nodes) for name, n in reload_nodes.items()]
+    [n.connect_from_info(nodes[name].info.inputs, reload_nodes) for name, n in reload_nodes.items() if name != "agent"]
+
+    # Re-initialize agent connection with info
+    reload_nodes["agent"].connect_from_info(nodes["agent"].info.inputs[0], reload_nodes)
 
     try:
         [n.connect_from_info(nodes[name].info.inputs, reload_nodes) for name, n in reload_nodes.items()]
@@ -85,3 +88,35 @@ def test_node_pickle_reload():
     [n.unpickle(reload_nodes) for n in reload_nodes.values()]
     assert all(n.unpickled for n in reload_nodes.values()), "Not all nodes unpickled"
 
+
+def test_executor_errors():
+    utils.set_log_level(DEBUG)
+
+    world = DummyNode("world", rate=20)
+    sensor = DummyNode("sensor", rate=20)
+    sensor.connect(world, blocking=False, skip=False, jitter=LATEST)
+
+    # Test that submitted work is skipped if state is not ready or running
+    world._submit(lambda: print("hello"))
+    sensor.inputs[0]._submit(lambda: print("hello"))
+
+    # Test that traceback is printed if exception is raised
+    world._state = READY
+    sensor.inputs[0]._state = READY
+
+    def raise_exception():
+        raise Exception("Raise test exception.")
+
+    f = world._submit(raise_exception)
+    ff = sensor.inputs[0]._submit(raise_exception)
+
+    try:
+        f.result()
+    except Exception:
+        pass
+
+    try:
+        ff.result()
+    except Exception:
+        pass
+    utils.set_log_level(WARN)

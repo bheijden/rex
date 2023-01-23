@@ -1,3 +1,4 @@
+import dill as pickle
 import time
 import jumpy
 import jax.numpy as jnp
@@ -161,6 +162,9 @@ def test_compiler():
     # Compile environments
     env_opt = DummyEnv(nodes, agent=agent, max_steps=max_steps, trace=trace_opt, graph=SEQUENTIAL, name="env_opt")
     env_all = DummyEnv(nodes, agent=agent, max_steps=max_steps, trace=trace_all, graph=VECTORIZED, name="env_all")
+
+    # Test pickle
+    env_opt._cgraph = pickle.loads(pickle.dumps(env_opt._cgraph))
 
     # Evaluate compiled envs
     gs_opt, obs_opt, ss_opt = evaluate(env_opt, name="opt", backend="numpy", use_jit=False, seed=0)
