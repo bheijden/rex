@@ -1,3 +1,4 @@
+import time
 from typing import Dict
 from functools import partial
 import numpy as onp
@@ -97,7 +98,7 @@ def test_gmm_estimator():
 	# Animate agent training
 	est_step: Dict[str, GMMEstimator]
 	anim_step = est_step["agent"].animate_training(fig=fig_step, ax=axes_step["agent"], edgecolor=ecolor.computation, facecolor=fcolor.computation)
-	# anim_step.save("gmm_step.mp4")
+	anim_step.save("gmm_step.mp4")
 
 	# est_inputs: Dict[str, Dict[str, GMMEstimator]]
 	# anim_inputs = est_inputs["world"]["actuator"].animate_training(fig=fig_step, ax=axes_inputs["world"]["actuator"], edgecolor=ecolor.communication, facecolor=fcolor.communication)
@@ -108,4 +109,6 @@ def test_gmm_estimator():
 	est_step["agent"].plot_normalized_weights()
 	anim_agent = est_step["agent"].animate_training()
 
-	# plt.show()
+	# Wait a few seconds
+	# plt.show(block=False)
+	# time.sleep(3.0)

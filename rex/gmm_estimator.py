@@ -60,26 +60,26 @@ def mixture_loglike(log_component_weights, component_mus, log_component_scales, 
     return np.sum(ll_per_data)
 
 
-def weights_loglike(log_component_weights, alpha_prior):
-    """Log likelihood of weights under Dirichlet distribution"""
-    component_weights = np.exp(log_component_weights)
-    component_weights = normalize_weights(component_weights)
-    return stats.dirichlet.logpdf(x=component_weights, alpha=alpha_prior)
+# def weights_loglike(log_component_weights, alpha_prior):
+#     """Log likelihood of weights under Dirichlet distribution"""
+#     component_weights = np.exp(log_component_weights)
+#     component_weights = normalize_weights(component_weights)
+#     return stats.dirichlet.logpdf(x=component_weights, alpha=alpha_prior)
 
 
-def loss_mixture_weights(params, data):
-    """Loss function for first model.
-
-    Takes into account log probability of data under mixture model
-    and log probability of weights under a constant Dirichlet concentration vector.
-    """
-    log_component_weights, component_mus, log_component_scales = params
-    loglike_mixture = mixture_loglike(log_component_weights, component_mus, log_component_scales, data)
-    alpha_prior = np.ones_like(component_mus) * 2
-    loglike_weights = weights_loglike(log_component_weights, alpha_prior=alpha_prior)
-
-    total = loglike_mixture + loglike_weights
-    return -total
+# def loss_mixture_weights(params, data):
+#     """Loss function for first model.
+#
+#     Takes into account log probability of data under mixture model
+#     and log probability of weights under a constant Dirichlet concentration vector.
+#     """
+#     log_component_weights, component_mus, log_component_scales = params
+#     loglike_mixture = mixture_loglike(log_component_weights, component_mus, log_component_scales, data)
+#     alpha_prior = np.ones_like(component_mus) * 2
+#     loglike_weights = weights_loglike(log_component_weights, alpha_prior=alpha_prior)
+#
+#     total = loglike_mixture + loglike_weights
+#     return -total
 
 
 def step(i, state, get_params_func, dloss_func, update_func, data):
@@ -108,10 +108,10 @@ def make_step_scannable(get_params_func, dloss_func, update_func, data):
 from jax.scipy.stats import norm
 
 
-def get_loss(state, get_params_func, loss_func, data):
-    params = get_params_func(state)
-    loss_score = loss_func(params, data)
-    return loss_score
+# def get_loss(state, get_params_func, loss_func, data):
+#     params = get_params_func(state)
+#     loss_score = loss_func(params, data)
+#     return loss_score
 
 
 def get_component_norm_pdfs(log_component_weights,

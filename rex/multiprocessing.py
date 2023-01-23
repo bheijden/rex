@@ -10,7 +10,9 @@ from rex.constants import ERROR
 from rex.utils import log
 
 
-def _process_worker(fn, call_queue, result_queue, initializer, initargs):
+# We skip this function in the coverage report because it is not accurately reported by pytest-cov
+# We do actually fully cover this function in test_multiprocessing.py.
+def _process_worker(fn, call_queue, result_queue, initializer, initargs):  # pragma: no cover
 	"""Evaluates calls from call_queue and places the results in result_queue.
 
     This worker is run in a separate process.
