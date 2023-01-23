@@ -16,7 +16,7 @@ from rex.base import GraphState
 import rex.jumpy as rjp
 
 
-class Wrapper():
+class Wrapper:
     """Wraps the environment to allow modular transformations."""
 
     def __init__(self, env):
@@ -25,6 +25,12 @@ class Wrapper():
     @property
     def unwrapped(self):
         return self.env.unwrapped
+
+    def __getstate__(self):
+        return self.__dict__
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
 
     def __getattr__(self, item):
         return getattr(self.env, item)

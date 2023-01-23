@@ -63,7 +63,7 @@ class BaseNode:
         self._real_time_factor = 1.
 
         # Log
-        self._discarded = None
+        self._discarded = 0
         self._max_records = 10000  # todo: make this configurable. Must be > 1.
         self._record_step_states: Deque[StepState] = None
         self._record_outputs: Deque[Output] = None

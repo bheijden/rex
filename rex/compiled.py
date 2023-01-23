@@ -501,18 +501,16 @@ def make_graph_step(trace: log_pb2.TraceRecord, name: str, isolate: Timings, run
 
 class CompiledGraph(BaseGraph):
     def __init__(self, nodes: Dict[str, "Node"],  trace: log_pb2.TraceRecord, agent: Agent, graph: int = SEQUENTIAL):
-        _assert = len([n for n in nodes.values() if n.name == agent.name]) == 0
-        assert _assert, "The agent should be provided separately, so not inside the `nodes` dict"
-        nodes = {**nodes, **{agent.name: agent}}
+        super().__init__(agent=agent, nodes=nodes)
 
         # Split trace into chunks
         depths = make_depth_grouping(trace, graph=graph)
-        timings = make_timings(nodes, trace, depths)
-        default_outputs = make_default_outputs(nodes, timings)
+        timings = make_timings(self.nodes_and_agent, trace, depths)
+        default_outputs = make_default_outputs(self.nodes_and_agent, timings)
         chunks, substeps, isolate = make_splitter(trace, timings, depths)
 
         # Make chunk runner
-        run_chunk = make_run_chunk(nodes, trace, timings, chunks, substeps, graph=graph)
+        run_chunk = make_run_chunk(self.nodes_and_agent, trace, timings, chunks, substeps, graph=graph)
 
         # Make compiled reset function
         self.__reset = make_graph_reset(trace, trace.name, default_outputs, isolate, run_chunk)
@@ -521,11 +519,19 @@ class CompiledGraph(BaseGraph):
         self.__step = make_graph_step(trace, trace.name, isolate, run_chunk)
 
         # Store remaining attributes
-        self.trace = trace
+        self.trace: log_pb2.TraceRecord = trace
         self.max_steps = len(chunks)-1
         assert self.max_steps <= len(chunks)-1, f"max_steps ({self.max_steps}) must be smaller than the number of chunks ({len(chunks)-1})"
 
-        super().__init__(agent=agent)
+    def __getstate__(self):
+        trace_str = self.trace.SerializeToString()
+        args, kwargs = (), dict(nodes=self.nodes, trace_str=trace_str, agent=self.agent)
+        return args, kwargs
+
+    def __setstate__(self, state):
+        args, kwargs = state
+        kwargs["trace"] = log_pb2.TraceRecord.FromString(kwargs.pop("trace_str"))
+        super().__setstate__((args, kwargs))
 
     def reset(self, graph_state: GraphState) -> Tuple[GraphState, jp.float32, Any]:
         # todo: initialize graph_state.outputs with empty arrays

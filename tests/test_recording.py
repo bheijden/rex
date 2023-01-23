@@ -1,3 +1,4 @@
+import pytest
 import dill as pickle
 from flax import serialization
 import jax
@@ -64,12 +65,18 @@ def process_record(record: log_pb2.ExperimentRecord):
 	return data_copy
 
 
-def test_reinitialize_from_recording():
+# @pytest.mark.parametrize("backend, jit", [("numpy", False), ("jax", False), ("jax", True)])
+def test_reinitialize_nodes_from_recording():
 	# Grab the dummy environment
 	env, nodes = build_dummy_env()
 
 	# Apply wrapper
 	env = GymWrapper(env)  # Wrap into gym wrapper
+
+	# Pickle & reload the environment
+	env = pickle.loads(pickle.dumps(env))
+
+	# Seed the environment
 	env.seed(0)
 	action_space = env.action_space
 
