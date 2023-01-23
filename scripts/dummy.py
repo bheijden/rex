@@ -42,7 +42,7 @@ def build_dummy_compiled_env() -> Tuple["DummyEnv", "DummyEnv", Dict[str, Node]]
 def build_dummy_env() -> Tuple["DummyEnv", Dict[str, Node]]:
 	nodes = build_dummy_graph()
 	agent: DummyAgent = nodes["agent"]  # type: ignore
-	env = DummyEnv(nodes, agent=agent, max_steps=100, sync=SYNC, clock=SIMULATED, scheduling=PHASE, real_time_factor=FAST_AS_POSSIBLE)
+	env = DummyEnv(nodes, agent=agent, max_steps=100, clock=SIMULATED, real_time_factor=FAST_AS_POSSIBLE)
 	return env, nodes
 
 
@@ -189,9 +189,7 @@ class DummyEnv(BaseEnv):
 			agent: DummyAgent,
 			max_steps: int = 100,
 			trace: log_pb2.TraceRecord = None,
-			sync: int = SYNC,
 			clock: int = SIMULATED,
-			scheduling: int = PHASE,
 			real_time_factor: Union[int, float] = FAST_AS_POSSIBLE,
 			graph: int = INTERPRETED,
 			name: str = "DummyEnv",
@@ -202,7 +200,7 @@ class DummyEnv(BaseEnv):
 		# Required for step and reset functions
 		self.agent = agent
 		self.nodes = nodes
-		super().__init__(nodes, agent, max_steps, sync, clock, scheduling, real_time_factor, graph, trace, name=name)
+		super().__init__(nodes, agent, max_steps, clock, real_time_factor, graph, trace, name=name)
 
 	def _is_terminal(self, graph_state: GraphState) -> bool:
 		return graph_state.step >= self.max_steps

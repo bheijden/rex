@@ -6,6 +6,7 @@ import jumpy
 import rex.jumpy as rjp
 import jumpy.numpy as jp
 import numpy as onp
+import tempfile
 
 from rex.utils import set_log_level
 from rex.tracer import trace
@@ -73,8 +74,17 @@ def test_reinitialize_nodes_from_recording():
 	# Apply wrapper
 	env = GymWrapper(env)  # Wrap into gym wrapper
 
+	# Test wrapper api
+	try:
+		env.save("")
+	except AttributeError:
+		pass
+
 	# Pickle & reload the environment
-	env = pickle.loads(pickle.dumps(env))
+	tmp = tempfile.NamedTemporaryFile()
+	env.unwrapped.save(tmp.name)
+	env = env.unwrapped.load(tmp.name)
+	env = GymWrapper(env)
 	nodes = env.graph.nodes_and_agent
 
 	# Seed the environment
@@ -103,7 +113,7 @@ def test_reinitialize_nodes_from_recording():
 	data = process_record(exp_record)
 	nodes_copy = {name: n["obj"] for name, n in data[0].items()}
 	agent_copy = nodes_copy["agent"]  # type: ignore
-	env_copy = DummyEnv(nodes_copy, agent=agent_copy, max_steps=100, sync=SYNC, clock=SIMULATED, scheduling=PHASE, real_time_factor=FAST_AS_POSSIBLE)
+	env_copy = DummyEnv(nodes_copy, agent=agent_copy, max_steps=100, clock=SIMULATED, real_time_factor=FAST_AS_POSSIBLE)
 
 	# Apply wrapper
 	env_copy = GymWrapper(env_copy)  # Wrap into gym wrapper

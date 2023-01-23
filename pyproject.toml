@@ -26,6 +26,7 @@ matplotlib = "^3.6.2"
 seaborn = "^0.12.1"
 #rospkg = "^1.4.0"
 dill = "^0.3.6"
+tqdm = "^4.64.1"
 
 [tool.poetry.dev-dependencies]
 black = "^22.1.0"

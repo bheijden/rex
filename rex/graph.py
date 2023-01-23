@@ -59,19 +59,15 @@ class Graph(BaseGraph):
         self,
         nodes: Dict[str, "BaseNode"],
         agent: Agent,
-        sync: int = SYNC,
         clock: int = SIMULATED,
-        scheduling: int = PHASE,
         real_time_factor: Union[int, float] = FAST_AS_POSSIBLE,
     ):
         super().__init__(agent=agent, nodes=nodes)
-        self.sync = sync
         self.clock = clock
-        self.scheduling = scheduling
         self.real_time_factor = real_time_factor
 
     def __getstate__(self):
-        args, kwargs = (), dict(nodes=self.nodes, agent=self.agent, sync=self.sync, clock=self.clock, scheduling=self.scheduling, real_time_factor=self.real_time_factor)
+        args, kwargs = (), dict(nodes=self.nodes, agent=self.agent, clock=self.clock, real_time_factor=self.real_time_factor)
         return args, kwargs
 
     def reset(self, graph_state: GraphState) -> Tuple[GraphState, float32, Any]:
@@ -83,13 +79,7 @@ class Graph(BaseGraph):
 
         # Reset async backend of every node
         for node in self.nodes_and_agent.values():
-            node._reset(
-                graph_state,
-                sync=self.sync,
-                clock=self.clock,
-                scheduling=self.scheduling,
-                real_time_factor=self.real_time_factor,
-            )
+            node._reset(graph_state, clock=self.clock, real_time_factor=self.real_time_factor)
 
         # Check that all nodes have the same episode counter
         assert len({n.eps for n in self.nodes_and_agent.values()}) == 1, "All nodes must have the same episode counter."

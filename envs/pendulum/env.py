@@ -73,7 +73,7 @@ class PendulumEnv(BaseEnv):
 	):
 		# Exclude the node for which this environment is a drop-in replacement (i.e. the agent)
 		nodes = {node.name: node for _, node in nodes.items() if node.name != agent.name}
-		super().__init__(nodes, agent, max_steps, sync, clock, scheduling, real_time_factor, graph, trace, name=name)
+		super().__init__(nodes, agent, max_steps, clock, real_time_factor, graph, trace, name=name)
 
 		# Required for step and reset functions
 		assert "world" in nodes, "Pendulum environment requires a world node."

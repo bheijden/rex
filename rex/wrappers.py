@@ -33,6 +33,10 @@ class Wrapper:
         self.__dict__.update(state)
 
     def __getattr__(self, item):
+        if item in ["save", "load"]:
+            raise AttributeError(
+                "Wrapper does not support save/load. Please use the wrapped environment instead."
+            )
         return getattr(self.env, item)
 
 
@@ -76,19 +80,19 @@ class GymWrapper(Wrapper, gym.Env):
     @property
     def action_space(self) -> gym.Space:
         if self._graph_state is None:
-            self.reset()
-            self.stop()
-        params = self._graph_state.nodes[self._name].params
-        space = self.env.action_space(params)
+            space = self.env.action_space()
+        else:
+            params = self._graph_state.nodes[self._name].params
+            space = self.env.action_space(params)
         return rex_space_to_gym_space(space)
 
     @property
     def observation_space(self) -> gym.Space:
         if self._graph_state is None:
-            self.reset()
-            self.stop()
-        params = self._graph_state.nodes[self._name].params
-        space = self.env.observation_space(params)
+            space = self.env.observation_space()
+        else:
+            params = self._graph_state.nodes[self._name].params
+            space = self.env.observation_space(params)
         return rex_space_to_gym_space(space)
 
     def jit(self):
@@ -168,21 +172,21 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
     @property
     def _action_space(self) -> gym.Space:
         if self._graph_state is None:
-            self.reset()
-            self.stop()
-        params = self._graph_state.nodes[self._name].params
-        single_params = jax.tree_map(lambda x: x[0], params)
-        space = self.env.action_space(single_params)
+            space = self.env.action_space()
+        else:
+            params = self._graph_state.nodes[self._name].params
+            single_params = jax.tree_map(lambda x: x[0], params)
+            space = self.env.action_space(single_params)
         return rex_space_to_gym_space(space)
 
     @property
     def _observation_space(self) -> gym.Space:
         if self._graph_state is None:
-            self.reset()
-            self.stop()
-        params = self._graph_state.nodes[self._name].params
-        single_params = jax.tree_map(lambda x: x[0], params)
-        space = self.env.observation_space(single_params)
+            space = self.env.observation_space()
+        else:
+            params = self._graph_state.nodes[self._name].params
+            single_params = jax.tree_map(lambda x: x[0], params)
+            space = self.env.observation_space(single_params)
         return rex_space_to_gym_space(space)
 
     def jit(self):

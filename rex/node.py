@@ -19,7 +19,7 @@ from flax import serialization
 
 from rex.base import GraphState, StepState, InputState, State, Output as BaseOutput, Params, Empty
 from rex.constants import READY, RUNNING, STOPPING, STOPPED, RUNNING_STATES, PHASE, FREQUENCY, SIMULATED, \
-    FAST_AS_POSSIBLE, SYNC, BUFFER, DEBUG, INFO, WARN, ERROR, WALL_CLOCK, LATEST
+    FAST_AS_POSSIBLE, SYNC, ASYNC, BUFFER, DEBUG, INFO, WARN, ERROR, WALL_CLOCK, LATEST
 from rex.input import Input
 from rex.output import Output
 from rex.utils import log, NODE_COLOR, NODE_LOG_LEVEL
@@ -28,11 +28,12 @@ import rex.proto.log_pb2 as log_pb2
 
 
 class BaseNode:
-    def __init__(self, name: str, rate: float, delay_sim: Distribution = None, delay: float = None, advance: bool = True, stateful: bool = True):
+    def __init__(self, name: str, rate: float, delay_sim: Distribution = None, delay: float = None, advance: bool = True, stateful: bool = True, scheduling: int = PHASE):
         self.name = name
         self.rate = rate
         self.advance = advance
         self.stateful = stateful
+        self.scheduling = scheduling
         self.inputs: List[Input] = []
 
         # Initialize output
@@ -60,7 +61,6 @@ class BaseNode:
         self._phase_dist = None
         self._sync = None
         self._clock = None
-        self._scheduling = None
         self._real_time_factor = 1.
 
         # Log
@@ -93,7 +93,8 @@ class BaseNode:
         Does not pickle the connections, because it is not pickleable.
         """
         args = ()
-        kwargs = dict(name=self.name, rate=self.rate, delay_sim=self.output.delay_sim, delay=self.output.delay, advance=self.advance, stateful=self.stateful)
+        kwargs = dict(name=self.name, rate=self.rate, delay_sim=self.output.delay_sim, delay=self.output.delay,
+                      advance=self.advance, stateful=self.stateful, scheduling=self.scheduling)
         inputs = self.inputs
         return args, kwargs, inputs
 
@@ -241,7 +242,7 @@ class BaseNode:
 
         info = log_pb2.NodeInfo(name=self.name, cls=cls_str, rate=self.rate, stateful=self.stateful,
                                 advance=self.advance, phase=self.phase, delay_sim=self.output.delay_sim.info,
-                                delay=self.output.delay)
+                                delay=self.output.delay, scheduling=self.scheduling)
         info.inputs.extend([i.info for i in self.inputs])
         return info
 
@@ -364,17 +365,18 @@ class BaseNode:
     def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
         raise NotImplementedError
 
-    def _reset(self, graph_state: GraphState, sync: int = SYNC, clock: int = SIMULATED, scheduling: int = PHASE, real_time_factor: Union[int, float] = FAST_AS_POSSIBLE):
+    def _reset(self, graph_state: GraphState, clock: int = SIMULATED, real_time_factor: Union[int, float] = FAST_AS_POSSIBLE):
         assert self.unpickled, "Node must be fully unpickled before it can be reset. " \
                                "This may mean that the node has some additional unpickling routines to do." \
                                "For example, some node attributes may need to be set after the node has been unpickled."
         assert self._state in [STOPPED, READY], f"{self.name} must first be stopped, before it can be reset"
-        assert not (clock in [WALL_CLOCK] and sync in [SYNC]), "You can only simulate synchronously, if the clock=`SIMULATED`."
+
+        # Determine whether to run synchronously or asynchronously
+        self._sync = SYNC if clock == SIMULATED else ASYNC
+        assert not (clock in [WALL_CLOCK] and self._sync in [SYNC]), "You can only simulate synchronously, if the clock=`SIMULATED`."
 
         # Save run configuration
-        self._sync = sync                           #: True if we must run synchronized
         self._clock = clock                         #: Simulate timesteps
-        self._scheduling = scheduling               #: Synchronization mode for step scheduling
         self._real_time_factor = real_time_factor   #: Scaling of simulation speed w.r.t wall clock
 
         # Up the episode counter (must happen before resetting outputs & inputs)
@@ -430,7 +432,7 @@ class BaseNode:
 
         # Create logging record
         self._set_ts_start(start)
-        self._record = log_pb2.NodeRecord(info=self.info, sync=self._sync, clock=self._clock, scheduling=self._scheduling,
+        self._record = log_pb2.NodeRecord(info=self.info, sync=self._sync, clock=self._clock,
                                           real_time_factor=self._real_time_factor, ts_start=start, rng=self.output._rng.tolist())  # todo: log rng, class name
 
         # Record initial step_state
@@ -544,9 +546,9 @@ class BaseNode:
             phase = max(phase_inputs, phase_last) if only_blocking else max(phase_inputs, phase_last, phase_scheduled)
 
             # Update structural scheduling phase shift
-            if self._scheduling in [FREQUENCY]:
+            if self.scheduling in [FREQUENCY]:
                 self._phase_scheduled += max(0, phase_last-phase_scheduled)
-            else:  # self._scheduling in [PHASE]
+            else:  # self.scheduling in [PHASE]
                 self._phase_scheduled = 0.
 
             # Calculate starting timestamp for the step call

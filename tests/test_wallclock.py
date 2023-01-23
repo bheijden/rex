@@ -49,7 +49,7 @@ def test_wallclock():
     graph_state = GraphState(step=0, nodes=node_ss)
 
     # Reset nodes (Allows setting the run mode)
-    [n._reset(graph_state, real_time_factor=real_time_factor, scheduling=scheduling, clock=clock, sync=sync) for rng, n in
+    [n._reset(graph_state, real_time_factor=real_time_factor, clock=clock) for rng, n in
      zip(rngs, nodes)]
 
     # An additional reset is required when running async (futures, etc..)

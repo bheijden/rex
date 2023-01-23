@@ -1,9 +1,7 @@
 # use JAX_LOG_COMPILES=1 to log JIT compilation.
 # todo: [TESTS] Install jumpy from github on CI
-# todo: [TESTS] Verify test score for gmm estimator and pickling.
 # todo: [PROTO] Write API to easily extract graph_state and step_state from trace.
 # todo: [ASYNC] Do nodes require at least one input (only when clock=SIMULATED)?
-# todo: [ASYNC] Can we run ASYNC with SIMULATED CLOCK? --> what does this mean?
 # todo: [ASYNC] Only compiled graphs can be transformed with vmap.
 # todo: [ASYNC] We reuse the initial step_state.key for seeding the inputs. Is this a problem?
 # todo: [API] Define transform functions with the API of scipy that can be used for input transformations.
@@ -11,7 +9,6 @@
 # todo: [JIT] Is jumpy.core.is_jitted() True when in pmap?
 # todo: [JIT] Test difference cond vs select (GPU, CPU, vectorized)
 # todo: [JIT] Implement BATCHED graph mode.
-# todo: [WRAPPER] Calling action_space/observation_space already resets the graph (GymWrapper).
 # todo: [PLOT] Half phase bars, and place sleep behind it
 # todo: [PLOT] Fix plot_step_timing bug with isfinite.
 # todo: [PLOT] Allow setting a name for plot_input_thread plots
@@ -104,7 +101,7 @@ while True:
         graph_state = GraphState(step=0, nodes=node_ss)
 
         # Reset nodes (Allows setting the run mode)
-        [n._reset(graph_state, real_time_factor=real_time_factor, scheduling=scheduling, clock=clock, sync=sync) for rng, n in zip(rngs, nodes)]
+        [n._reset(graph_state, real_time_factor=real_time_factor, clock=clock) for rng, n in zip(rngs, nodes)]
 
         # An additional reset is required when running async (futures, etc..)
         agent._agent_reset()

@@ -3,7 +3,8 @@ import numpy as onp
 import jumpy.numpy as jp
 from stable_baselines3.common.vec_env import VecMonitor
 
-from sbx import SAC
+# from sbx import SAC
+from stable_baselines3.sac import SAC
 
 import rex.utils as utils
 from rex.tracer import trace
@@ -16,16 +17,15 @@ from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 
 
 if __name__ == "__main__":
-	# todo: remove color and log_level from all nodes --> use global log & color settings.
 	# todo: Log experiments (trace, hyper parameters, model, tensorboard, w & b, data?)
 	# todo: Visualise performance on simulated pendulum
 	# todo: Visualise communication
-	utils.set_log_level(WARN)  # todo: set log level for each node with color.
+	utils.set_log_level(WARN)
 
 	# Parameters
 	log_dir = "/home/r2ci/rex/logs"
-	preload_model = "works_sac_pendulum"
-	new_model_name = "all_logged_sac_pendulum"
+	preload_model = "sbx_sac_pendulum"
+	new_model_name = "sbx_sac_pendulum"
 	scheduling = PHASE
 	jitter = BUFFER
 	clock = WALL_CLOCK  # WALL_CLOCK, SIMULATED
@@ -59,11 +59,16 @@ if __name__ == "__main__":
 
 	# Create environment
 	env_real = PendulumEnv(nodes_real, agent=agent_real, max_steps=max_steps, sync=sync, clock=clock, scheduling=scheduling, real_time_factor=real_time_factor)
+
 	env_real = GymWrapper(env_real)  # Wrap into gym wrapper
 
 	# Initialize model
 	try:
-		model_real = SAC.load(f"{log_dir}/{preload_model}", env=env_real)
+		try:
+			model_real = SAC.load(f"{log_dir}/{preload_model}", env=env_real)
+		except AttributeError as e:
+			print("Could not load model. Chech wether the model was trained with sb or sbx.")
+			raise e
 		new_model = False
 	except FileNotFoundError as e:
 		print(e)
@@ -96,9 +101,9 @@ if __name__ == "__main__":
 		exp_record.episode.append(eps_record)
 
 	# Save experiment record
-	with open(f"/home/r2ci/rex//logs/{new_model_name}.pb", "wb") as f:
-		f.write(exp_record.SerializeToString())
-	exit()
+	# with open(f"/home/r2ci/rex//logs/{new_model_name}.pb", "wb") as f:
+	# 	f.write(exp_record.SerializeToString())
+	# exit()
 
 	# Trace record
 	assert eps_record is not None, "No episode record found."

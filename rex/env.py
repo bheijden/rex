@@ -1,3 +1,4 @@
+import dill as pickle
 from typing import Any, Tuple, Dict, Union, Optional
 import jumpy.numpy as jp
 import abc
@@ -18,9 +19,7 @@ class BaseEnv:
                  nodes: Dict[str, "Node"],
                  agent: Agent,
                  max_steps: int = 200,
-                 sync: int = SYNC,
                  clock: int = SIMULATED,
-                 scheduling: int = PHASE,
                  real_time_factor: Union[int, float] = FAST_AS_POSSIBLE,
                  graph_type: int = INTERPRETED,
                  trace: log_pb2.TraceRecord = None,
@@ -43,7 +42,7 @@ class BaseEnv:
         elif graph_type == INTERPRETED:
             if trace is not None:
                 self.log("WARNING", "trace is ignored. Set `graph` to a compiled setting (.e.g SEQUENTIAL) to use it.", log_level=WARN)
-            self._graph = Graph(nodes, agent, sync, clock, scheduling, real_time_factor)
+            self._graph = Graph(nodes, agent, clock, real_time_factor)
         else:
             raise ValueError(f"Unknown graph mode: {graph_type}")
 
@@ -106,3 +105,17 @@ class BaseEnv:
     def log(self, id: str, value: Optional[Any] = None, log_level: Optional[int] = None):
         log_level = log_level if isinstance(log_level, int) else self.log_level
         log(self.name, self.color, min(log_level, self.log_level), id, value)
+
+    def save(self, path: str):
+        """Save the environment to a file using pickle."""
+        with open(path, "wb") as f:
+            pickle.dump(self, f)
+            self.log(f"Saved environment `{self.name}` to {path}.")
+
+    @staticmethod
+    def load(path: str):
+        """Load the environment from a file using pickle."""
+        with open(path, "rb") as f:
+            env = pickle.load(f)
+            env.log(f"Loaded environment `{env.name}` from {path}.")
+        return env

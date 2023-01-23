@@ -132,7 +132,7 @@ def test_compiler():
 
     # Create environment
     max_steps = 200
-    env = DummyEnv(nodes, agent=agent, max_steps=max_steps, sync=SYNC, clock=SIMULATED, scheduling=PHASE, real_time_factor=FAST_AS_POSSIBLE, name="env")
+    env = DummyEnv(nodes, agent=agent, max_steps=max_steps, clock=SIMULATED, real_time_factor=FAST_AS_POSSIBLE, name="env")
 
     # Evaluate async env
     gs_async, obs_async, ss_async = evaluate(env, name="async", backend="numpy", use_jit=False, seed=0)
