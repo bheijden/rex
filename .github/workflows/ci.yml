@@ -56,8 +56,8 @@ jobs:
       # install dependencies if cache does not exist
       #----------------------------------------------
       - run:
-        name: Add github.com to known hosts
-        command: ssh-keyscan github.com >> ~/.ssh/known_hosts
+          name: Add github.com to known hosts
+          command: ssh-keyscan github.com >> ~/.ssh/known_hosts
       - name: Install dependencies
         if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
         run: poetry install --no-interaction --no-root
