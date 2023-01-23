@@ -75,6 +75,7 @@ def test_reinitialize_nodes_from_recording():
 
 	# Pickle & reload the environment
 	env = pickle.loads(pickle.dumps(env))
+	nodes = env.graph.nodes_and_agent
 
 	# Seed the environment
 	env.seed(0)

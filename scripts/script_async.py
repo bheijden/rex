@@ -1,6 +1,7 @@
 # use JAX_LOG_COMPILES=1 to log JIT compilation.
 # todo: [TESTS] Install jumpy from github on CI
 # todo: [TESTS] Verify test score for gmm estimator and pickling.
+# todo: [PROTO] Write API to easily extract graph_state and step_state from trace.
 # todo: [ASYNC] Do nodes require at least one input (only when clock=SIMULATED)?
 # todo: [ASYNC] Can we run ASYNC with SIMULATED CLOCK? --> what does this mean?
 # todo: [ASYNC] Only compiled graphs can be transformed with vmap.

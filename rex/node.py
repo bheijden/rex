@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, Future, CancelledError
 from typing import Callable, List, Tuple, Optional, Any, Union, Deque, Dict
 from collections import deque
 import traceback
+import jax
 import jumpy
 import jumpy.numpy as jp
 import jax.numpy as jnp  # todo: replace with jumpy as jp.ndarray?
@@ -166,29 +167,44 @@ class BaseNode:
             record.info.state = pickle.dumps(self)
 
         # Store output trajectory
-        record.outputs.target = pickle.dumps(self._record_outputs[0])
-        if outputs and len(self._record_outputs) > 0:
-            record.outputs.encoded_bytes.extend([serialization.to_bytes(o) for o in self._record_outputs])
+        if len(self._record_outputs) > 0:
+            record.outputs.target = pickle.dumps(self._record_outputs[0])
+            if outputs:
+                # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_outputs)
+                # record.outputs.encoded_bytes.extend([serialization.to_bytes(data)])
+                record.outputs.encoded_bytes.extend([serialization.to_bytes(o) for o in self._record_outputs])
 
         # Store random number generator state trajectory
-        record.rngs.target = pickle.dumps(self._record_step_states[0].rng)
-        if rngs and len(self._record_step_states) > 0:
-            record.rngs.encoded_bytes.extend([serialization.to_bytes(s.rng) for s in self._record_step_states])
+        if len(self._record_step_states) > 0:
+            record.rngs.target = pickle.dumps(self._record_step_states[0].rng)
+            if rngs:
+                # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states).rng
+                # record.rngs.encoded_bytes.extend([serialization.to_bytes(data)])
+                record.rngs.encoded_bytes.extend([serialization.to_bytes(s.rng) for s in self._record_step_states])
 
         # Store state trajectory
-        record.states.target = pickle.dumps(self._record_step_states[0].state)
-        if states and len(self._record_step_states) > 0:
-            record.states.encoded_bytes.extend([serialization.to_bytes(s.state) for s in self._record_step_states])
+        if len(self._record_step_states) > 0:
+            record.states.target = pickle.dumps(self._record_step_states[0].state)
+            if states:
+                # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states).state
+                # record.states.encoded_bytes.extend([serialization.to_bytes(data)])
+                record.states.encoded_bytes.extend([serialization.to_bytes(s.state) for s in self._record_step_states])
 
         # Store params trajectory
-        record.params.target = pickle.dumps(self._record_step_states[0].params)
-        if params and len(self._record_step_states) > 0:
-            record.params.encoded_bytes.extend([serialization.to_bytes(s.params) for s in self._record_step_states])
+        if len(self._record_step_states) > 0:
+            record.params.target = pickle.dumps(self._record_step_states[0].params)
+            if params:
+                # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states).params
+                # record.params.encoded_bytes.extend([serialization.to_bytes(data)])
+                record.params.encoded_bytes.extend([serialization.to_bytes(s.params) for s in self._record_step_states])
 
         # Store step_state trajectory
-        record.step_states.target = pickle.dumps(self._record_step_states[0])
-        if step_states and len(self._record_step_states) > 0:
-            record.step_states.encoded_bytes.extend([serialization.to_bytes(ss) for ss in self._record_step_states])
+        if len(self._record_step_states) > 0:
+            record.step_states.target = pickle.dumps(self._record_step_states[0])
+            if step_states:
+                # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states)
+                # record.step_states.encoded_bytes.extend([serialization.to_bytes(data)])
+                record.step_states.encoded_bytes.extend([serialization.to_bytes(ss) for ss in self._record_step_states])
 
         return record
 
