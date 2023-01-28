@@ -1,0 +1,566 @@
+# Script to define environments from
+# Automatically register all environments in the envs folder
+# Script to fit delays --> Save as proto for either ode or real
+# Script to evaluate performance
+import os
+from typing import Dict, List, Tuple, Union, Callable, Any, Type, Optional
+from types import ModuleType
+from pickle import UnpicklingError
+import dill as pickle
+import time
+import jax
+import flax.serialization as serialization
+from jax.tree_util import tree_map
+import numpy as onp
+import jumpy.numpy as jp
+import matplotlib.pyplot as plt
+
+from stable_baselines3.common.vec_env import VecMonitor
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.base_class import BaseAlgorithm
+
+import rex.utils as utils
+from rex.plot import plot_computation_graph, plot_grouped, plot_input_thread, plot_event_thread
+from rex.gmm_estimator import GMMEstimator
+from rex.tracer import trace
+from rex.env import BaseEnv
+from rex.node import Node
+from rex.agent import Agent
+from rex.proto import log_pb2
+from rex.distributions import Distribution, Gaussian
+from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, SEQUENTIAL, WARN, REAL_TIME, \
+    ASYNC, WALL_CLOCK, SCHEDULING_MODES, JITTER_MODES, CLOCK_MODES, GRAPH_MODES, INTERPRETED
+import rex.open_colors as oc
+from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
+
+from envs.pendulum.env import PendulumEnv, Agent
+import envs.pendulum.dists
+import envs.pendulum.models
+import envs.pendulum.ode as ode
+
+
+def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distribution]]]],
+             delays: Dict[str, Dict[str, Union[float, Dict[str, float]]]],
+             rates: Dict[str, float],
+             blocking: bool = True,
+             advance: bool = False,
+             win_action: int = 1,
+             win_obs: int = 2,
+             scheduling: int = PHASE,
+             jitter: int = BUFFER,
+             env_fn: Callable = ode.build_pendulum,
+             env_cls: Type[BaseEnv] = BaseEnv,
+             name: str = "disc-pendulum",
+             eval_env: bool = False,
+             max_steps: int = 100,
+             clock: int = WALL_CLOCK,
+             real_time_factor: int = REAL_TIME) -> BaseEnv:
+    # Determine whether we use the real system
+    real = True if "real" in env_fn.__module__ else False
+
+    # Built nodes
+    nodes = env_fn(rates, delays_sim, delays, scheduling=scheduling, advance=advance)
+    world, actuator, sensor = nodes["world"], nodes["actuator"], nodes["sensor"]
+
+    # Set eval
+    assert hasattr(world, "eval_env"), "World node must have an eval_env attribute"
+    world.eval_env = eval_env
+
+    # Define agent
+    agent = env_cls.agent_cls("agent", rate=rates["agent"], advance=True,
+                              delay_sim=delays_sim["step"]["agent"], delay=delays["step"]["agent"])
+    nodes["agent"] = agent
+
+    # Connect
+    if win_action > 0:
+        agent.connect(agent, name="last_action", window=win_action, blocking=True, jitter=LATEST, skip=True)
+    agent.connect(sensor, name="state", window=win_obs, blocking=blocking, jitter=jitter,
+                  delay_sim=delays_sim["inputs"]["agent"]["state"], delay=delays["inputs"]["agent"]["state"])
+    actuator.connect(agent, name="action", window=1, blocking=blocking, jitter=jitter,
+                     delay_sim=delays_sim["inputs"]["actuator"]["action"], delay=delays["inputs"]["actuator"]["action"])
+
+    # Create environment
+    env_name = [name]
+    env_name.append(f"{'real' if real else 'ode'}")
+    env_name.append("eval" if eval_env else "train")
+    env_name.append(JITTER_MODES[jitter])
+    env_name.append(SCHEDULING_MODES[scheduling])
+    env_name.append(f"awin{win_action}")
+    env_name.append(f"owin{win_obs}")
+    env_name.append("blocking" if blocking else "nonblocking")
+    env_name.append("advance" if advance else "noadvance")
+    env_name = "_".join(env_name)
+    env = env_cls(nodes, agent=agent, max_steps=max_steps, clock=clock, real_time_factor=real_time_factor, name=env_name)
+    return env
+
+
+def make_compiled_env(env: PendulumEnv,
+                      record: log_pb2.EpisodeRecord,
+                      eval_env: bool = False,
+                      max_steps: int = 100,
+                      graph_type: int = SEQUENTIAL,
+                      plot: bool = True) -> PendulumEnv:
+    # Re-initialize nodes
+    nodes: Dict[str, Union[Node, Agent]] = {}
+    for n in record.node:
+        nodes[n.info.name] = pickle.loads(n.info.state)
+    [n.unpickle(nodes) for n in nodes.values()]
+
+    # Grab agent
+    agent: Agent = nodes["agent"]
+    # actuator: Node = nodes["actuator"]
+
+    # Grab world
+    world: Node = nodes["world"]
+    assert hasattr(world, "eval_env"), "World node must have an eval_env attribute"
+    world.eval_env = eval_env
+
+    # Trace record
+    record_trace = trace(record, "agent")
+
+    # Visualize computation graph
+    if plot:
+        show_computation_graph(record_trace)
+
+    # Get run-time settings
+    clock = record.node[0].clock
+    rtf = record.node[0].real_time_factor
+    # scheduling = record.node[0].scheduling
+    # sensor_to_agent = [i for i in agent.inputs if i.input_name == "state"][0]
+    # agent_to_agent = [i for i in agent.inputs if i.input_name == "last_action"][0]
+    # jitter = sensor_to_agent.jitter
+    # blocking = sensor_to_agent.blocking
+    # win_obs = sensor_to_agent.window
+    # win_action = agent_to_agent.window
+    # advance = actuator.advance
+
+    # Create env
+    _name = env.name
+    _name = _name.replace("train", "eval" if eval_env else "train")
+    _name = _name.replace("eval", "eval" if eval_env else "train")
+    env_name = [_name]
+    env_name.append("compiled")
+    env_name.append(f"{GRAPH_MODES[graph_type]}")
+    env_name = "_".join(env_name)
+    env = env.__class__(nodes, agent, max_steps, record_trace, clock=clock, real_time_factor=rtf, graph=graph_type, name=env_name)
+    return env
+
+
+def show_grouped(record: log_pb2.NodeRecord, input_name):
+    # Create new plot
+    xlim = [-0.001, 0.3]
+    fig, ax = plt.subplots()
+    ax.set(ylim=xlim, xlim=xlim, yticks=[], facecolor=oc.ccolor("gray"))
+
+    # Function arguments
+    plot_grouped(ax, record, input_name)
+
+    # Plot legend
+    handles, labels = ax.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    by_label = dict(sorted(by_label.items()))
+    ax.legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
+              bbox_to_anchor=(1.0, 0.50))
+
+    return fig, ax
+
+
+def show_communication(record: log_pb2.EpisodeRecord):
+    # Reformat record
+    d = {n.info.name: n for n in record.node}
+
+    # Create new plots
+    fig, ax = plt.subplots()
+    xlim = [-0.001, 0.3]
+    ax.set(ylim=[-18, 95], xlim=xlim, yticks=[], facecolor=oc.ccolor("gray"))
+    ystart, dy, margin = 90, -10, 4
+
+    # Plot all thread traces
+    ystart = plot_input_thread(ax, d["world"].inputs[0], ystart=ystart - margin, dy=dy / 2, name="")
+    ystart = plot_event_thread(ax, d["world"], ystart=ystart, dy=dy)
+
+    ystart = plot_input_thread(ax, d["sensor"].inputs[0], ystart=ystart - margin, dy=dy / 2, name="")
+    ystart = plot_event_thread(ax, d["sensor"], ystart=ystart, dy=dy)
+
+    idx = len(d["agent"].inputs)-1
+    ystart = plot_input_thread(ax, d["agent"].inputs[idx], ystart=ystart - margin, dy=dy / 2, name="")
+    ystart = plot_event_thread(ax, d["agent"], ystart=ystart, dy=dy)
+
+    ystart = plot_input_thread(ax, d["actuator"].inputs[0], ystart=ystart - margin, dy=dy / 2, name="")
+    ystart = plot_event_thread(ax, d["actuator"], ystart=ystart, dy=dy)
+
+    # Plot legend
+    handles, labels = ax.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    by_label = dict(sorted(by_label.items()))
+    ax.legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
+              bbox_to_anchor=(1.0, 0.50))
+    return fig, ax
+
+
+def show_computation_graph(trace_record: log_pb2.TraceRecord):
+    # Create new plot
+    fig, ax = plt.subplots()
+    fig.set_size_inches(12, 5)
+    ax.set(facecolor=oc.ccolor("gray"), xlabel="time (s)", yticks=[], xlim=[-0.01, 0.3])
+    order = ["world", "sensor", "agent", "actuator"]
+    cscheme = {"world": "gray", "sensor": "grape", "agent": "teal", "actuator": "indigo"}
+    plot_computation_graph(ax, trace_record, order=order, cscheme=cscheme, xmax=1.0, node_size=200, draw_excluded=True,
+                           draw_stateless=False, draw_nodelabels=True, node_labeltype="tick", connectionstyle="arc3,rad=0.1")
+    # Plot legend
+    handles, labels = ax.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    by_label = dict(sorted(by_label.items()))
+    ax.legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
+              bbox_to_anchor=(1.0, 0.50))
+
+    return fig, ax
+
+
+def eval_env(env: BaseEnv,
+             policy: Callable[[jp.ndarray], jp.ndarray],
+             n_eval_episodes: int = 10,
+             verbose: bool = False,
+             record_settings: Dict[str, Dict[str, bool]] = None,
+             seed: int = None) -> log_pb2.ExperimentRecord:
+    """
+    Evaluate an environment using a model.
+
+    :param env: The environment
+    :param policy: A policy to evaluate
+    :param n_eval_episodes: Number of episodes to evaluate the agent
+    :param verbose: Whether to print the evaluation results
+    :param record_settings: What to record. If None, all is recorded, except the step_states.
+    :return: (mean episode reward, std of the reward)
+    """
+    # Wrap environment in gym wrapper.
+    if not env.env_is_wrapped(GymWrapper):
+        env = GymWrapper(env)
+    env: GymWrapper
+
+    # Set seed
+    env.seed(seed)
+
+    # Update record settings
+    episode_records = log_pb2.ExperimentRecord(environment=pickle.dumps(env.unwrapped))
+    record_settings = record_settings or {}
+    _record_settings = {}
+    for name in env.graph.nodes_and_agent.keys():
+        # Set default settings
+        _record_settings[name] = dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True)
+        # Get user provided settings
+        node_settings = record_settings.setdefault(name, _record_settings[name])
+        # Update default settings with user provided settings
+        _record_settings[name].update(**node_settings)
+
+    episode_rewards = []
+    for _ in range(n_eval_episodes):
+        episode_rewards.append(0.0)
+        steps, done, obs = 0, False, env.reset()
+        tstart = time.time()
+        while not done:
+            action = policy(obs)
+            obs, reward, done, _ = env.step(action)
+            steps += 1
+            episode_rewards[-1] += reward
+            if done:
+                # Stop environment
+                tend = time.time()
+                env.stop()
+
+                # Save record
+                node_records = [node.record(**_record_settings[name]) for name, node in env.graph.nodes_and_agent.items()]
+                episode_records.episode.append(log_pb2.EpisodeRecord(node=node_records))
+
+                # Print evaluation
+                if verbose:
+                    print(f"{env.name} | steps={steps} | fps={steps / (tend - tstart): 2.4f} | reward={episode_rewards[-1]}")
+                break
+    # Compute mean reward for the last 10 episodes
+    mean_reward = onp.mean(episode_rewards)
+    std_reward = onp.std(episode_rewards)
+    if verbose:
+        print(f"{env.name} | mean reward={mean_reward:.2f} +/- {std_reward:.2f}")
+    return episode_records
+
+
+def make_policy(model: BaseAlgorithm, constant_action: float = None):
+    """
+    :param model: The RL model
+    :param constant_action: Whether to overwrite the predicted action with a constant action.
+    :return: A function that takes an observation (numpy array) and returns the action (numpy array)
+    """
+
+    def policy(obs):
+        action, _ = model.predict(obs, deterministic=True)
+        if constant_action is not None:
+            action = jp.ones(action.shape) * constant_action
+        return action
+
+    return policy
+
+
+def make_delay_distributions(record: log_pb2.ExperimentRecord,
+                             num_steps: int = 100,
+                             num_components: int = 2,
+                             step_size: float = 0.05,
+                             seed: int = 0):
+    # Prepare data
+    data, info = utils.get_delay_data(record)
+
+    def init_estimator(x, i):
+        name = i.name if not isinstance(i, tuple) else f"{i[0].name}.input({i[1].name})"
+        est = GMMEstimator(x, name)
+        return est
+
+    # Initialize estimators
+    est = jax.tree_map(lambda x, i: init_estimator(x, i), data, info)
+
+    # Fit estimators
+    jax.tree_map(lambda e: e.fit(num_steps=num_steps, num_components=num_components, step_size=step_size, seed=seed), est)
+
+    # Get distributions
+    dist = jax.tree_map(lambda e: e.get_dist(), est)
+    return est, dist
+
+
+def load_distributions(file: str, module: ModuleType = envs.pendulum.dists) -> Dict[
+    str, Dict[str, Union[Distribution, Dict[str, Distribution]]]]:
+    # Append pkl extension
+    if not file.endswith(".pkl"):
+        file = file + ".pkl"
+
+    # If not an absolute path, load from within module
+    if not file.startswith("/"):
+        module_path = os.path.dirname(os.path.abspath(module.__file__))
+        with open(f"{module_path}/{file}", "rb") as f:
+            dists = pickle.load(f)
+    else:
+        with open(f"{file}", "rb") as f:
+            dists = pickle.load(f)
+    return dists
+
+
+def load_model(file, model_cls: Type[BaseAlgorithm], module: ModuleType = envs.pendulum.models, **kwargs) -> BaseAlgorithm:
+    # Append zip extension
+    if not file.endswith(".zip"):
+        file = file + ".zip"
+
+    # If not an absolute path, load from within module
+    if not file.startswith("/"):
+        module_path = os.path.dirname(os.path.abspath(module.__file__))
+        model = model_cls.load(f"{module_path}/{file}", **kwargs)
+    else:
+        model = model_cls.load(file, **kwargs)
+    return model
+
+
+import gym
+
+
+class RecordEnv:
+    id = "RecordEnv-v0"
+
+    def __new__(cls, file: str, clock: int = None, real_time_factor: int = None, graph_type: int = None):
+        # todo: re-apply wrappers (gymwrapper, vectorwrapper, jit, mp, etc...)
+        # todo: overwrite params (CLOCK, RTF, GRAPH_TYPE)
+        return BaseEnv.load(file)
+
+
+if RecordEnv.id not in gym.envs.registration.registry.env_specs:
+    gym.envs.register(id=RecordEnv.id,
+                      entry_point="experiments:RecordEnv",
+                      order_enforce=False)
+
+
+class RexVecEnv:
+    def __new__(cls,
+                env_id: Union[str, Callable[..., gym.Env]],
+                n_envs: int = 1,
+                seed: Optional[int] = None,
+                start_index: int = 0,
+                monitor_dir: Optional[str] = None,
+                wrapper_class: Optional[Callable[[gym.Env], gym.Env]] = None,
+                env_kwargs: Optional[Dict[str, Any]] = None,
+                vec_env_cls: Optional[Type["RexVecEnv"]] = None,
+                vec_env_kwargs: Optional[Dict[str, Any]] = None,
+                monitor_kwargs: Optional[Dict[str, Any]] = None,
+                wrapper_kwargs: Optional[Dict[str, Any]] = None, ):
+        # Make env
+        env = env_id(**env_kwargs)
+
+        # Wrap model
+        if env.graph_type in [INTERPRETED]:
+            env = GymWrapper(env)
+
+            # Monitor
+            monitor_cls = Monitor
+        else:  # compiled graph
+            assert env._cgraph is not None, "Compiled graph is None"
+            env = AutoResetWrapper(env)  # Wrap into auto reset wrapper
+            env = VecGymWrapper(env, num_envs=n_envs)  # Wrap into vectorized environment
+
+            # Jit
+            env.jit()
+
+            # Monitor
+            monitor_cls = VecMonitor
+
+        # Wrap the env in a Monitor wrapper
+        # to have additional training information
+        monitor_path = monitor_dir if monitor_dir is not None else None
+        # Create the monitor folder if needed
+        if monitor_path is not None:
+            os.makedirs(monitor_dir, exist_ok=True)
+        env = monitor_cls(env, filename=monitor_path, **monitor_kwargs)  # Wrap into vectorized monitor
+
+        # Seed
+        if seed is not None:
+            env.seed(seed)
+
+        return env
+
+
+from stable_baselines3.common.utils import obs_as_tensor as sb3_obs_as_tensor
+
+
+def obs_as_tensor(obs, device):
+    """Monkeypatch needed to convert jax arrays to pytorch tensors in stable-baselines3."""
+    if isinstance(obs, jax.numpy.ndarray):
+        np_obs = onp.asarray(obs)
+        return sb3_obs_as_tensor(np_obs, device)
+    else:
+        return sb3_obs_as_tensor(obs, device)
+
+
+import stable_baselines3.common.on_policy_algorithm
+stable_baselines3.common.on_policy_algorithm.obs_as_tensor = obs_as_tensor
+
+
+class _NoValue: pass
+
+
+class _HasValue:
+    def __init__(self, tree):
+        self.tree = tree
+
+
+def _truncated_stack(*data: jp.ndarray) -> Optional[jp.ndarray]:
+    has_empty = any([isinstance(d, _NoValue) for d in data])
+    if has_empty:
+        return None
+    elif all([isinstance(d, _HasValue) for d in data]):
+        return tree_map(_truncated_stack, *[d.tree for d in data])
+    assert all([not isinstance(d, _HasValue) for d in data])
+
+    # Determine min_length
+    min_length = min([x.shape[0] for x in data if x.ndim > 0])
+
+    # Truncate data to min_length
+    data = tree_map(lambda d: d[:min_length], data)
+
+    # Stack data
+    data_stacked = tree_map(lambda *d: jp.stack(d), *data)
+    return data_stacked
+
+
+class RecordHelper:
+    def __init__(self, record: Union[log_pb2.ExperimentRecord, log_pb2.EpisodeRecord], trace: log_pb2.TraceRecord = None,
+                 validate: bool = True, stack: bool = True):
+        # todo: graph_states can only be constructed from a trace
+        # todo: When rebuilding graph_states from trace: depth vs order?
+        self.trace = trace
+        self.record = record
+        self.validate = validate
+        self.stack = stack
+
+        # Convert to experiment record
+        if isinstance(record, log_pb2.EpisodeRecord):
+            self._record = log_pb2.ExperimentRecord(episode=[record])
+        else:
+            self._record = record
+        assert isinstance(self._record, log_pb2.ExperimentRecord), "Record must be an ExperimentRecord or EpisodeRecord"
+
+        # Store preprocessed data in convenient format
+        self._delays: List[Dict[str, Dict[str, Union[jp.ndarray, Dict[str, jp.ndarray]]]]]
+        self._delays_stacked: Dict[str, Dict[str, Union[jp.ndarray, Dict[str, jp.ndarray]]]]
+        self._data: List[Dict[str, Dict[str, Any]]]
+        self._data_stacked: Dict[str, Dict[str, Any]]
+        self._nodes: List[Dict[str, Union[str, Node, Agent]]] = []
+
+        # Pre-process record data
+        self._preprocess_data()
+
+        # Validate record
+        if self.validate:
+            self._validate_data()
+
+        # Stack data
+        if self.stack:
+            assert self.validate, "Stacking requires validation. Set validate=True."
+            self._stack_data()
+
+    def get_nodes(self, episode: int = -1) -> Dict[str, Union[Node, Agent]]:
+        nodes = {}
+        for name, node_bytes in self._nodes[episode].items():
+            assert len(node_bytes) > 0, "Node state must be non-empty."
+            nodes[name] = pickle.loads(node_bytes)
+
+        # Fully restore node by unpickling (re-connects to other nodes, execute custom unpickling routines if any)
+        for n in nodes.values():
+            n.unpickle(nodes)
+        return nodes
+
+    def _unpickle_data(self, record: log_pb2.Serialization):
+        if len(record.encoded_bytes) == 0:
+            return _NoValue()
+        encoded_bytes = record.encoded_bytes
+        try:
+            target = pickle.loads(record.target)
+            data = [serialization.from_bytes(target, b) for b in encoded_bytes]
+        except UnpicklingError as e:
+            print(f"Failed to load target. Unpickling to state_dict instead: {e}")
+            data = [serialization.msgpack_restore(b) for b in encoded_bytes]
+        return _HasValue(tree_map(lambda *x: jp.stack(x), *data))
+
+    def _preprocess_data(self):
+        # Get delays
+        self._delays, _ = utils.get_delay_data(self._record, concatenate=False)
+
+        # Get data
+        self._data = []
+        self._nodes = []
+        for i, e in enumerate(self._record.episode):
+            # Store nodes
+            eps_nodes = {}
+            self._nodes.append(eps_nodes)
+            for n in e.node:
+                eps_nodes[n.info.name] = n.info.state
+
+            # Store data
+            eps_data = {n.info.name: dict(outputs=None, rngs=None, states=None, params=None, step_states=None) for n in e.node}
+            self._data.append(eps_data)
+            for n in e.node:
+                # Store outputs
+                eps_data[n.info.name]["outputs"] = self._unpickle_data(n.outputs)
+                eps_data[n.info.name]["rngs"] = self._unpickle_data(n.rngs)
+                eps_data[n.info.name]["states"] = self._unpickle_data(n.states)
+                eps_data[n.info.name]["params"] = self._unpickle_data(n.params)
+                eps_data[n.info.name]["step_states"] = self._unpickle_data(n.step_states)
+
+    def _validate_data(self):
+        # todo: Do not raise errors, but rather set flags. Check flags in stack and truncate.
+        # todo: check if all data is present
+        # todo: Check if data is of same length?
+        # todo: Check if computation graph is the same
+        # todo: Check if all nodes are present
+        # todo: Check if step_states correspond to logged inputs
+        # Stack
+        # self._lengths = tree_map(lambda *l: list(l), *self._lengths)
+        # self._max_lengths = tree_map(lambda *l: max(l), *self._lengths
+        pass
+
+    def _stack_data(self):
+        # Stack data
+        self._data_stacked = tree_map(_truncated_stack, *self._data)
+        self._delays_stacked = tree_map(_truncated_stack, *self._delays)

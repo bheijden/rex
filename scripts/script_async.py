@@ -1,9 +1,14 @@
 # use JAX_LOG_COMPILES=1 to log JIT compilation.
 # todo: [TESTS] Install jumpy from github on CI
-# todo: [PROTO] Write API to easily extract graph_state and step_state from trace.
+# todo: [PROTO] Write API to easily extract graph_state and step_state from trace --> script_reinitialize.py
+# todo: [PROTO] Record ts start (and end?) of each step.
 # todo: [ASYNC] Do nodes require at least one input (only when clock=SIMULATED)?
 # todo: [ASYNC] Only compiled graphs can be transformed with vmap.
 # todo: [ASYNC] We reuse the initial step_state.key for seeding the inputs. Is this a problem?
+# todo: [ASYNC] Remove 1.002 from node.phase. It's a hack that makes the phase always slightly greater than the BUFFER
+# todo: [ASYNC] How to determine phase-shift of a node due to non-blocking connections.
+# todo: [WRAPPER] Remove __getattr__ from wrapper --> leads to unexpected behavior.
+# todo: [API] Add .close() method to nodes. This should be called when the node is no longer needed (e.g. in env.close()).
 # todo: [API] Define transform functions with the API of scipy that can be used for input transformations.
 # todo: [API] Switch `input.name` and `input.input_name` in the API.
 # todo: [JIT] Is jumpy.core.is_jitted() True when in pmap?
@@ -18,7 +23,7 @@
 # todo: [TRACE] Remove static, and fully rely on stateful flag.
 # todo: [TRACE] Add helper functions to modify traces (e.g. remove nodes, add nodes, etc.)
 # todo: [DELAY] Make a distribution that samples from a pre-recorded delay sequence.
-# todo: [DELAY] Make function that fits a distribution to a delay sequence (GMM, Gaussian).
+
 import time
 import jax.random as rnd
 from rex.proto import log_pb2

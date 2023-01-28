@@ -65,7 +65,7 @@ class BaseNode:
 
         # Log
         self._discarded = 0
-        self._max_records = 10000  # todo: make this configurable. Must be > 1.
+        self._max_records = 20000  # todo: make this configurable. Must be > 1.
         self._record_step_states: Deque[StepState] = None
         self._record_outputs: Deque[Output] = None
 
@@ -168,44 +168,39 @@ class BaseNode:
             record.info.state = pickle.dumps(self)
 
         # Store output trajectory
-        if self._record_outputs and len(self._record_outputs) > 0:
+        if outputs and self._record_outputs and len(self._record_outputs) > 0:
             record.outputs.target = pickle.dumps(self._record_outputs[0])
-            if outputs:
-                # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_outputs)
-                # record.outputs.encoded_bytes.extend([serialization.to_bytes(data)])
-                record.outputs.encoded_bytes.extend([serialization.to_bytes(o) for o in self._record_outputs])
+            # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_outputs)
+            # record.outputs.encoded_bytes.extend([serialization.to_bytes(data)])
+            record.outputs.encoded_bytes.extend([serialization.to_bytes(o) for o in self._record_outputs])
 
         # Store random number generator state trajectory
-        if self._record_step_states and len(self._record_step_states) > 0:
+        if rngs and self._record_step_states and len(self._record_step_states) > 0:
             record.rngs.target = pickle.dumps(self._record_step_states[0].rng)
-            if rngs:
-                # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states).rng
-                # record.rngs.encoded_bytes.extend([serialization.to_bytes(data)])
-                record.rngs.encoded_bytes.extend([serialization.to_bytes(s.rng) for s in self._record_step_states])
+            # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states).rng
+            # record.rngs.encoded_bytes.extend([serialization.to_bytes(data)])
+            record.rngs.encoded_bytes.extend([serialization.to_bytes(s.rng) for s in self._record_step_states])
 
         # Store state trajectory
-        if self._record_step_states and len(self._record_step_states) > 0:
+        if states and self._record_step_states and len(self._record_step_states) > 0:
             record.states.target = pickle.dumps(self._record_step_states[0].state)
-            if states:
-                # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states).state
-                # record.states.encoded_bytes.extend([serialization.to_bytes(data)])
-                record.states.encoded_bytes.extend([serialization.to_bytes(s.state) for s in self._record_step_states])
+            # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states).state
+            # record.states.encoded_bytes.extend([serialization.to_bytes(data)])
+            record.states.encoded_bytes.extend([serialization.to_bytes(s.state) for s in self._record_step_states])
 
         # Store params trajectory
-        if self._record_step_states and len(self._record_step_states) > 0:
+        if params and self._record_step_states and len(self._record_step_states) > 0:
             record.params.target = pickle.dumps(self._record_step_states[0].params)
-            if params:
-                # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states).params
-                # record.params.encoded_bytes.extend([serialization.to_bytes(data)])
-                record.params.encoded_bytes.extend([serialization.to_bytes(s.params) for s in self._record_step_states])
+            # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states).params
+            # record.params.encoded_bytes.extend([serialization.to_bytes(data)])
+            record.params.encoded_bytes.extend([serialization.to_bytes(s.params) for s in self._record_step_states])
 
         # Store step_state trajectory
-        if self._record_step_states and len(self._record_step_states) > 0:
+        if step_states and self._record_step_states and len(self._record_step_states) > 0:
             record.step_states.target = pickle.dumps(self._record_step_states[0])
-            if step_states:
-                # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states)
-                # record.step_states.encoded_bytes.extend([serialization.to_bytes(data)])
-                record.step_states.encoded_bytes.extend([serialization.to_bytes(ss) for ss in self._record_step_states])
+            # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states)
+            # record.step_states.encoded_bytes.extend([serialization.to_bytes(data)])
+            record.step_states.encoded_bytes.extend([serialization.to_bytes(ss) for ss in self._record_step_states])
 
         return record
 
@@ -219,7 +214,8 @@ class BaseNode:
         # Recalculate phase once per episode.
         if self._phase is None:
             try:
-                return max([0.] + [i.phase for i in self.inputs if i.blocking and not i.skip])
+                return max([0.] + [i.phase*1.002 for i in self.inputs if not i.skip])
+                # return max([0.] + [i.phase for i in self.inputs if i.blocking and not i.skip])
             except RecursionError as e:
                 msg = "The constructed graph is not DAG. To break an algebraic loop, " \
                       "either skip a connection or make the connection non-blocking."
@@ -370,6 +366,7 @@ class BaseNode:
                                "This may mean that the node has some additional unpickling routines to do." \
                                "For example, some node attributes may need to be set after the node has been unpickled."
         assert self._state in [STOPPED, READY], f"{self.name} must first be stopped, before it can be reset"
+        assert real_time_factor > 0 or clock == SIMULATED, "Real time factor must be greater than zero if clock is not simulated"
 
         # Determine whether to run synchronously or asynchronously
         self._sync = SYNC if clock == SIMULATED else ASYNC

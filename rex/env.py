@@ -6,7 +6,7 @@ import abc
 from rex.spaces import Space
 from rex.utils import log, NODE_COLOR, NODE_LOG_LEVEL
 from rex.node import Node
-from rex.graph import Graph
+from rex.graph import Graph, BaseGraph
 from rex.compiled import CompiledGraph
 from rex.base import GraphState, Params
 from rex.proto import log_pb2
@@ -35,16 +35,16 @@ class BaseEnv:
         assert len([n for n in nodes.values() if n.name == agent.name]) == 0, "The agent should be provided separately, so not inside the `nodes` dict"
 
         # Initialize graph
-        if graph_type in [VECTORIZED, SEQUENTIAL, BATCHED]:
-            assert trace is not None, "Compiled graphs require a trace"
-            self._cgraph = CompiledGraph(nodes, trace, agent, graph_type)
+        assert graph_type in [INTERPRETED, VECTORIZED, SEQUENTIAL, BATCHED], f"Invalid graph type provided: {graph_type}"
+        self._graph = Graph(nodes, agent, clock, real_time_factor)
+        if trace is not None:
+            cgraph_type = SEQUENTIAL if graph_type == INTERPRETED else graph_type
+            assert cgraph_type in [SEQUENTIAL, VECTORIZED, BATCHED], "Invalid graph type"
+            self._cgraph = CompiledGraph(nodes, trace, agent, cgraph_type)
             assert self._cgraph.max_steps >= self.max_steps, f"max_steps ({self.max_steps}) must be smaller than the max number of compiled steps in the graph ({self._cgraph.max_steps})"
-        elif graph_type == INTERPRETED:
-            if trace is not None:
-                self.log("WARNING", "trace is ignored. Set `graph` to a compiled setting (.e.g SEQUENTIAL) to use it.", log_level=WARN)
-            self._graph = Graph(nodes, agent, clock, real_time_factor)
         else:
-            raise ValueError(f"Unknown graph mode: {graph_type}")
+            assert graph_type == INTERPRETED, "Cannot compile a graph without a trace."
+            self._cgraph = None
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -54,7 +54,7 @@ class BaseEnv:
         self.__dict__.update(state)
 
     @property
-    def graph(self):
+    def graph(self) -> BaseGraph:
         if self.graph_type in [VECTORIZED, SEQUENTIAL, BATCHED]:
             return self._cgraph
         elif self.graph_type == INTERPRETED:
@@ -108,6 +108,10 @@ class BaseEnv:
 
     def save(self, path: str):
         """Save the environment to a file using pickle."""
+        # Append pkl extension
+        if not path.endswith(".pkl"):
+            path = path + ".pkl"
+
         with open(path, "wb") as f:
             pickle.dump(self, f)
             self.log(f"Saved environment `{self.name}` to {path}.")
@@ -115,6 +119,10 @@ class BaseEnv:
     @staticmethod
     def load(path: str):
         """Load the environment from a file using pickle."""
+        # Append pkl extension
+        if not path.endswith(".pkl"):
+            path = path + ".pkl"
+
         with open(path, "rb") as f:
             env = pickle.load(f)
             env.log(f"Loaded environment `{env.name}` from {path}.")

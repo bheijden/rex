@@ -10,9 +10,9 @@ from rex.constants import WARN, LATEST, PHASE
 from rex.base import StepState, GraphState, Empty
 from rex.node import Node
 
-from envs.pendulum.env import Output as ActuatorOutput
+from envs.double_pendulum.env import Output as ActuatorOutput
 from envs.pendulum.real.pid import PID
-from envs.pendulum.render import Render
+from envs.double_pendulum.render import Render
 
 
 # Import ROS specific functions
@@ -31,15 +31,26 @@ except ImportError as e:
 	error_dcsc_setups = e
 	dcsc_setups = None
 
+# todo: TODO: CALIBRATE!
+TH_OFFSET = 3.7903
+TH2_OFFSET = 1.0974
+TH_MAX = 4.906
+TH2_MAX = 4.935
 
-def build_pendulum(rates: Dict[str, float],
-                   delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distribution]]]],
-                   delays: Dict[str, Dict[str, Union[float, Dict[str, float]]]],
-				   scheduling: int = PHASE,
-                   advance: bool = False,
-                   ) -> Dict[str, Node]:
+
+def _convert_to_radians(volt, max_volt, offset_volt):
+	# todo: take shifts into account
+	return 2 * jp.pi * (volt - offset_volt) / max_volt
+
+
+def build_double_pendulum(rates: Dict[str, float],
+                          delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distribution]]]],
+                          delays: Dict[str, Dict[str, Union[float, Dict[str, float]]]],
+                          scheduling: int = PHASE,
+                          advance: bool = False,
+                          ) -> Dict[str, Node]:
 	# Initialize main process as Node
-	rospy.init_node("mops_client", anonymous=True)
+	rospy.init_node("pendulum_client", anonymous=True)
 
 	# Prepare delays
 	process_sim = delays_sim["step"]
@@ -76,16 +87,31 @@ def build_pendulum(rates: Dict[str, float],
 class State:
 	"""Pendulum ode state definition"""
 
-	th: jp.float32
-	thdot: jp.float32
+	th: jp.float32  # todo: output sin, cos instead?
+	th2: jp.float32  # todo: output sin, cos instead?
+	thdot: jp.float32  # todo: remove?
+	thdot2: jp.float32  # todo: remove?
 
 
 @struct.dataclass
-class Output:
-	"""Pendulum ode output definition"""
+class SensorOutput:
+	"""Pendulum ode state definition"""
 
-	th: jp.float32
+	th: jp.float32  # todo: output sin, cos instead?
+	th2: jp.float32  # todo: output sin, cos instead?
 	thdot: jp.float32
+	thdot2: jp.float32
+	volt: jp.float32
+	volt2: jp.float32
+	th_enc: jp.float32
+
+
+@struct.dataclass
+class SensorParams:
+	th_offset: jp.float32
+	th2_offset: jp.float32
+	th_max: jp.float32
+	th2_max: jp.float32
 
 
 class World(Node):
@@ -93,15 +119,16 @@ class World(Node):
 		super().__init__(*args, **kwargs)
 		assert error_rospy is None, "Failed to import rospy: {}".format(error_rospy)
 		assert error_dcsc_setups is None, "Failed to import dcsc_setups: {}".format(error_dcsc_setups)
-		self.srv_read = rospy.ServiceProxy("/mops/read", dcsc_setups.MopsRead)
-		self.srv_write = rospy.ServiceProxy("/mops/write", dcsc_setups.MopsWrite)
+		self.srv_read = rospy.ServiceProxy("/pendulum/read", dcsc_setups.PendulumRead)
+		self.srv_write = rospy.ServiceProxy("/pendulum/write", dcsc_setups.PendulumWrite)
 		self.srv_read.wait_for_service()
 		self.srv_write.wait_for_service()
-		self._rospy_rate = rospy.Rate(20)
+		self._rospy_rate = rospy.Rate(50)
 		gains = gains or [2.0, 0.2, 1.0]
 		self._downward_reset = downward_reset
 		self.eval_env = eval_env
 		self._controller = PID(u0=0.0, kp=gains[0], kd=gains[1], ki=gains[2], dt=1 / self.rate)
+
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
 		"""Reset the node."""
@@ -125,7 +152,7 @@ class World(Node):
 
 	def _apply_action(self, action):
 		"""Call ROS service and send action to mops."""
-		req = dcsc_setups.MopsWriteRequest()
+		req = dcsc_setups.PendulumWriteRequest()
 		req.actuators.digital_outputs = 1
 		req.actuators.voltage0 = action
 		req.actuators.voltage1 = 0.0
@@ -139,10 +166,15 @@ class World(Node):
 		done = False
 		tstart = rospy.get_time()
 		while not done:
-			# Theta=0 here is downward position (different from the simulation)
-			res = self.srv_read.call(dcsc_setups.MopsReadRequest())
-			th, thdot = res.sensors.position0, res.sensors.speed
+			# todo: determine thdot, thdot2 with finite differencing over a moving window?
+			thdot, thdot2 = 0.0, 0.0
+			# todo: Is th=0 downward position ? (different from the simulation)
+			res = self.srv_read.call(dcsc_setups.PendulumReadRequest())
+			v, v2 = res.sensors.voltage_beam, res.sensors.voltage_pendulum
+			th = _convert_to_radians(v, TH_MAX, TH_OFFSET)
+			th2 = _convert_to_radians(v2, TH2_MAX, TH2_OFFSET)
 			th = self._wrap_angle(th)  # Wrap angle
+			th2 = self._wrap_angle(th2)  # Wrap angle
 
 			# Get action
 			action = self._controller.next_action(th, ref=goal[0])
@@ -168,14 +200,17 @@ class Sensor(Node):
 		super().__init__(*args, **kwargs)
 		assert error_rospy is None, "Failed to import rospy: {}".format(error_rospy)
 		assert error_dcsc_setups is None, "Failed to import dcsc_setups: {}".format(error_dcsc_setups)
-		self.srv_read = rospy.ServiceProxy("/mops/read", dcsc_setups.MopsRead)
+		self.srv_read = rospy.ServiceProxy("/pendulum/read", dcsc_setups.PendulumRead)
 		self.srv_read.wait_for_service()
 
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
+	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> SensorParams:
+		return SensorParams(th_offset=TH_OFFSET, th2_offset=TH2_OFFSET, th_max=TH_MAX, th2_max=TH2_MAX)
+
+	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> SensorOutput:
 		"""Default output of the node."""
 		return self._read_output()  # Read output from ROS service
 
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
+	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, State]:
 		"""Step the node."""
 		# Update state
 		new_step_state = step_state
@@ -186,9 +221,19 @@ class Sensor(Node):
 
 	def _read_output(self):
 		"""Read output from ROS."""
-		res = self.srv_read.call(dcsc_setups.MopsReadRequest())
-		th, thdot = res.sensors.position0 + jp.pi, res.sensors.speed
-		return Output(th=jp.float32(th), thdot=jp.float32(thdot))
+		res = self.srv_read.call(dcsc_setups.PendulumReadRequest())
+		thdot, thdot2 = 0.0, 0.0  # todo: determine thdot, thdot2 with finite differencing over a moving window?
+		v, v2 = res.sensors.voltage_beam, res.sensors.voltage_pendulum
+		th_enc = res.sensors.position0
+		th = _convert_to_radians(v, TH_MAX, TH_OFFSET)  # todo: must take shifts into account.
+		th2 = _convert_to_radians(v2, TH2_MAX, TH2_OFFSET)  # todo: must take shifts into account.
+		return SensorOutput(th=jp.float32(th),
+		                    th2=jp.float32(th2),
+		                    thdot=jp.float32(thdot),
+		                    thdot2=jp.float32(thdot2),
+		                    volt=jp.float32(v),
+		                    volt2=jp.float32(v2),
+		                    th_enc=jp.float32(th_enc))
 
 
 class Actuator(Node):
@@ -196,14 +241,14 @@ class Actuator(Node):
 		super().__init__(*args, **kwargs)
 		assert error_rospy is None, "Failed to import rospy: {}".format(error_rospy)
 		assert error_dcsc_setups is None, "Failed to import dcsc_setups: {}".format(error_dcsc_setups)
-		self.srv_write = rospy.ServiceProxy("/mops/write", dcsc_setups.MopsWrite)
+		self.srv_write = rospy.ServiceProxy("/pendulum/write", dcsc_setups.PendulumWrite)
 		self.srv_write.wait_for_service()
 
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
+	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ActuatorOutput:
 		"""Default output of the node."""
 		return ActuatorOutput(action=jp.array([0.0], dtype=jp.float32))
 
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
+	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, ActuatorOutput]:
 		"""Step the node."""
 
 		# Unpack StepState
@@ -214,7 +259,7 @@ class Actuator(Node):
 
 		# Prepare output
 		output: ActuatorOutput = list(inputs.values())[0][-1].data
-		action = jp.clip(output.action[0], -2, 2)
+		action = jp.clip(output.action[0], -8, 8)
 
 		# Call ROS service and send action to mops
 		self._apply_action(action)
@@ -223,7 +268,7 @@ class Actuator(Node):
 
 	def _apply_action(self, action):
 		"""Call ROS service and send action to mops."""
-		req = dcsc_setups.MopsWriteRequest()
+		req = dcsc_setups.PendulumWriteRequest()
 		req.actuators.digital_outputs = 1
 		req.actuators.voltage0 = action
 		req.actuators.voltage1 = 0.0

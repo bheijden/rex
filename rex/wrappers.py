@@ -128,6 +128,12 @@ class GymWrapper(Wrapper, gym.Env):
     def close(self):
         self.env.close()
 
+    def env_is_wrapped(self, wrapper_class, indices=None):
+        if isinstance(self, wrapper_class) or isinstance(self.env, wrapper_class):
+            return True
+        else:
+            return self.env.env_is_wrapped(wrapper_class, indices)
+
 
 try:
     from stable_baselines3.common.vec_env import VecEnv as sb3VecEnv

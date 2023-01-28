@@ -1,65 +1,99 @@
+from typing import Union, Dict
+import dill as pickle
+import os
 import time
+import jax
 import numpy as onp
 import jumpy.numpy as jp
 from stable_baselines3.common.vec_env import VecMonitor
 
-# from sbx import SAC
-from stable_baselines3.sac import SAC
+from sbx import SAC
+# from stable_baselines3.sac import SAC
 
 import rex.utils as utils
 from rex.tracer import trace
 from rex.proto import log_pb2
-from rex.distributions import Gaussian
+from rex.distributions import Gaussian, Distribution
 from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, SEQUENTIAL, WARN, REAL_TIME, ASYNC, WALL_CLOCK
 
+import envs.pendulum.dists
 from envs.pendulum.env import PendulumEnv, Agent
 from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
+
+
+def load_distributions(file: str, module=envs.pendulum.dists) -> Dict[str, Dict[str, Union[Distribution, Dict[str, Distribution]]]]:
+	# Append pkl extension
+	if not file.endswith(".pkl"):
+		file = file + ".pkl"
+
+	# If not an absolute path, load from within dists
+	if not file.startswith("/"):
+		module_path = os.path.dirname(os.path.abspath(module.__file__))
+		with open(f"{module_path}/{file}", "rb") as f:
+			dists = pickle.load(f)
+	else:
+		with open(f"{file}", "rb") as f:
+			dists = pickle.load(f)
+	return dists
 
 
 if __name__ == "__main__":
 	# todo: Log experiments (trace, hyper parameters, model, tensorboard, w & b, data?)
 	# todo: Visualise performance on simulated pendulum
 	# todo: Visualise communication
+	# todo: load dists outside of build_pendulum.
 	utils.set_log_level(WARN)
 
 	# Parameters
 	log_dir = "/home/r2ci/rex/logs"
+	name_proto = "pretrained-sbx-sac"
 	preload_model = "sbx_sac_pendulum"
 	new_model_name = "sbx_sac_pendulum"
+	name_env = "disc-pendulum-real"
+	dist_file = f"21eps_pretrained_sbx_sac_gmms_2comps.pkl"
+	num_init_eps = 21
 	scheduling = PHASE
 	jitter = BUFFER
 	clock = WALL_CLOCK  # WALL_CLOCK, SIMULATED
-	sync = ASYNC  # ASYNC, SYNC
 	real_time_factor = REAL_TIME  # REAL_TIME, FAST_AS_POSSIBLE
-	world_rate = 50
-	rate = 20.0
 	max_steps = 100
 	win_action = 1
 	win_state = 2
-	trans = dict(actuator=0.001, sensor=0.001)
-	process = dict(agent=0.01)
+
+	# Load distributions
+	delays_sim = load_distributions(dist_file)
+	delays_sim["step"]["world"] = Gaussian(0.)
+	delays_sim["inputs"]["world"]["actuator"] = Gaussian(0.)
+	delays_sim["inputs"]["sensor"]["world"] = Gaussian(0.)
+	delays = jax.tree_map(lambda d: d.high, delays_sim)
+	rates = dict(world=20, agent=20, actuator=20, sensor=20, render=20)
 
 	# Make real environment
-	# import envs.pendulum.real as real
-	# nodes_real = real.build_pendulum(rate=dict(world=world_rate, actuator=rate, sensor=rate, render=rate))
-	import envs.pendulum.ode as ode
-	nodes_real = ode.build_pendulum(rate=dict(world=world_rate, actuator=rate, sensor=rate, render=rate))
+	import envs.pendulum.real as real
+	nodes_real = real.build_pendulum(rates, delays_sim, delays, scheduling=scheduling, advance=False)
+	# import envs.pendulum.ode as ode
+	# nodes_real = ode.build_pendulum(rates, delays_sim, delays, scheduling=scheduling, advance=False)
 
+	# todo: add dist to agent, and connections.
+	# todo: advance actuator, agent?
 	world_real, actuator_real, sensor_real = nodes_real["world"], nodes_real["actuator"], nodes_real["sensor"]
-	agent_real = Agent("agent", rate=rate, delay_sim=Gaussian(process["agent"]), delay=process["agent"])
+	agent_real = Agent("agent", rate=rates["agent"], delay_sim=delays_sim["step"]["agent"], delay=delays["step"]["agent"])
 	nodes_real["agent"] = agent_real
 
+	# Turn on evaluation
+	assert hasattr(world_real, "eval_env"), "World node must have an eval_env attribute"
+	world_real.eval_env = True
+
 	# Connect
-	agent_real.connect(agent_real, name="last_action", window=win_action, blocking=True, skip=True, delay_sim=Gaussian(0.), delay=0., jitter=LATEST)
-	agent_real.connect(sensor_real, name="state",  window=win_state, blocking=True, delay_sim=Gaussian(trans["sensor"]), delay=trans["sensor"], jitter=jitter)
-	actuator_real.connect(agent_real, name="action", window=1, blocking=True, delay_sim=Gaussian(trans["actuator"]), delay=trans["actuator"], jitter=jitter)
+	agent_real.connect(agent_real, name="last_action", window=win_action, blocking=True, jitter=LATEST, skip=True)
+	agent_real.connect(sensor_real, name="state",  window=win_state, blocking=True, jitter=jitter, delay_sim=delays_sim["inputs"]["agent"]["state"], delay=delays["inputs"]["agent"]["state"])
+	actuator_real.connect(agent_real, name="action", window=1, blocking=True, jitter=jitter, delay_sim=delays_sim["inputs"]["actuator"]["action"], delay=delays["inputs"]["actuator"]["action"])
 
 	# Warmup nodes_real (pre-compile jitted functions)
 	[n.warmup() for n in nodes_real.values()]
 
 	# Create environment
-	env_real = PendulumEnv(nodes_real, agent=agent_real, max_steps=max_steps, sync=sync, clock=clock, scheduling=scheduling, real_time_factor=real_time_factor)
-
+	env_real = PendulumEnv(nodes_real, agent=agent_real, max_steps=max_steps, clock=clock, real_time_factor=real_time_factor)
 	env_real = GymWrapper(env_real)  # Wrap into gym wrapper
 
 	# Initialize model
@@ -67,7 +101,7 @@ if __name__ == "__main__":
 		try:
 			model_real = SAC.load(f"{log_dir}/{preload_model}", env=env_real)
 		except AttributeError as e:
-			print("Could not load model. Chech wether the model was trained with sb or sbx.")
+			print("Could not load model. Chech whether the model was trained with sb or sbx.")
 			raise e
 		new_model = False
 	except FileNotFoundError as e:
@@ -78,8 +112,7 @@ if __name__ == "__main__":
 
 	# Run environment
 	exp_record = log_pb2.ExperimentRecord()
-	eps_record = None
-	for _ in range(2):
+	for eps in range(num_init_eps):
 		cum_reward = 0.
 		done, obs = False, env_real.reset()
 		tstart = time.time()
@@ -92,21 +125,24 @@ if __name__ == "__main__":
 			cum_reward += reward
 			# print(f"{action=} | {obs=}")
 		tend = time.time()
-		print(f"ASYNC | steps={max_steps} | t_s={(tstart - tend): 2.4f} sec | fps={max_steps / (tend - tstart): 2.4f} | cum_reward={onp.mean(cum_reward)}")
+		print(f"ASYNC | eps={eps} | steps={max_steps} | t_s={(tstart - tend): 2.4f} sec | fps={max_steps / (tend - tstart): 2.4f} | cum_reward={onp.mean(cum_reward)}")
 		env_real.stop()  # NOTE: This is required to make the number of ticks equal to max_steps for compiled graph
 
 		# Save record
-		eps_record = log_pb2.EpisodeRecord()
-		[eps_record.node.append(node.record(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True)) for node in nodes_real.values()]
-		exp_record.episode.append(eps_record)
+		_kwargs = dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True)
+		# eps_record = log_pb2.EpisodeRecord()
+		# [eps_record.node.append(node.record(**_kwargs)) if name != "render" else eps_record.node.append(node.record(node=True)) for name, node in nodes_real.items()]
+		node_records = [node.record(**_kwargs) if name != "render" else node.record(node=True) for name, node in nodes_real.items()]
+		exp_record.episode.append(log_pb2.EpisodeRecord(node=node_records))
+
+	exit()
 
 	# Save experiment record
-	# with open(f"/home/r2ci/rex//logs/{new_model_name}.pb", "wb") as f:
-	# 	f.write(exp_record.SerializeToString())
-	# exit()
+	with open(f"/home/r2ci/rex/logs/{name_env}/{num_init_eps}eps-{name_proto}.pb", "wb") as f:
+		f.write(exp_record.SerializeToString())
+	exit()
 
 	# Trace record
-	assert eps_record is not None, "No episode record found."
 	trace_record = trace(exp_record.episode[0], "agent")
 
 	# Visualize trace
@@ -138,7 +174,7 @@ if __name__ == "__main__":
 
 	# Make ode environment
 	import envs.pendulum.ode as ode
-	nodes_ode = ode.build_pendulum(rate=dict(world=100, actuator=rate, sensor=rate))
+	nodes_ode = ode.build_pendulum(rate=dict(world=world_rate, actuator=rate, sensor=rate, render=rate))
 
 	world_ode, actuator_ode, sensor_ode = nodes_ode["world"], nodes_ode["actuator"], nodes_ode["sensor"]
 	agent_ode = Agent("agent", rate=rate, delay_sim=Gaussian(process["agent"]), delay=process["agent"])

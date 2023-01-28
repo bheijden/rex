@@ -251,6 +251,8 @@ class Input:
                         ts_expected = seq / self.output.rate + phase
                         if ts_expected > ts_step:
                             break
+                        if ts_recv > ts_step:
+                            break
                         num_msgs += 1
                 else:  # self.jitter in [LATEST]:
                     # Simply uses the latest messages (and clears entire buffer until ts_step).

@@ -3,7 +3,6 @@ import jumpy
 import jumpy.numpy as jp
 import numpy as onp
 from flax import struct
-from rex.distributions import Distribution, Gaussian
 from rex.constants import WARN, LATEST
 from rex.base import StepState, GraphState
 from rex.node import Node
@@ -37,7 +36,7 @@ class Render(Node):
 		self._visual = visual
 		self._mode = mode
 		self._encoding = encoding
-		self._shape = shape or [480, 480, 3]
+		self._shape = shape or [400, 400, 3]
 
 	def __getstate__(self):
 		args, kwargs, inputs = super().__getstate__()

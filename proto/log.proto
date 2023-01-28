@@ -4,6 +4,7 @@ package logging;
 
 message ExperimentRecord {
     repeated EpisodeRecord episode = 1;
+    bytes environment = 2;
 }
 
 

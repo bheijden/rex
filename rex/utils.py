@@ -176,7 +176,7 @@ class AttrDict(dict):
         self.__dict__ = self
 
 
-def get_delay_data(record: log_pb2.ExperimentRecord):
+def get_delay_data(record: log_pb2.ExperimentRecord, concatenate: bool = True):
     get_step_delay = lambda s: s.delay  # todo: use comp_delay?
     get_input_delay = lambda m: m.delay  # todo: use comm_delay?
 
@@ -201,33 +201,7 @@ def get_delay_data(record: log_pb2.ExperimentRecord):
                 input_name = i.info.name
                 delays = [get_input_delay(m) for g in i.grouped for m in g.messages]
                 data["inputs"][node_name][input_name] = onp.array(delays)
-    data = jax.tree_map(lambda *x: onp.concatenate(x, axis=0), *exp_data)
-    info = jax.tree_map(lambda *x: x[0], *exp_info)
+
+    data = jax.tree_map(lambda *x: onp.concatenate(x, axis=0), *exp_data) if concatenate else exp_data
+    info = jax.tree_map(lambda *x: x[0], *exp_info) if concatenate else exp_info
     return data, info
-
-
-# import codecs
-# def record_init(init):
-#     """Decorator to record the initialization of a class.
-#
-#     This stores the arguments and keyword arguments used to call cls.__init__().
-#     """
-#     @wraps(init)
-#     def wrapper(self, *args, **kwargs):
-#         # Only store if not already stored (by subclass)
-#         if not hasattr(self, "_init"):
-#             init_cls = init.__module__ + "/" + init.__qualname__.split(".")[0]
-#             init_args = codecs.encode(pickle.dumps(args), "base64").decode()
-#             init_kwargs = codecs.encode(pickle.dumps(kwargs), "base64").decode()
-#             self._init = log_pb2.InitInfo(cls=init_cls, args=init_args, kwargs=init_kwargs)
-#         return init(self, *args, **kwargs)
-#     return wrapper
-#
-#
-# def reload_class_from_init(init: log_pb2.InitInfo):
-#     # Reconstruction of class
-#     args = pickle.loads(codecs.decode(init.args.encode(), "base64"))
-#     kwargs = pickle.loads(codecs.decode(init.kwargs.encode(), "base64"))
-#     cls = load(init.cls)
-#     obj = cls(*args, **kwargs)
-#     return obj

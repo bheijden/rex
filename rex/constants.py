@@ -28,7 +28,7 @@ SYNC_MODES = {SYNC: "synchronous", ASYNC: "asynchronous"}
 # Jitter modes
 LATEST = 0
 BUFFER = 1
-JITTER_MODES = {LATEST: "synchronous", BUFFER: "asynchronous"}
+JITTER_MODES = {LATEST: "latest", BUFFER: "buffer"}
 
 # Graph modes
 INTERPRETED = 0

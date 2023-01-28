@@ -1,6 +1,6 @@
-**********************
-Contributing to EAGERx
-**********************
+*******************
+Contributing to rex
+*******************
 
 If you are interested in contributing to rex, your contributions will fall
 into two categories:

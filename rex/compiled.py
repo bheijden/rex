@@ -500,17 +500,17 @@ def make_graph_step(trace: log_pb2.TraceRecord, name: str, isolate: Timings, run
 
 
 class CompiledGraph(BaseGraph):
-    def __init__(self, nodes: Dict[str, "Node"],  trace: log_pb2.TraceRecord, agent: Agent, graph: int = SEQUENTIAL):
+    def __init__(self, nodes: Dict[str, "Node"],  trace: log_pb2.TraceRecord, agent: Agent, graph_type: int = SEQUENTIAL):
         super().__init__(agent=agent, nodes=nodes)
 
         # Split trace into chunks
-        depths = make_depth_grouping(trace, graph=graph)
+        depths = make_depth_grouping(trace, graph=graph_type)
         timings = make_timings(self.nodes_and_agent, trace, depths)
         default_outputs = make_default_outputs(self.nodes_and_agent, timings)
         chunks, substeps, isolate = make_splitter(trace, timings, depths)
 
         # Make chunk runner
-        run_chunk = make_run_chunk(self.nodes_and_agent, trace, timings, chunks, substeps, graph=graph)
+        run_chunk = make_run_chunk(self.nodes_and_agent, trace, timings, chunks, substeps, graph=graph_type)
 
         # Make compiled reset function
         self.__reset = make_graph_reset(trace, trace.name, default_outputs, isolate, run_chunk)

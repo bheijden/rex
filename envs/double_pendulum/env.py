@@ -17,7 +17,7 @@ from rex.spaces import Box
 class Params:
 	"""Pendulum agent param definition"""
 	max_torque: jp.float32
-	max_speed: jp.float32
+	max_speed: jp.float32  # todo: max_speed high enough? (also defined in ode.world.py
 
 
 @struct.dataclass
@@ -38,7 +38,7 @@ class Agent(BaseAgent):
 
 	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
 		"""Default params of the agent."""
-		return Params(max_torque=jp.float32(2.0), max_speed=jp.float32(22.0))
+		return Params(max_torque=jp.float32(4.0), max_speed=jp.float32(22.0))
 
 	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
 		"""Default state of the agent."""
@@ -57,26 +57,26 @@ class Agent(BaseAgent):
 		return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
 
-class PendulumEnv(BaseEnv):
+class DoublePendulumEnv(BaseEnv):
 	agent_cls = Agent
 
 	def __init__(
 			self,
 			nodes: Dict[str, "Node"],
 			agent: Agent,
-			max_steps: int = 100,
+			max_steps: int = 320,  # 4*rate
 			trace: log_pb2.TraceRecord = None,
 			clock: int = SIMULATED,
 			real_time_factor: Union[int, float] = FAST_AS_POSSIBLE,
 			graph: int = INTERPRETED,
-			name: str = "disc-pendulum-v0"
+			name: str = "double-pendulum-v0"
 	):
 		# Exclude the node for which this environment is a drop-in replacement (i.e. the agent)
 		nodes = {node.name: node for _, node in nodes.items() if node.name != agent.name}
 		super().__init__(nodes, agent, max_steps, clock, real_time_factor, graph, trace, name=name)
 
 		# Required for step and reset functions
-		assert "world" in nodes, "Pendulum environment requires a world node."
+		assert "world" in nodes, "Double-pendulum environment requires a world node."
 		self.world = nodes["world"]
 		self.agent = agent
 		self.nodes = {node.name: node for _, node in nodes.items() if node.name != self.world.name}
@@ -89,7 +89,7 @@ class PendulumEnv(BaseEnv):
 		# Prepare
 		num_state = inputs["state"].window
 		num_last_action = inputs["last_action"].window if "last_action" in inputs else 0
-		high = [1.0] * num_state * 2 + [params.max_speed] * num_state + [params.max_torque] * num_last_action
+		high = [1.0] * num_state * 4 + [params.max_speed] * num_state * 2 + [params.max_torque] * num_last_action
 		high = jp.array(high, dtype=jp.float32)
 		return Box(low=-high, high=high, dtype=jp.float32)
 
@@ -140,6 +140,7 @@ class PendulumEnv(BaseEnv):
 
 	def step(self, graph_state: GraphState, action: jp.ndarray) -> Tuple[GraphState, InputState, float, bool, Dict]:
 		"""Perform step transition in environment."""
+		# todo: where is the equilibrium point? Make sure the observations are smooth there.
 		# Update step_state (if necessary)
 		step_state = self.agent.get_step_state(graph_state)
 		new_step_state = step_state
@@ -155,13 +156,56 @@ class PendulumEnv(BaseEnv):
 		graph_state, ts, step_state = self.graph.step(graph_state, new_step_state, u)
 
 		# Get observation
+		# todo: what is up & down?
 		obs = self._get_obs(step_state)
-		# todo: shouldn't we take index [-1]?
 		th = self._angle_normalize(step_state.inputs["state"].data.th[-1])  # Normalize angle
+		th2 = self._angle_normalize(step_state.inputs["state"].data.th2[-1])  # Normalize angle
 		thdot = step_state.inputs["state"].data.thdot[-1]
+		thdot2 = step_state.inputs["state"].data.thdot2[-1]
 
 		# Calculate cost (penalize angle error, angular velocity and input voltage)
-		cost = th ** 2 + 0.1 * (thdot / (1 + 10 * abs(th))) ** 2 + 0.01 * action[0] ** 2
+		# cost = th2 ** 2 + 0.1 * (thdot2 / (1 + 10 * abs(th2))) ** 2 + 0.01 * action[0] ** 2
+		# cost = th2 ** 2 + 0.1 * thdot2 ** 2 + 0.01 * action[0] ** 2
+		# cost = (jp.pi - jp.abs(th + th2)) ** 2 + 0.1 * thdot + 0.1 * thdot2 ** 2 + 0.01 * action[0] ** 2
+
+		u = action[0]
+		vel = jp.array([thdot, thdot2])
+		angle = jp.array([jp.cos(th), jp.sin(th), jp.cos(th2), jp.sin(th2)]).reshape((4, 1))
+		target_vel = jp.array([-0, 0])
+
+		pos = jp.array([angle[0][0] + jp.cos(th + th2), angle[1][0] + jp.sin(th + th2)])
+		target_pos = jp.array([-2, 0])
+		L2_pos = (pos - target_pos).T @ (pos - target_pos)
+
+		cost = 0
+		cost -= jp.where(L2_pos < 0.25, 200, 0)
+		cost -= jp.where(L2_pos < 0.05, 600, 0)
+		_tmp = jp.where(L2_pos < 0.05, 800 + 100 * jp.exp(20 * (0.3 - jp.abs(vel[1]))), 0)
+		cost -= jp.where(jp.abs(vel[1]) <= 0.3, _tmp, 0)
+		cost -= jp.where(jp.abs(th) > jp.pi / 2, (abs(th) - jp.pi / 2) * 40 * (jp.pi / 2 - abs(th2)), 0)
+		D2 = jp.where(L2_pos < 0.25, jp.diag([1, 4]), jp.diag([0.05, 0.25]))
+		D2 = jp.where(L2_pos < 0.05, jp.diag([5, 15]), D2)
+
+		Dp = jp.diag([20, 10])
+		cost += (pos - target_pos).T @ Dp @ (pos - target_pos) + (vel - target_vel).T @ D2 @ (
+					vel - target_vel) + 0.001 * u ** 2
+
+		# if ((pos - target_pos).T @ (pos - target_pos)) < 0.25:
+		# 	cost -= 200
+		# 	D2 = jp.diag([1, 4])
+		# 	PRINT = True
+		# 	if ((pos - target_pos).T @ (pos - target_pos)) < 0.05:
+		# 		cost -= 600
+		# 		D2 = jp.diag([5, 15])
+		# 		# print("vel_cost:  ", (vel - target_vel).T @ D2 @ (vel - target_vel), vel)
+		# 		if abs(vel[1]) <= 0.3:
+		# 			cost -= 800
+		# 			# print("vel_reward:  ", 100 * jp.exp(20 * (0.3 - abs(vel[1]))), vel)
+		# 			cost -= 100 * jp.exp(20 * (0.3 - abs(vel[1])))
+		# cost += (pos - target_pos).T @ Dp @ (pos - target_pos) + (vel - target_vel).T @ D2 @ (
+		# 			vel - target_vel) + 0.001 * u ** 2
+		# if abs(th) > jp.pi / 2:
+		# 	cost -= (abs(th) - jp.pi / 2) * 40 * (jp.pi / 2 - abs(th2))
 
 		# Determine done flag
 		done = self._is_terminal(graph_state)
@@ -176,9 +220,11 @@ class PendulumEnv(BaseEnv):
 		"""Get observation from environment."""
 		inputs = step_state.inputs
 		th = inputs["state"].data.th
+		th2 = inputs["state"].data.th2
 		thdot = inputs["state"].data.thdot
+		thdot2 = inputs["state"].data.thdot2
 		last_action = inputs["last_action"].data.action[:, 0] if 'last_action' in inputs else jp.array([])
-		obs = jp.concatenate([jp.cos(th), jp.sin(th), thdot, last_action], axis=-1)
+		obs = jp.concatenate([jp.cos(th), jp.sin(th), jp.cos(th2), jp.sin(th2), thdot, thdot2, last_action], axis=-1)
 		return obs
 
 	def _angle_normalize(self, th: jp.array):

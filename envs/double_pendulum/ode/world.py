@@ -9,24 +9,22 @@ from rex.base import StepState, GraphState, Empty
 from rex.node import Node
 from rex.multiprocessing import new_process
 
-from envs.pendulum.env import Output as ActuatorOutput
-from envs.pendulum.render import Render
+from envs.double_pendulum.env import Output as ActuatorOutput
+from envs.double_pendulum.render import Render
 
 
-def build_pendulum(rates: Dict[str, float],
-                   delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distribution]]]],
-                   delays: Dict[str, Dict[str, Union[float, Dict[str, float]]]],
-                   scheduling: int = PHASE,
-                   advance: bool = False,
-                   ) -> Dict[str, Node]:
-
+def build_double_pendulum(rates: Dict[str, float],
+                          delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distribution]]]],
+                          delays: Dict[str, Dict[str, Union[float, Dict[str, float]]]],
+                          scheduling: int = PHASE,
+                          advance: bool = False,
+                          ) -> Dict[str, Node]:
 	# Prepare delays
 	process_sim = delays_sim["step"]
 	process = delays["step"]
 	trans_sim = delays_sim["inputs"]
 	trans = delays["inputs"]
 
-	# Create nodes
 	# Create nodes
 	world = World(name="world", rate=rates["world"], scheduling=scheduling,
 	              delay=process["world"], delay_sim=process_sim["world"])
@@ -57,13 +55,16 @@ class Params:
 	"""Pendulum ode param definition"""
 	max_speed: jp.float32
 	J: jp.float32
+	J2: jp.float32
 	mass: jp.float32
+	mass2: jp.float32
 	length: jp.float32
+	length2: jp.float32
 	b: jp.float32
-	K: jp.float32
-	R: jp.float32
+	b2: jp.float32
 	c: jp.float32
-	d: jp.float32
+	c2: jp.float32
+	K: jp.float32
 
 
 @struct.dataclass
@@ -71,15 +72,9 @@ class State:
 	"""Pendulum ode state definition"""
 
 	th: jp.float32
+	th2: jp.float32
 	thdot: jp.float32
-
-
-@struct.dataclass
-class Output:
-	"""Pendulum ode output definition"""
-
-	th: jp.float32
-	thdot: jp.float32
+	thdot2: jp.float32
 
 
 def runge_kutta4(ode, dt, params, x, u):
@@ -90,18 +85,53 @@ def runge_kutta4(ode, dt, params, x, u):
 	return x + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
 
 
-def ode_pendulum(params: Params, x, u):
-	g, J, m, l, b, K, R, c, d = 9.81, params.J, params.mass, params.length, params.b, params.K, params.R, params.c, params.d
+def ode_double_pendulum(params: Params, x, u):
+	"""source: http://underactuated.mit.edu/acrobot.html"""
+	g, K = 9.81, params.K
+	J1, m1, l1, b1, c1, = params.J, params.mass, params.length, params.b, params.c
+	J2, m2, l2, b2, c2 = params.J2, params.mass2, params.length2, params.b2, params.c2
 
-	ddx = (u * K / R + m * g * l * jp.sin(x[0]) - b * x[1] - x[1] * K * K / R - c * (2 * sigmoid(d * x[1]) - 1)) / J
+	g = 9.81
+	P3 = m2 * l1 * c2
+	F1 = (m1 * c1 + m2 * l1) * g
+	F2 = m2 * c2 * g
+	alpha1 = x[0]
+	alpha2 = x[1]
+	alpha_dot1 = x[2]
+	alpha_dot2 = x[3]
+	M = jp.array([[J1 + J2 + m2 * l1 * l1 + 2 * P3 * jp.cos(alpha2), J2 + P3 * jp.cos(alpha2)],
+	              [J2 + P3 * jp.cos(alpha2), J2]])
+	C = jp.array([[b1 - P3 * alpha_dot2 * jp.sin(alpha2), -P3 * (alpha_dot2) * jp.sin(alpha2)],
+	              [P3 * alpha_dot1 * jp.sin(alpha2), b2]])
+	G = jp.array([[-F1 * jp.sin(alpha1) - F2 * jp.sin(alpha1 + alpha2)],
+	              [-F2 * jp.sin(alpha1 + alpha2)]])
+	U = jp.array([[K * u],
+	              [0]])
+	alpha_dot = jp.array([[alpha_dot1],
+	                      [alpha_dot2]])
+	# Minv = 1/(jp.linalg.det(M)+0.000001)*jp.array([[J2, -(J2 + P3 * jp.cos(alpha2))],
+	#                                             [-(J2 + P3 * cos(alpha2)), J1 + J2 + 2 * P3 * cos(alpha2)]])
+	Minv = jp.linalg.inv(M)
+	totoal_torque = U + G
+	coli = C @ alpha_dot
+	ddx = Minv @ (totoal_torque - coli)
+	# print(x,[x[2], x[3], ddx1, ddx2],u,np.linalg.det(M))
+	# print("force",totoal_torque,coli)
+	return jp.array([x[2], x[3], ddx[0][0], ddx[1][0]])
+	#
+	# ddx = (u * K / R + m * g * l * jp.sin(x[0]) - b * x[1] - x[1] * K * K / R - c * (2 * sigmoid(d * x[1]) - 1)) / J
+	#
+	# return jp.array([x[1], ddx])
 
-	return jp.array([x[1], ddx])
 
+def _angle_normalize(th: jp.array):
+	th_norm = th - 2 * jp.pi * jp.floor((th + jp.pi) / (2 * jp.pi))
+	return th_norm
 
-def sigmoid(x):
-	pos = 1.0 / (1.0 + jp.exp(-x))
-	neg = jp.exp(x) / (1.0 + jp.exp(x))
-	return jp.where(x >= 0, pos, neg)
+# def sigmoid(x):
+# 	pos = 1.0 / (1.0 + jp.exp(-x))
+# 	neg = jp.exp(x) / (1.0 + jp.exp(x))
+# 	return jp.where(x >= 0, pos, neg)
 
 
 class World(Node):
@@ -132,15 +162,19 @@ class World(Node):
 				return params
 		except (AttributeError, KeyError):
 			pass
-		return Params(max_speed=jp.float32(22.0),
-		              J=jp.float32(0.000159931461600856),
-		              mass=jp.float32(0.0508581731919534),
-		              length=jp.float32(0.0415233722862552),
-		              b=jp.float32(1.43298488358436e-05),
-		              K=jp.float32(0.0333391179016334),
-		              R=jp.float32(7.73125142447252),
-		              c=jp.float32(0.000975041213361349),
-		              d=jp.float32(165.417960777425))
+		return Params(max_speed=jp.float32(22.0), # todo: check if high enough.
+		              J=jp.float32(0.037),
+		              J2=jp.float32(0.000111608131930852),
+		              mass=jp.float32(0.18),
+		              mass2=jp.float32(0.0691843934004535),
+		              length=jp.float32(0.1),
+		              length2=jp.float32(0.1),
+		              b=jp.float32(0.975872107940422),
+		              b2=jp.float32(1.07098956449896e-05),
+		              c=jp.float32(0.06),
+		              c2=jp.float32(0.0185223578523340),
+		              K=jp.float32(1.09724557347983),
+		              )
 
 	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
 		"""Default state of the node."""
@@ -155,24 +189,42 @@ class World(Node):
 		rng_th, rng_thdot = jumpy.random.split(rng, num=2)
 		if not self.eval_env:
 			th = jumpy.random.uniform(rng_th, shape=(), low=-3.14, high=3.14)
-			thdot = 0.  # jumpy.random.uniform(rng_thdot, shape=(), low=-9., high=9.)
+			th2 = jumpy.random.uniform(rng_th, shape=(), low=-3.14, high=3.14)
+			thdot = 0.
+			thdot2 = 0.
 		else:
-			th = jumpy.random.uniform(rng_th, shape=(), low=-0.3, high=0.3) + 3.14
-			thdot = jumpy.random.uniform(rng_thdot, shape=(), low=-0.1, high=0.1)
-		return State(th=th, thdot=thdot)
+			# [th, th2] = [0, 0] = th=down, th2=down
+			# [th, th2] = [pi, 0] = th=up, th2=up
+			# [th, th2] = [0, pi] = th=down , th2=up
+			# [th, th2] = [pi, pi] = th=up, th2=down
+			# todo: goal: th2 = jp.pi - th
+			alpha = jumpy.random.uniform(rng_th, shape=(), low=-jp.pi, high=jp.pi)
+			# alpha = 0.5*jp.pi
+			# alpha = jumpy.random.uniform(rng_th, shape=(), low=0, high=jp.pi)
+			th = alpha  # jumpy.random.uniform(rng_th, shape=(), low=-0.3, high=0.3) + 3.14
+			th2 = jp.pi-alpha # jumpy.random.uniform(rng_th, shape=(), low=-0.3, high=0.3) + 3.14
+			th = _angle_normalize(th)
+			th2 = _angle_normalize(th2)
+			thdot = 0.  # jumpy.random.uniform(rng_thdot, shape=(), low=-0.05, high=0.05)
+			thdot2 = 0. # jumpy.random.uniform(rng_thdot, shape=(), low=-0.1, high=0.1)
+		return State(th=th, th2=th2, thdot=thdot, thdot2=thdot2)
 
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
+	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
 		"""Default output of the node."""
 		# Grab output from state
 		try:
 			th = graph_state.nodes["world"].state.th
+			th2 = graph_state.nodes["world"].state.th2
 			thdot = graph_state.nodes["world"].state.thdot
+			thdot2 = graph_state.nodes["world"].state.thdot2
 		except (AttributeError):
 			th = jp.float32(0.)
+			th2 = jp.float32(0.)
 			thdot = jp.float32(0.)
-		return Output(th=th, thdot=thdot)
+			thdot2 = jp.float32(0.)
+		return State(th=th, th2=th2, thdot=thdot, thdot2=thdot2)
 
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
+	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, State]:
 		"""Step the node."""
 
 		# Unpack StepState
@@ -180,39 +232,49 @@ class World(Node):
 
 		# Get action
 		u = list(inputs.values())[0].data.action[-1][0]
-		x = jp.array([state.th, state.thdot])
+		x = jp.array([state.th, state.th2, state.thdot, state.thdot2])
 		next_x = x
 
 		# Calculate next state
 		for _ in range(self.substeps):
-			next_x = runge_kutta4(ode_pendulum, self.dt_ode, params, next_x, u)
+			next_x = runge_kutta4(ode_double_pendulum, self.dt_ode, params, next_x, u)
 
 		# Update state
-		next_th, next_thdot = next_x
+		# next_th, next_th2, next_thdot, next_thdot2 = next_x
+		next_th, next_th2, next_thdot, next_thdot2 = x
+
+		# Clip speed
 		next_thdot = jp.clip(next_thdot, -params.max_speed, params.max_speed)
-		new_state = state.replace(th=next_th, thdot=next_thdot)
+		next_thdot2 = jp.clip(next_thdot2, -params.max_speed, params.max_speed)
+
+		# Update state
+		new_state = state.replace(th=next_th, th2=next_th2, thdot=next_thdot, thdot2=next_thdot2)
 		new_step_state = step_state.replace(state=new_state)
 
 		# Prepare output
-		output = Output(th=next_th, thdot=next_thdot)
+		output = State(th=next_th, th2=next_th2, thdot=next_thdot, thdot2=next_thdot2)
 		# print(f"{self.name.ljust(14)} | x: {x} | u: {u} -> next_x: {next_x}")
 		return new_step_state, output
 
 
 class Sensor(Node):
 
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
+	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
 		"""Default output of the node."""
 		# Grab output from state
 		try:
 			th = graph_state.nodes["world"].state.th
+			th2 = graph_state.nodes["world"].state.th2
 			thdot = graph_state.nodes["world"].state.thdot
+			thdot2 = graph_state.nodes["world"].state.thdot2
 		except (AttributeError):
 			th = jp.float32(0.)
+			th2 = jp.float32(0.)
 			thdot = jp.float32(0.)
-		return Output(th=th, thdot=thdot)
+			thdot2 = jp.float32(0.)
+		return State(th=th, th2=th2, thdot=thdot, thdot2=thdot2)
 
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
+	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, State]:
 		"""Step the node."""
 
 		# Unpack StepState
