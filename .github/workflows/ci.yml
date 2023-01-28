@@ -27,6 +27,7 @@ jobs:
       #----------------------------------------------
       #       check-out repo and set-up python
       #----------------------------------------------
+
       - name: Check out repository
         uses: actions/checkout@v2
       - name: Set up python ${{ matrix.python-version }}
@@ -54,6 +55,8 @@ jobs:
       #----------------------------------------------
       # install dependencies if cache does not exist
       #----------------------------------------------
+#      - name: Add github.com to known hosts
+#        run: ssh-keyscan github.com >> ~/.ssh/known_hosts
       - name: Install dependencies
         if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
         run: poetry install --no-interaction --no-root
@@ -86,10 +89,11 @@ jobs:
           make coverage-badge
       - name: Add & Commit
         uses: EndBug/add-and-commit@v9.1.1
+        if: "contains(toJSON(github.event.commits.*.message), '[coverage skip]')"
         with:
           author_name: ${{ github.actor }}
           author_email: ${{ github.actor }}@users.noreply.github.com
-          message: "ci: Update coverage badge [ci skip]"
+          message: "ci: Update coverage badge [ci skip] [coverage skip]"
           add: "coverage.svg"
 
 #  release:
