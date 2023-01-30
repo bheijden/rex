@@ -52,8 +52,9 @@ def build_double_pendulum(rates: Dict[str, float],
 
 @struct.dataclass
 class Params:
-	"""Pendulum ode param definition"""
+	max_torque: jp.float32
 	max_speed: jp.float32
+	max_speed2: jp.float32
 	J: jp.float32
 	J2: jp.float32
 	mass: jp.float32
@@ -69,10 +70,18 @@ class Params:
 
 @struct.dataclass
 class State:
-	"""Pendulum ode state definition"""
-
 	th: jp.float32
 	th2: jp.float32
+	thdot: jp.float32
+	thdot2: jp.float32
+
+
+@struct.dataclass
+class Output:
+	cos_th: jp.float32
+	sin_th: jp.float32
+	cos_th2: jp.float32
+	sin_th2: jp.float32
 	thdot: jp.float32
 	thdot2: jp.float32
 
@@ -118,10 +127,6 @@ def ode_double_pendulum(params: Params, x, u):
 	# print(x,[x[2], x[3], ddx1, ddx2],u,np.linalg.det(M))
 	# print("force",totoal_torque,coli)
 	return jp.array([x[2], x[3], ddx[0][0], ddx[1][0]])
-	#
-	# ddx = (u * K / R + m * g * l * jp.sin(x[0]) - b * x[1] - x[1] * K * K / R - c * (2 * sigmoid(d * x[1]) - 1)) / J
-	#
-	# return jp.array([x[1], ddx])
 
 
 def _angle_normalize(th: jp.array):
@@ -155,20 +160,19 @@ class World(Node):
 
 	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
 		"""Default params of the node."""
-		# Try to grab params from graph_state
-		try:
-			params = graph_state.nodes[self.name].params
-			if params is not None:
-				return params
-		except (AttributeError, KeyError):
-			pass
-		return Params(max_speed=jp.float32(22.0), # todo: check if high enough.
+		agent_params = graph_state.nodes["agent"].params
+		max_torque = agent_params.max_torque
+		max_speed, max_speed2 = agent_params.max_speed, agent_params.max_speed2
+		length, length2 = agent_params.length, agent_params.length2
+		return Params(max_torque=max_torque,
+		              max_speed=max_speed,
+		              max_speed2=max_speed2,
 		              J=jp.float32(0.037),
 		              J2=jp.float32(0.000111608131930852),
 		              mass=jp.float32(0.18),
 		              mass2=jp.float32(0.0691843934004535),
-		              length=jp.float32(0.1),
-		              length2=jp.float32(0.1),
+		              length=length,
+		              length2=length2,
 		              b=jp.float32(0.975872107940422),
 		              b2=jp.float32(1.07098956449896e-05),
 		              c=jp.float32(0.06),
@@ -178,14 +182,6 @@ class World(Node):
 
 	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
 		"""Default state of the node."""
-		# Try to grab state from graph_state
-		try:
-			state = graph_state.nodes[self.name].state
-			if state is not None:
-				return state
-		except (AttributeError, KeyError):
-			pass
-		# Else, return default state
 		rng_th, rng_thdot = jumpy.random.split(rng, num=2)
 		if not self.eval_env:
 			th = jumpy.random.uniform(rng_th, shape=(), low=-3.14, high=3.14)
@@ -193,18 +189,16 @@ class World(Node):
 			thdot = 0.
 			thdot2 = 0.
 		else:
+			# goal: th2 = jp.pi - th
 			# [th, th2] = [0, 0] = th=down, th2=down
 			# [th, th2] = [pi, 0] = th=up, th2=up
 			# [th, th2] = [0, pi] = th=down , th2=up
 			# [th, th2] = [pi, pi] = th=up, th2=down
-			# todo: goal: th2 = jp.pi - th
 			alpha = jumpy.random.uniform(rng_th, shape=(), low=-jp.pi, high=jp.pi)
-			# alpha = 0.5*jp.pi
-			# alpha = jumpy.random.uniform(rng_th, shape=(), low=0, high=jp.pi)
-			th = alpha  # jumpy.random.uniform(rng_th, shape=(), low=-0.3, high=0.3) + 3.14
-			th2 = jp.pi-alpha # jumpy.random.uniform(rng_th, shape=(), low=-0.3, high=0.3) + 3.14
-			th = _angle_normalize(th)
-			th2 = _angle_normalize(th2)
+			th = alpha
+			th2 = jp.pi-alpha
+			th = jumpy.random.uniform(rng_th, shape=(), low=-0.3, high=0.3)
+			th2 = jumpy.random.uniform(rng_th, shape=(), low=-0.3, high=0.3)
 			thdot = 0.  # jumpy.random.uniform(rng_thdot, shape=(), low=-0.05, high=0.05)
 			thdot2 = 0. # jumpy.random.uniform(rng_thdot, shape=(), low=-0.1, high=0.1)
 		return State(th=th, th2=th2, thdot=thdot, thdot2=thdot2)
@@ -240,8 +234,8 @@ class World(Node):
 			next_x = runge_kutta4(ode_double_pendulum, self.dt_ode, params, next_x, u)
 
 		# Update state
-		# next_th, next_th2, next_thdot, next_thdot2 = next_x
-		next_th, next_th2, next_thdot, next_thdot2 = x
+		next_th, next_th2, next_thdot, next_thdot2 = next_x
+		# next_th, next_th2, next_thdot, next_thdot2 = x
 
 		# Clip speed
 		next_thdot = jp.clip(next_thdot, -params.max_speed, params.max_speed)
@@ -259,7 +253,7 @@ class World(Node):
 
 class Sensor(Node):
 
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
+	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
 		"""Default output of the node."""
 		# Grab output from state
 		try:
@@ -272,9 +266,9 @@ class Sensor(Node):
 			th2 = jp.float32(0.)
 			thdot = jp.float32(0.)
 			thdot2 = jp.float32(0.)
-		return State(th=th, th2=th2, thdot=thdot, thdot2=thdot2)
+		return Output(cos_th=jp.cos(th), sin_th=jp.sin(th), cos_th2=jp.cos(th2), sin_th2=jp.sin(th2), thdot=thdot, thdot2=thdot2)
 
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, State]:
+	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
 		"""Step the node."""
 
 		# Unpack StepState
@@ -283,8 +277,13 @@ class Sensor(Node):
 		# Update state
 		new_step_state = step_state
 
+		# World state
+		dp_state = inputs["world"][-1].data
+		th, th2 = dp_state.th, dp_state.th2
+		thdot, thdot2 = dp_state.thdot, dp_state.thdot2
+
 		# Prepare output
-		output = inputs["world"][-1].data
+		output = Output(cos_th=jp.cos(th), sin_th=jp.sin(th), cos_th2=jp.cos(th2), sin_th2=jp.sin(th2), thdot=thdot, thdot2=thdot2)
 		return new_step_state, output
 
 

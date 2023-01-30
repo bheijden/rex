@@ -7,3 +7,12 @@ pyyaml>=5.1
 pytablewriter~=0.64
 rospkg>=1.4.0
 rl_zoo3
+--extra-index-url https://download.pytorch.org/whl/cu113
+torch
+torchvision
+torchaudio
+jax[cuda] -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+# pip install --upgrade "jax[cuda]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+
+# todo: jax[cuda] -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+# todo: jax[cuda11_cudnn82] -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html

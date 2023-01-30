@@ -97,8 +97,10 @@ class State:
 class SensorOutput:
 	"""Pendulum ode state definition"""
 
-	th: jp.float32  # todo: output sin, cos instead?
-	th2: jp.float32  # todo: output sin, cos instead?
+	cos_th: jp.float32
+	sin_th: jp.float32
+	cos_th2: jp.float32
+	sin_th2: jp.float32
 	thdot: jp.float32
 	thdot2: jp.float32
 	volt: jp.float32
@@ -129,17 +131,16 @@ class World(Node):
 		self.eval_env = eval_env
 		self._controller = PID(u0=0.0, kp=gains[0], kd=gains[1], ki=gains[2], dt=1 / self.rate)
 
-
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
+	def reset(self, rng: jp.ndarray, graph_state: GraphState = None):
 		"""Reset the node."""
-		rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
-		params = self.default_params(rng_params, graph_state)
-		state = self.default_state(rng_state, graph_state)
-		inputs = self.default_inputs(rng_inputs, graph_state)
+		# rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
+		# params = self.default_params(rng_params, graph_state)
+		# state = self.default_state(rng_state, graph_state)
+		# inputs = self.default_inputs(rng_inputs, graph_state)
 
 		if self._downward_reset:
 			self._to_downward()
-		return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
+		# return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
 	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Empty]:
 		"""Step the node."""
@@ -210,7 +211,7 @@ class Sensor(Node):
 		"""Default output of the node."""
 		return self._read_output()  # Read output from ROS service
 
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, State]:
+	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, SensorOutput]:
 		"""Step the node."""
 		# Update state
 		new_step_state = step_state
@@ -222,13 +223,15 @@ class Sensor(Node):
 	def _read_output(self):
 		"""Read output from ROS."""
 		res = self.srv_read.call(dcsc_setups.PendulumReadRequest())
-		thdot, thdot2 = 0.0, 0.0  # todo: determine thdot, thdot2 with finite differencing over a moving window?
+		thdot, thdot2 = 0.0, 0.0  # todo: determine thdot, thdot2 with finite differencing over a moving window? --> Onboard dp node
 		v, v2 = res.sensors.voltage_beam, res.sensors.voltage_pendulum
-		th_enc = res.sensors.position0
-		th = _convert_to_radians(v, TH_MAX, TH_OFFSET)  # todo: must take shifts into account.
-		th2 = _convert_to_radians(v2, TH2_MAX, TH2_OFFSET)  # todo: must take shifts into account.
-		return SensorOutput(th=jp.float32(th),
-		                    th2=jp.float32(th2),
+		th_enc = jp.float32(res.sensors.position0)
+		th = jp.float32(_convert_to_radians(v, TH_MAX, TH_OFFSET))
+		th2 = jp.float32(_convert_to_radians(v2, TH2_MAX, TH2_OFFSET))
+		return SensorOutput(cos_th=jp.cos(th),
+		                    sin_th=jp.sin(th),
+		                    cos_th2=jp.cos(th2),
+		                    sin_th2=jp.sin(th2),
 		                    thdot=jp.float32(thdot),
 		                    thdot2=jp.float32(thdot2),
 		                    volt=jp.float32(v),

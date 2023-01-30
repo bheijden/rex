@@ -157,14 +157,6 @@ class DummyNode(Node):
 
 class DummyAgent(Agent):
 
-	# def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyParams:
-	# 	"""Default params of the agent."""
-	# 	return DummyParams(jp.float32(99.0), jp.array([0.0, 1.0], dtype=jp.float32))
-
-	# def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyState:
-	# 	"""Default state of the agent."""
-	# 	return DummyState(step=jp.int32(0), seqs_sum=jp.int32(0), dummy_1=jp.array([0.0, 1.0], dtype=jp.float32))
-
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyOutput:
 		"""Default output of the agent."""
 		# if graph_state is not None:
@@ -172,14 +164,6 @@ class DummyAgent(Agent):
 		# else:
 		seqs_sum = jp.int32(0)
 		return DummyOutput(seqs_sum=seqs_sum, dummy_1=jp.array([0.0, 1.0], dtype=jp.float32))
-
-	# def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-	# 	"""Reset the agent."""
-	# 	rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
-	# 	params = self.default_params(rng_params, graph_state)
-	# 	state = self.default_state(rng_state, graph_state)
-	# 	inputs = self.default_inputs(rng_inputs, graph_state)
-	# 	return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
 
 class DummyEnv(BaseEnv):
@@ -201,6 +185,7 @@ class DummyEnv(BaseEnv):
 		self.agent = agent
 		self.nodes = nodes
 		super().__init__(nodes, agent, max_steps, clock, real_time_factor, graph, trace, name=name)
+		self.nodes_and_agent = self.graph.nodes_and_agent
 
 	def _is_terminal(self, graph_state: GraphState) -> bool:
 		return graph_state.step >= self.max_steps
@@ -221,20 +206,35 @@ class DummyEnv(BaseEnv):
 		# ***DO SOMETHING WITH graph_state TO RESET ALL NODES***
 		# Reset agent node (for which this environment is a drop-in replacement)
 		rng, rng_agent = jumpy.random.split(rng, num=2)
-		new_nodes[self.agent.name] = self.agent.reset(rng_agent, graph_state)
 
-		# Split rngs for other node resets
-		rngs = jumpy.random.split(rng, num=len(self.nodes))
+		# Get new step_state
+		def get_step_state(node: Node, _rng: jp.ndarray, _graph_state) -> StepState:
+			"""Get new step_state for a node."""
+			rng_params, rng_state, rng_step = jumpy.random.split(rng, num=3)
+			params = node.default_params(rng_params, _graph_state)
+			state = node.default_state(rng_state, _graph_state)
+			return StepState(rng=rng_step, params=params, state=state, inputs=None)
 
-		for (name, n), rng_reset in zip(self.nodes.items(), rngs):
-			# Reset node and optionally provide params, state, inputs
-			new_ss = n.reset(rng_reset, graph_state)  # can provide params, state, inputs here
+		# Get agent step state first
+		new_nodes[self.agent.name] = get_step_state(self.agent, rng_agent, graph_state)
 
+		# Get new step_state for other nodes in arbitrary order
+		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes)+1)
+		for (name, n), rng_n in zip(self.nodes.items(), rngs):
 			# Replace step state in graph state
-			new_nodes[name] = new_ss
+			new_nodes[name] = get_step_state(n, rng_n, graph_state)
+
+		# Reset nodes
+		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_and_agent) + 1)
+		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_and_agent.values(), rngs)]
+
+		# Prepare inputs
+		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_and_agent) + 1)
+		for (name, n), rng_in in zip(self.nodes_and_agent.items(), rngs):
+			new_nodes[name] = new_nodes[name].replace(inputs=n.default_inputs(rng_in, graph_state))
 
 		# ***DO SOMETHING WITH graph_state TO RESET ALL NODES***
-		return GraphState(nodes=FrozenDict(new_nodes))
+		return GraphState(step=jp.int32(0), nodes=FrozenDict(new_nodes))
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
 		"""Reset environment."""

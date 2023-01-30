@@ -48,13 +48,13 @@ class Agent(BaseAgent):
 		"""Default output of the agent."""
 		return Output(action=jp.array([0.0], dtype=jp.float32))
 
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-		"""Reset the agent."""
-		rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
-		params = self.default_params(rng_params, graph_state)
-		state = self.default_state(rng_state, graph_state)
-		inputs = self.default_inputs(rng_inputs, graph_state)
-		return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
+	# def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
+	# 	"""Reset the agent."""
+	# 	rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
+	# 	params = self.default_params(rng_params, graph_state)
+	# 	state = self.default_state(rng_state, graph_state)
+	# 	inputs = self.default_inputs(rng_inputs, graph_state)
+	# 	return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
 
 class PendulumEnv(BaseEnv):
@@ -80,10 +80,12 @@ class PendulumEnv(BaseEnv):
 		self.world = nodes["world"]
 		self.agent = agent
 		self.nodes = {node.name: node for _, node in nodes.items() if node.name != self.world.name}
+		self.nodes_world_and_agent = self.graph.nodes_and_agent
 
 	def observation_space(self, params: Params = None):
 		"""Observation space of the environment."""
-		params = self.agent.default_params(jumpy.random.PRNGKey(0)) if params is None else params
+		assert params is None, "Current implementation does not support custom parametrized observation spaces."
+		params = self.agent.default_params(jumpy.random.PRNGKey(0))
 		inputs = {u.input_name: u for u in self.agent.inputs}
 
 		# Prepare
@@ -95,14 +97,12 @@ class PendulumEnv(BaseEnv):
 
 	def action_space(self, params: Params = None):
 		"""Action space of the environment."""
-		params = self.agent.default_params(jumpy.random.PRNGKey(0)) if params is None else params
+		assert params is None, "Current implementation does not support custom parametrized action spaces."
+		params = self.agent.default_params(jumpy.random.PRNGKey(0))
 		return Box(low=-params.max_torque, high=params.max_torque, shape=(1,), dtype=jp.float32)
 
 	def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> GraphState:
 		"""Get the graph state."""
-		# if graph_state is not None:
-		# 	raise NotImplementedError("Supplying a graph state is not yet supported for Pendulum environment.")
-
 		# Prepare new graph state
 		new_nodes = dict()
 		graph_state = GraphState(nodes=new_nodes)
@@ -110,20 +110,32 @@ class PendulumEnv(BaseEnv):
 		# For every node, prepare the initial stepstate
 		rng, rng_agent, rng_world = jumpy.random.split(rng, num=3)
 
-		# Reset world and agent (in that order)
-		new_nodes[self.world.name] = self.world.reset(rng_world, graph_state)  # Reset world node (must be done first).
+		# Get new step_state
+		def get_step_state(node: Node, _rng: jp.ndarray, _graph_state) -> StepState:
+			"""Get new step_state for a node."""
+			rng_params, rng_state, rng_step = jumpy.random.split(rng, num=3)
+			params = node.default_params(rng_params, _graph_state)
+			state = node.default_state(rng_state, _graph_state)
+			return StepState(rng=rng_step, params=params, state=state, inputs=None)
 
-		# Reset agent node.
-		new_nodes[self.agent.name] = self.agent.reset(rng_agent, graph_state)
+		# Step_state agent & world (agent must be reset before world, as the world may copy some params from the agent)
+		new_nodes[self.agent.name] = get_step_state(self.agent, rng_agent, graph_state)
+		new_nodes[self.world.name] = get_step_state(self.world, rng_world, graph_state)
 
-		# Reset other nodes in arbitrary order
-		rngs = jumpy.random.split(rng, num=len(self.nodes))
-		for (name, n), rng_reset in zip(self.nodes.items(), rngs):
-			# Reset node and optionally provide params, state, inputs
-			new_ss = n.reset(rng_reset, graph_state)  # can provide params, state, inputs here
-
+		# Get new step_state for other nodes in arbitrary order
+		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes) + 1)
+		for (name, n), rng_n in zip(self.nodes.items(), rngs):
 			# Replace step state in graph state
-			new_nodes[name] = new_ss
+			new_nodes[name] = get_step_state(n, rng_n, graph_state)
+
+		# Reset nodes
+		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_world_and_agent) + 1)
+		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_world_and_agent.values(), rngs)]
+
+		# Prepare inputs
+		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_world_and_agent) + 1)
+		for (name, n), rng_in in zip(self.nodes_world_and_agent.items(), rngs):
+			new_nodes[name] = new_nodes[name].replace(inputs=n.default_inputs(rng_in, graph_state))
 
 		return GraphState(step=jp.int32(0), nodes=FrozenDict(new_nodes))
 

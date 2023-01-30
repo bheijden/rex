@@ -167,11 +167,11 @@ def test_compiler():
     env_opt._cgraph = pickle.loads(pickle.dumps(env_opt._cgraph))
 
     # Evaluate compiled envs
-    gs_opt, obs_opt, ss_opt = evaluate(env_opt, name="opt", backend="numpy", use_jit=False, seed=0)
-    gs_all, obs_all, ss_all = evaluate(env_all, name="all", backend="jax", use_jit=True, seed=0)
+    gs_opt, obs_opt, ss_opt = evaluate(env_opt, name="opt-nojit-numpy", backend="numpy", use_jit=False, seed=0)
+    gs_all, obs_all, ss_all = evaluate(env_all, name="all-jit-jax", backend="jax", use_jit=True, seed=0)
 
-    gs_opt, obs_opt, ss_opt = evaluate(env_opt, name="opt", backend="jax", use_jit=True, seed=0)
-    gs_all, obs_all, ss_all = evaluate(env_all, name="all", backend="numpy", use_jit=False, seed=0)
+    gs_opt, obs_opt, ss_opt = evaluate(env_opt, name="opt-jit-jax", backend="jax", use_jit=True, seed=0)
+    gs_all, obs_all, ss_all = evaluate(env_all, name="all-nojit-numpy", backend="numpy", use_jit=False, seed=0)
 
     # Compare
     def compare(_async, _opt, _all):

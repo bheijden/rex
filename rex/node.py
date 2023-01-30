@@ -404,7 +404,10 @@ class BaseNode:
         self.q_rng_step = deque()
 
         # Get rng for delay sampling
-        rng = self._step_state.rng
+        try:
+            rng = self._step_state.rng
+        except AttributeError:
+            print(f"WARNING: {self.name} does not have a random number generator. ")
         rng = jnp.array(rng) if isinstance(rng, onp.ndarray) else rng  # Keys will differ for jax vs numpy
 
         # Reset output
@@ -708,13 +711,14 @@ class Node(BaseNode):
         return Empty()
 
     @abc.abstractmethod
-    def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
+    def reset(self, rng: jp.ndarray, graph_state: GraphState = None):
         """Reset the node."""
-        rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
-        params = self.default_params(rng_params, graph_state)
-        state = self.default_state(rng_state, graph_state)
-        inputs = self.default_inputs(rng_inputs, graph_state)
-        return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
+        pass
+        # rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
+        # params = self.default_params(rng_params, graph_state)
+        # state = self.default_state(rng_state, graph_state)
+        # inputs = self.default_inputs(rng_inputs, graph_state)
+        # return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
     @abc.abstractmethod
     def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:

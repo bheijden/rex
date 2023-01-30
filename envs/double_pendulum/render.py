@@ -60,8 +60,10 @@ class Render(Node):
         inputs = step_state.inputs
 
         # Grab current state
-        th, thdot = inputs["sensor"][-1].data.th, inputs["sensor"][-1].data.thdot
-        th2, thdot2 = inputs["sensor"][-1].data.th2, inputs["sensor"][-1].data.thdot2
+        last_obs = inputs["sensor"][-1].data
+        cos_th, sin_th, cos_th2, sin_th2 = last_obs.cos_th, last_obs.sin_th, last_obs.cos_th2, last_obs.sin_th2
+        th, th2 = jp.arctan2(sin_th, cos_th), jp.arctan2(sin_th2, cos_th2)
+        thdot, thdot2 = inputs["sensor"][-1].data.thdot, inputs["sensor"][-1].data.thdot2
 
         # Prepare new image
         data = jp.zeros(self._shape, jp.uint8)

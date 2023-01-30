@@ -4,6 +4,8 @@
 # Script to evaluate performance
 import gym
 import os
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
+
 import tempfile
 import datetime
 from typing import Dict, List, Tuple, Union, Callable, Any, Type
@@ -29,7 +31,7 @@ import time
 import rex
 from rex.distributions import Distribution, Gaussian
 from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, SEQUENTIAL, WARN, REAL_TIME, \
-	ASYNC, WALL_CLOCK, SCHEDULING_MODES, JITTER_MODES, CLOCK_MODES, GRAPH_MODES
+	ASYNC, WALL_CLOCK, SCHEDULING_MODES, JITTER_MODES, CLOCK_MODES, GRAPH_MODES, VECTORIZED
 import rex.open_colors as oc
 from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 import experiments as exp
@@ -67,44 +69,52 @@ class SysIdPolicy:
 			return self._action, None
 
 
+record_settings = {"agent": dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True),
+                   "world": dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True),
+                   "actuator": dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True),
+                   "sensor": dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True),
+                   "render": dict(node=True, outputs=False, rngs=True, states=True, params=True, step_states=True)}
+
 if __name__ == "__main__":
-	# todo: place render.step in separate process?
-	# todo: remove 1.01 from phase. It's a hack to make sure that the phase is always slightly greater than the BUFFER.
+	# todo: Add thdot back in.
+	# todo: Implement moving window estimator on thdot on cpp side..
 	# Logging
-	NAME = "double_pendulum_sim"
+	NAME = "dp_8torque_delay_4obs_3act"
 	LOG_DIR = os.path.dirname(rex.__file__) + f"/../logs/{NAME}_{datetime.datetime.today().strftime('%Y-%m-%d-%H%M')}"
-	MUST_LOG = False
+	MUST_LOG = True
 	MUST_PLOT = True
 
 	# Environment
 	ENV = "double_pendulum"  # "disc_pendulum"
 	DIST_FILE = f"21eps_pretrained_sbx_sac_gmms_2comps.pkl"
-	JITTER = LATEST
+	JITTER = BUFFER
 	SCHEDULING = PHASE
 	MAX_STEPS = 5*80
-	WIN_ACTION = 0
-	WIN_OBS = 1
+	WIN_ACTION = 3
+	WIN_OBS = 4
 	BLOCKING = True
 	ADVANCE = False
 	ENV_FN = dpend.ode.build_double_pendulum  #  dpend.ode.build_double_pendulum  # pend.ode.build_pendulum
 	ENV_CLS = dpend.env.DoublePendulumEnv  # dpend.env.DoublePendulumEnv  # pend.env.PendulumEnv
 	CLOCK = SIMULATED
-	RTF = FAST_AS_POSSIBLE
+	RTF = REAL_TIME
 	RATES = dict(world=150, agent=80, actuator=80, sensor=80, render=20)
-	DELAY_FN = lambda d: d.high*1.0
+	DELAY_FN = lambda d: d.high*0.6
+	WITH_DELAY = True   # todo: TOGGLE WITH/WITHOUT DELAYS HERE
 
 	# Load models
-	MODEL_CLS = sbx.SAC
+	MODEL_CLS = sb3.SAC  # sbx.SAC
 	MODEL_MODULE = dpend.models
-	MODEL_PRELOAD = "sb_sac_double_pendulum_runyu"  # sb_sac_pendulum
+	MODEL_PRELOAD = "/home/r2ci/rex/logs/dp_8torque_delay_4obs_3act_2023-01-29-1747/model.zip"
 	# MODEL_PRELOAD = "sb_sac_pendulum"  # sb_sac_pendulum
 
 	# Training
 	SEED = 0
-	LEARNING_RATE = 1e-2
+	LEARNING_RATE = 1e-2  # larger than 1e-2 results in Nans.
 	NUM_ENVS = 10
-	NSTEPS = 100_000
-	NUM_EVAL_PRE = 20
+	SAVE_FREQ = 30_000
+	NSTEPS = 4_000_000
+	NUM_EVAL_PRE = 5
 	NUM_EVAL_POST = 20
 
 	# Load distributions & set rates
@@ -112,7 +122,7 @@ if __name__ == "__main__":
 	delays_sim["step"]["world"] = Gaussian(0.)
 	delays_sim["inputs"]["world"]["actuator"] = Gaussian(0.)
 	delays_sim["inputs"]["sensor"]["world"] = Gaussian(0.)
-	delays_sim = tree_map(lambda d: Gaussian(0), delays_sim) # todo: REMOVE
+	delays_sim = tree_map(lambda d: Gaussian(0), delays_sim) if not WITH_DELAY else delays_sim
 	delays = jax.tree_map(DELAY_FN, delays_sim)
 
 	# Prepare environment
@@ -125,24 +135,24 @@ if __name__ == "__main__":
 	# Load model
 	try:
 		model = exp.load_model(MODEL_PRELOAD, MODEL_CLS, env=gym_env, seed=SEED, module=MODEL_MODULE)
-		policy = exp.make_policy(model, constant_action=0.)  # todo: REMOVE
+		policy = exp.make_policy(model)
 	except ValueError as e:
-		if "Observation spaces" in e.__str__():
+		if "spaces" in e.__str__():
 			print("Observation spaces don't match. Loading a random model instead.")
 			model = MODEL_CLS("MlpPolicy", env=gym_env, seed=0, verbose=1)
 			policy = exp.make_policy(model, constant_action=0.)
 		else:
 			raise e
 
-	# TODO: REMOVE SYS ID POLICY
+	# TODO: REMOVE SYS ID POLICY --> INFER DURATION FROM TICKS.
 	# sys_model = SysIdPolicy(duration=3.0, min=-1.5, max=1.5, seed=0, model=model)
 	# policy = exp.make_policy(sys_model)
 
 	# Evaluate model
-	record_pre = exp.eval_env(gym_env, policy, n_eval_episodes=NUM_EVAL_PRE, verbose=True, seed=SEED)
+	record_pre = exp.eval_env(gym_env, policy, n_eval_episodes=NUM_EVAL_PRE, verbose=True, seed=SEED, record_settings=record_settings)
 
 	# Get data
-	data = exp.RecordHelper(record_pre)
+	# data = exp.RecordHelper(record_pre)
 
 	# if MUST_LOG:
 	# 	# Save pre-train record to file
@@ -153,16 +163,24 @@ if __name__ == "__main__":
 	# exit()
 
 	# Compile env
-	cenv = exp.make_compiled_env(env, record_pre.episode[-1], max_steps=MAX_STEPS, eval_env=False, graph_type=SEQUENTIAL, plot=MUST_PLOT)
+	cenv = exp.make_compiled_env(env, record_pre.episode[-1], max_steps=MAX_STEPS, eval_env=False, graph_type=VECTORIZED, plot=MUST_PLOT)
 
 	# Plot
 	if MUST_PLOT:
-		exp.show_communication(record_pre.episode[-1])
-		exp.show_grouped(record_pre.episode[-1].node[-1], "state")
+		fig_cg, _ = exp.show_computation_graph(cenv.graph.trace)
+		fig_com, _ = exp.show_communication(record_pre.episode[-1])
+		fig_grp, _ = exp.show_grouped(record_pre.episode[-1].node[-1], "state")
 		plt.show()
+	else:
+		fig_cg, fig_com, fig_grp = None, None, None
 
 	if MUST_LOG:
 		os.mkdir(LOG_DIR)
+		# Save plots
+		fig_cg.savefig(LOG_DIR + "/computation_graph.png")
+		fig_com.savefig(LOG_DIR + "/communication.png")
+		fig_grp.savefig(LOG_DIR + "/grouped_agent_sensor.png")
+		# Save envs
 		env.unwrapped.save(f"{LOG_DIR}/{env.unwrapped.name}.pkl")
 		cenv.unwrapped.save(f"{LOG_DIR}/{cenv.unwrapped.name}.pkl")
 		# Save pre-train record to file
@@ -171,7 +189,7 @@ if __name__ == "__main__":
 
 		from stable_baselines3.common.callbacks import CheckpointCallback
 
-		checkpoint_callback = CheckpointCallback(save_freq=10_000, save_path=LOG_DIR, name_prefix="checkpoint")
+		checkpoint_callback = CheckpointCallback(save_freq=SAVE_FREQ // NUM_ENVS, save_path=LOG_DIR, name_prefix="checkpoint")
 	else:
 		LOG_DIR = None
 		checkpoint_callback = None
@@ -195,7 +213,7 @@ if __name__ == "__main__":
 
 	# Evaluate model
 	policy_reloaded = exp.make_policy(model_reloaded)
-	record_post = exp.eval_env(env, policy_reloaded, n_eval_episodes=NUM_EVAL_POST, verbose=True)
+	record_post = exp.eval_env(env, policy_reloaded, n_eval_episodes=NUM_EVAL_POST, verbose=True, record_settings=record_settings)
 
 	# Log
 	if MUST_LOG:

@@ -118,9 +118,9 @@ def make_compiled_env(env: PendulumEnv,
     # Trace record
     record_trace = trace(record, "agent")
 
-    # Visualize computation graph
-    if plot:
-        show_computation_graph(record_trace)
+    # # Visualize computation graph
+    # if plot:
+    #     show_computation_graph(record_trace)
 
     # Get run-time settings
     clock = record.node[0].clock
@@ -146,7 +146,7 @@ def make_compiled_env(env: PendulumEnv,
     return env
 
 
-def show_grouped(record: log_pb2.NodeRecord, input_name):
+def show_grouped(record: log_pb2.NodeRecord, input_name) -> Tuple[plt.Figure, plt.Axes]:
     # Create new plot
     xlim = [-0.001, 0.3]
     fig, ax = plt.subplots()
@@ -165,7 +165,7 @@ def show_grouped(record: log_pb2.NodeRecord, input_name):
     return fig, ax
 
 
-def show_communication(record: log_pb2.EpisodeRecord):
+def show_communication(record: log_pb2.EpisodeRecord) -> Tuple[plt.Figure, plt.Axes]:
     # Reformat record
     d = {n.info.name: n for n in record.node}
 
@@ -198,7 +198,7 @@ def show_communication(record: log_pb2.EpisodeRecord):
     return fig, ax
 
 
-def show_computation_graph(trace_record: log_pb2.TraceRecord):
+def show_computation_graph(trace_record: log_pb2.TraceRecord) -> Tuple[plt.Figure, plt.Axes]:
     # Create new plot
     fig, ax = plt.subplots()
     fig.set_size_inches(12, 5)

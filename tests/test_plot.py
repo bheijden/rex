@@ -1,3 +1,4 @@
+import jumpy
 import time
 import seaborn as sns
 sns.set()
@@ -9,7 +10,7 @@ import rex.utils as utils
 from rex.proto import log_pb2
 from rex.constants import LATEST, BUFFER, SILENT, DEBUG, INFO, WARN, SYNC, ASYNC, REAL_TIME, FAST_AS_POSSIBLE, FREQUENCY, PHASE, SIMULATED, WALL_CLOCK
 from rex.distributions import Gaussian, GMM
-from rex.base import GraphState
+from rex.base import GraphState, StepState
 from scripts.dummy import DummyNode, DummyAgent
 
 utils.set_log_level(WARN)
@@ -48,7 +49,15 @@ def test_plot():
     # real_time_factor, scheduling, clock, sync = 20, PHASE, WALL_CLOCK, ASYNC
 
     # Get graph state
-    node_ss = {n.name: n.reset(rng) for rng, n in zip(rngs, nodes)}
+    def reset_node(node, rng):
+        rng_params, rng_state, rng_inputs, rng_step, rng_reset = jumpy.random.split(rng, num=5)
+        params = node.default_params(rng_params)
+        state = node.default_state(rng_state)
+        inputs = node.default_inputs(rng_inputs)
+        node.reset(rng_reset)
+        return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
+
+    node_ss = {n.name: reset_node(n, rng) for n, rng in zip(nodes, rngs)}
     graph_state = GraphState(step=0, nodes=node_ss)
 
     # Reset nodes (Allows setting the run mode)
