@@ -310,7 +310,7 @@ from time import time
 from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
 tfd = tfp.distributions
 
-from rex.distributions import Gaussian, GMM, mixture_distribution_quantiles
+from rex.distributions import Gaussian, GMM, Recorded, Distribution, mixture_distribution_quantiles
 
 
 class GMMEstimator:
@@ -451,9 +451,11 @@ class GMMEstimator:
                                      facecolor=facecolor, bins=bins, xmin=xmin, xmax=xmax, num_points=num_points)
         return anim
 
-    def get_dist(self, percentile: float = 0.01):
+    def get_dist(self, percentile: float = 0.01, include_data: bool = False) -> Distribution:
         if self.is_deterministic:
-            return Gaussian(mean=self.data.mean(), std=0, percentile=percentile)
+            dist = Gaussian(mean=self.data.mean(), std=0, percentile=percentile)
+            dist = Recorded(dist, self.data) if include_data else dist
+            return dist
         assert self.final_state_norm is not None, "Must train model before truncating."
 
         # Get weights
@@ -496,4 +498,5 @@ class GMMEstimator:
             g = Gaussian(_m, _s, float(_p))
             gaussians.append(g)
         gmm = GMM(gaussians, w.tolist())
+        gmm = Recorded(gmm, self.data) if include_data else gmm
         return gmm

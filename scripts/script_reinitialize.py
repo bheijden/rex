@@ -179,15 +179,15 @@ def make_delay_distributions(record: Union[RecordHelper, log_pb2.ExperimentRecor
 	jax.tree_map(lambda e: e.fit(num_steps=num_steps, num_components=num_components, step_size=step_size, seed=seed), est)
 
 	# Get distributions
-	dist = jax.tree_map(lambda e: e.get_dist(), est)
+	dist = jax.tree_map(lambda e: e.get_dist(include_data=True), est)
 	return data, info, est, dist
 
 
 if __name__ == "__main__":
 
-	SAVE_DELAY_DISTRIBUTIONS = False
-	FIT_DELAY_DISTRIBUTIONS = False
-	SHOW_PLOTS = True
+	SAVE_DELAY_DISTRIBUTIONS = True
+	FIT_DELAY_DISTRIBUTIONS = True
+	SHOW_PLOTS = False
 
 	# Load episode record
 	# name = "21eps-pretrained-sbx-sac"
@@ -198,9 +198,9 @@ if __name__ == "__main__":
 	# log_dir = "/home/r2ci/rex/logs/real_pendulum_2023-01-27-1806_phase_blocking_120s"
 	# log_dir = "/home/r2ci/rex/logs/real_pendulum_2023-01-27-1806"
 	# log_dir = "/home/r2ci/rex/logs/real_withrl_double_pendulum_2023-02-03-1656"
+	log_dir = "/home/r2ci/rex/logs/45sec_real_8torque_80hz_02deltaact_agentpolicy_double_pendulum_2023-02-03-1856"
 	# log_dir = "/home/r2ci/rex/logs/45sec_real_50maxvel_8torque_80hz_01deltaact_agentpolicy_double_pendulum_2023-02-03-1854"
-	# log_dir = "/home/r2ci/rex/logs/45sec_real_8torque_80hz_02deltaact_agentpolicy_double_pendulum_2023-02-03-1856"
-	log_dir = "/home/r2ci/rex/logs/45sec_real_50maxvel_8torque_30hz_005deltaact_agentpolicy_double_pendulum_2023-02-03-1914"
+	# log_dir = "/home/r2ci/rex/logs/45sec_real_50maxvel_8torque_30hz_005deltaact_agentpolicy_double_pendulum_2023-02-03-1914"
 	num_components = 2
 	num_steps = 500
 	exp_record = log_pb2.ExperimentRecord()
@@ -249,6 +249,7 @@ if __name__ == "__main__":
 			# Save distributions
 			with open(f"{log_dir}/{name}-gmms-{num_components}comps.pkl", "wb") as f:
 				pickle.dump(dist, f)
+			print(f"Saved distributions to {log_dir}/{name}-gmms-{num_components}comps.pkl")
 
 	if SHOW_PLOTS:
 		t = trace(exp_record.episode[0], "agent")

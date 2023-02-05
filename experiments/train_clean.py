@@ -58,7 +58,7 @@ RECORD_SETTINGS = {"agent": dict(node=True, outputs=True, rngs=True, states=True
 
 if __name__ == "__main__":
 	# todo: DoublePendulum env notes:
-	#     - Thdot2 someetimes saturesa above 50 rad/s. This may be a problem for the agent.
+	#     - Thdot2 sometimes saturates above 50 rad/s. This may be a problem for the agent.
 	#     - Increase max angular velocity (and take change of observation space into account).
 	#     - Change initial state distribution (ie thdot, thdot2 = 0., 0.).
 	#     - High sensor rate (100 Hz), low actuator rate (30 Hz). Increase sensor window.
@@ -139,6 +139,7 @@ if __name__ == "__main__":
 	# data = exp.RecordHelper(record_pre)
 
 	if MUST_LOG:
+		# todo: save environment
 		# Save pre-train record to file
 		os.mkdir(LOG_DIR)
 		with open(LOG_DIR + "/record_sysid.pb", "wb") as f:
