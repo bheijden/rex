@@ -430,7 +430,7 @@ class BaseNode:
         # Create logging record
         self._set_ts_start(start)
         self._record = log_pb2.NodeRecord(info=self.info, sync=self._sync, clock=self._clock,
-                                          real_time_factor=self._real_time_factor, ts_start=start, rng=self.output._rng.tolist())  # todo: log rng, class name
+                                          real_time_factor=self._real_time_factor, ts_start=start, rng=self.output._dist_state.rng.tolist())
 
         # Start all inputs and output
         [i.start(record=self._record.inputs.add()) for i in self.inputs]

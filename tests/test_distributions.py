@@ -1,5 +1,7 @@
+import jax
+import numpy as onp
 import jax.numpy as jnp
-from rex.distributions import Gaussian, GMM
+from rex.distributions import Gaussian, GMM, Recorded
 import jax.random as rnd
 import pickle
 
@@ -27,10 +29,10 @@ def test_distributions():
     _ = gmm1.info
     _ = gmm1.vars
 
-    _ = gmm1.sample(rnd.PRNGKey(0))
+    _ = gmm1.sample(gmm1.reset(rnd.PRNGKey(0)))
     _ = gmm1.pdf(0.5)
     _ = gmm1.cdf(0.5)
-    _ = g1.sample(rnd.PRNGKey(0))
+    _ = g1.sample(g1.reset(rnd.PRNGKey(0)))
     _ = g1.pdf(0.5)
     _ = g1.cdf(0.5)
 
@@ -50,3 +52,25 @@ def test_distributions():
     gmm1 = pickle.loads(pickle.dumps(gmm1))
 
 
+def test_distribution_recorded():
+    # Distribution to be wrapped
+    g1 = Gaussian(0.005, 0.001)
+
+    # Prerecorded samples
+    recorded_samples = onp.arange(0, 100)
+
+    # Recorded distribution
+    rec_g1 = Recorded(g1, recorded_samples)
+
+    # Test the API
+    state = rec_g1.reset(rnd.PRNGKey(0))
+    jit_sample = jax.jit(rec_g1.sample, static_argnums=1)
+    state, samples = jit_sample(state, shape=())
+    state, samples = jit_sample(state, shape=(2, 3))
+
+    # Test getattr, setattr
+    _ = rec_g1.quantile(jnp.array([[0.5, 0.4]]*2))
+    _ = rec_g1.quantile(0.5)
+
+    # Test pickle API
+    rec_g1 = pickle.loads(pickle.dumps(rec_g1))

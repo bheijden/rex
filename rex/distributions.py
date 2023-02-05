@@ -1,11 +1,30 @@
+from functools import reduce
 from rex.proto import log_pb2
-from typing import Union, List, Tuple
+from typing import Union, List, Tuple, Any
+import dill as pickle
 import jax
 import numpy as onp
 import jax.numpy as jnp
 import jumpy.numpy as jp
+import flax.struct as struct
 from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
 tfd = tfp.distributions
+
+
+@struct.dataclass
+class EmptyState:
+    pass
+
+
+@struct.dataclass
+class DistState:
+    rng: jp.ndarray
+    state: Any
+
+
+@struct.dataclass
+class RecordedState:
+    index: jp.int32
 
 
 class Gaussian:
@@ -64,10 +83,16 @@ class Gaussian:
     def cdf(self, x: jp.ndarray):
         return self._dist.cdf(x)
 
-    def sample(self, rng: jp.ndarray, shape: Union[int, Tuple] = None):
+    def reset(self, rng: jp.ndarray) -> DistState:
+        return DistState(rng=rng, state=EmptyState())
+
+    def sample(self, state: DistState, shape: Union[int, Tuple] = None) -> Tuple[DistState, jp.ndarray]:
         if shape is None:
             shape = ()
-        return self._dist.sample(sample_shape=shape, seed=rng)
+        new_rng, rng_sample = jax.random.split(state.rng)
+        samples = self._dist.sample(sample_shape=shape, seed=rng_sample)
+        new_state = DistState(rng=new_rng, state=EmptyState())
+        return new_state, samples
 
     @classmethod
     def from_info(cls, info: Union[log_pb2.GMM, log_pb2.Gaussian]):
@@ -180,10 +205,16 @@ class GMM:
             qs = mixture_distribution_quantiles(self._dist, jp.array(x).reshape(-1), N_grid_points=int(1e3), grid_min=self.low, grid_max=self.high)
             return qs.reshape(shape)
 
-    def sample(self, rng: jp.ndarray, shape: Union[int, Tuple] = None):
+    def reset(self, rng: jp.ndarray) -> DistState:
+        return DistState(rng=rng, state=EmptyState())
+
+    def sample(self, state: DistState, shape: Union[int, Tuple] = None) -> Tuple[DistState, jp.ndarray]:
         if shape is None:
             shape = ()
-        return self._dist.sample(sample_shape=shape, seed=rng)
+        new_rng, rng_sample = jax.random.split(state.rng)
+        samples = self._dist.sample(sample_shape=shape, seed=rng_sample)
+        new_state = DistState(rng=new_rng, state=EmptyState())
+        return new_state, samples
 
     @property
     def info(self) -> log_pb2.GMM:
@@ -232,7 +263,56 @@ class GMM:
         return max([g.high for g in self._gaussians])
 
 
-Distribution = Union[Gaussian, GMM]
+class Recorded:
+    def __init__(self, dist: "Distribution", samples: jp.ndarray):
+        super(Recorded, self).__setattr__("_dist", dist)
+        super(Recorded, self).__setattr__("_samples", samples)
+        # self._dist = dist
+        # self._samples = samples
+
+    def __getstate__(self):
+        """Used for pickling"""
+        args = ()
+        kwargs = dict(dist=self._dist, samples=self._samples)
+        return args, kwargs
+
+    def __setstate__(self, state):
+        """Used for unpickling"""
+        args, kwargs = state
+        self.__init__(*args, **kwargs)
+
+    def __setattr__(self, key, value):
+        setattr(self._dist, key, value)
+
+    def __getattr__(self, item):
+        return getattr(self._dist, item)
+
+    def reset(self, rng: jp.ndarray) -> DistState:
+        return DistState(rng=rng, state=RecordedState(index=jp.int32(0)))
+
+    def sample(self, state: DistState, shape: Union[int, Tuple] = None) -> Tuple[DistState, jp.ndarray]:
+        if shape is None or isinstance(shape, int) or len(shape) == 0:
+            shape = ()
+            num_samples = 1
+        else:
+            # Sum all elements in tuple
+            num_samples = reduce(lambda x, y: x*y, shape, 1)
+
+        # Add samples at the end to make sure we have enough
+        num_seqs = 1 + num_samples // self._samples.shape[0]
+        all_samples = jnp.concatenate([self._samples]*num_seqs + [self._samples[:num_samples]], axis=0)
+
+        # Get samples
+        start = state.state.index
+        samples = jax.lax.dynamic_slice(all_samples, (start,), (num_samples,))
+
+        # Determine new index
+        new_index = (start + num_samples) % self._samples.shape[0]
+        new_state = DistState(rng=state.rng, state=RecordedState(index=new_index))
+        return new_state, samples.reshape(shape)
+
+
+Distribution = Union[Gaussian, GMM, Recorded]
 
 
 import numpy as np
@@ -260,3 +340,4 @@ def mixture_distribution_quantiles(dist, probs, N_grid_points: int = int(1e3), g
         arr=cdf_grid,
     )
     return quantiles_grid
+

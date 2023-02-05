@@ -57,16 +57,16 @@ RECORD_SETTINGS = {"agent": dict(node=True, outputs=True, rngs=True, states=True
                    "render": dict(node=True, outputs=False, rngs=True, states=True, params=True, step_states=True)}
 
 if __name__ == "__main__":
-	# todo: thdot2 sometimes saturates above 50.
-	# todo: Modify env
-	#     - Increase max angular velocity ( and take into account in observation space).
+	# todo: DoublePendulum env notes:
+	#     - Thdot2 someetimes saturesa above 50 rad/s. This may be a problem for the agent.
+	#     - Increase max angular velocity (and take change of observation space into account).
 	#     - Change initial state distribution (ie thdot, thdot2 = 0., 0.).
-	#     - HIgh sensor rate (100 Hz), low actuator rate (30 Hz). Increase sensor window.
+	#     - High sensor rate (100 Hz), low actuator rate (30 Hz). Increase sensor window.
 	#     - Increase penalty on action changes
 	#     - Increase noise (th, th2, thdot, thdot2)
 	#     - Consistently learn
-	# todo: Make new process wrapper for node. Replace unpickled nodes of inputs with BaseNodes.
-	#       This allows supports basic interactions.
+	# todo: Verify that measured delays are working correctly
+	# todo: Make new process wrapper that unpickle nodes of inputs as BaseNodes (enables access to e.g. phase, msg structures).
 	# todo: Modify graph sorting that traces multiple outputs (i.e. add rendering to compiled graph).
 
 	# Environment
@@ -85,10 +85,7 @@ if __name__ == "__main__":
 	ENV_FN = dpend.ode.build_double_pendulum  #  dpend.ode.build_double_pendulum  # pend.ode.build_pendulum
 	ENV_CLS = dpend.env.DoublePendulumEnv  # dpend.env.DoublePendulumEnv  # pend.env.PendulumEnv
 	CLOCK = SIMULATED
-	RTF = FAST_AS_POSSIBLE
-	# todo: INCREASE NOISE
-	# TODO: CHANGE WORLD TO 150 when using ODE
-	# todo: I CHANGED THE MAX SPEED TO 50 FROM 32!!!
+	RTF = REAL_TIME
 	RATES = dict(world=150, agent=80, actuator=80, sensor=80, render=20)
 	USE_DELAYS = True
 	DELAY_FN = lambda d: d.quantile(0.99)*int(USE_DELAYS)
@@ -131,7 +128,7 @@ if __name__ == "__main__":
 	# Load model
 	model: sbx.SAC = exp.load_model(MODEL_PRELOAD, MODEL_CLS, env=gym_env, seed=SEED, module=MODEL_MODULE)
 
-	sys_model = exp.SysIdPolicy(rate=RATES["agent"], duration=5.0, min=-0.01, max=0.01, seed=0, model=model, use_ros=False)
+	sys_model = exp.SysIdPolicy(rate=RATES["agent"], duration=5.0, min=-3.0, max=3.0, seed=0, model=model, use_ros=False)
 	policy = exp.make_policy(sys_model)
 	# policy = exp.make_policy(model)
 

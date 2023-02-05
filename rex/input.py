@@ -10,7 +10,7 @@ import jax.random as rnd
 
 from rex.base import InputState
 from rex.constants import READY, RUNNING, STOPPING, STOPPED, RUNNING_STATES, DEBUG, WARN, ERROR, SIMULATED, WALL_CLOCK, ASYNC, SYNC, FAST_AS_POSSIBLE, ASYNC, LATEST, BUFFER
-from rex.distributions import Distribution
+from rex.distributions import Distribution, DistState
 from rex.proto import log_pb2 as log_pb2
 from rex.utils import log
 
@@ -36,8 +36,8 @@ class Input:
 
         # Jit function (call self.warmup() to pre-compile)
         self._num_buffer = 50
+        self._jit_reset = jit(self.delay_sim.reset)
         self._jit_sample = jit(self.delay_sim.sample, static_argnums=1)
-        self._jit_split = jit(rnd.split, static_argnums=1)
 
         # Executor
         node_name = self.node if isinstance(node, str) else self.node.name
@@ -52,7 +52,7 @@ class Input:
         self._phase = None
         self._phase_dist = None
         self._prev_recv_sc = None
-        self._rng = None
+        self._dist_state: DistState = None
         self.q_msgs: Deque[Any] = None
         self.q_ts_input: Deque[Tuple[int, float]] = None
         self.q_ts_max: Deque[float] = None
@@ -111,15 +111,15 @@ class Input:
             return self._phase_dist
 
     def warmup(self):
-        self._jit_sample(rnd.PRNGKey(0), shape=self._num_buffer).block_until_ready()  # Only to trigger jit compilation
-        self._jit_split(rnd.PRNGKey(0), num=2).block_until_ready()  # Only to trigger jit compilation
+        dist_state = self._jit_reset(rnd.PRNGKey(0))
+        new_dist_state, samples = self._jit_sample(dist_state, shape=self._num_buffer)
+        samples.block_until_ready()  # Only to trigger jit compilation
 
     def sample_delay(self) -> float:
         # Generate samples batch-wise
         if len(self.q_sample) == 0:
-            self._rng, sample_rng = self._jit_split(self._rng, num=2)
-            samples = tuple(self._jit_sample(sample_rng, shape=self._num_buffer).tolist())
-            self.q_sample.extend(samples)
+            self._dist_state, samples = self._jit_sample(self._dist_state, shape=self._num_buffer)
+            self.q_sample.extend(tuple(samples.tolist()))
 
         # Sample delay
         sample = self.q_sample.popleft()
@@ -183,7 +183,7 @@ class Input:
         self._phase = self.phase
         self._record = None
         self._prev_recv_sc = 0.  # Ensures the FIFO property for incoming messages.
-        self._rng = rng
+        self._dist_state = self._jit_reset(rng)
         self.q_msgs = deque()
         self.q_ts_input = deque()
         self.q_zip_delay = deque()
@@ -209,7 +209,7 @@ class Input:
         # Store running configuration
         self._record = record
         self._record.info.CopyFrom(self.info)
-        self._record.rng.extend(self._rng.tolist())
+        self._record.rng.extend(self._dist_state.rng.tolist())
 
     def stop(self) -> Future:
         assert self._state in [RUNNING], f"Input {self.name} of {self.node.name} must be running in order to stop."
