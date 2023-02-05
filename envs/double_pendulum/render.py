@@ -54,7 +54,7 @@ class Render(Node):
         """Default output of the node."""
         return Image(data=jp.zeros(self._shape, dtype=jp.uint8))
 
-    def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Image]:
+    def step(self, step_state: StepState) -> Tuple[StepState, Image]:
         """Step the node."""
         # Unpack StepState
         inputs = step_state.inputs
@@ -82,19 +82,27 @@ class Render(Node):
         return step_state, output
 
 
-def double_pendulum_render_fn(data, th, th2, thdot, thdot2):
+def double_pendulum_render_fn(data: onp.ndarray, th: float, th2: float, thdot: float = 0., thdot2: float = 0., action=0.):
+    """Render a double pendulum.
+
+    :param data: Image data.
+    :param th: Angle of first pendulum. Upright position is defined to as pi.
+    :param th2: Angle of second pendulum relative to the first one.
+    :param thdot: Angular velocity of first pendulum.
+    :param thdot2: Angular velocity of second pendulum.
+    :param action: Applied torque.
+    """
     height, width, _ = data.shape
     side_length = min(width, height)
-    state = jp.array([th, th2, thdot, thdot2])
 
     data += 255
     length = side_length // 5
-    sin_theta, cos_theta = jp.sin(state[0]), jp.cos(state[0])
+    sin_theta, cos_theta = jp.sin(th), jp.cos(th)
 
-    # todo: visualize action
-    u = 0
+    # Draw title
     font = cv2.FONT_HERSHEY_SIMPLEX
-    text = "Applied Voltage " + str(u)
+    # text = "Applied Voltage " + str(action)  # todo: visualize action
+    text = "Double pendulum"
     text_size = cv2.getTextSize(text, font, 0.5, 2)[0]
     text_x = int((width - text_size[0]) / 2)
     text_y = int(text_size[1])
@@ -113,7 +121,7 @@ def double_pendulum_render_fn(data, th, th2, thdot, thdot2):
     data = cv2.circle(
         data, (width // 2 + int(length * sin_theta), height // 2 + int(length * cos_theta)), side_length // 24, (0, 0, 0), -1
     )
-    sin_theta2, cos_theta2 = jp.sin(state[0] + state[1]), jp.cos(state[0] + state[1])
+    sin_theta2, cos_theta2 = jp.sin(th + th2), jp.cos(th + th2)
     data = cv2.line(
         data,
         (width // 2 + int(length * sin_theta), height // 2 + int(length * cos_theta)),
@@ -128,20 +136,20 @@ def double_pendulum_render_fn(data, th, th2, thdot, thdot2):
         (0, 150, 0), -1
     )
 
-    # Draw velocity vector
-    data = cv2.arrowedLine(
-        data,
-        (width // 2 + int(length * sin_theta) + int(length * sin_theta2),
-         height // 2 + int(length * cos_theta) + int(length * cos_theta2)),
-        (
-            width // 2 + int(length * (sin_theta + min(state[2], 10) * cos_theta / 10) + length * (
-                        sin_theta2 + min(state[3], 10) * cos_theta2 / 10)),
-            height // 2 + int(length * (cos_theta + min(state[2], 10) * sin_theta / 10) + length * (
-                        cos_theta2 + min(state[3], 10) * sin_theta2 / 10)),
-        ),
-        (0, 0, 255),
-        max(side_length // 240, 1),
-    )
+    # Draw velocity vector  # todo: Visually looks wrong... Check.
+    # data = cv2.arrowedLine(
+    #     data,
+    #     (width // 2 + int(length * sin_theta) + int(length * sin_theta2),
+    #      height // 2 + int(length * cos_theta) + int(length * cos_theta2)),
+    #     (
+    #         width // 2 + int(length * (sin_theta + min(state[2], 10) * cos_theta / 10) + length * (
+    #                     sin_theta2 + min(state[3], 10) * cos_theta2 / 10)),
+    #         height // 2 + int(length * (cos_theta + min(state[2], 10) * sin_theta / 10) + length * (
+    #                     cos_theta2 + min(state[3], 10) * sin_theta2 / 10)),
+    #     ),
+    #     (0, 0, 255),
+    #     max(side_length // 240, 1),
+    # )
 
     return data
 

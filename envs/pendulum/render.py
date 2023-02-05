@@ -54,7 +54,7 @@ class Render(Node):
 		"""Default output of the node."""
 		return Image(data=jp.zeros(self._shape, dtype=jp.uint8))
 
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Image]:
+	def step(self, step_state: StepState) -> Tuple[StepState, Image]:
 		"""Step the node."""
 		# Unpack StepState
 		inputs = step_state.inputs

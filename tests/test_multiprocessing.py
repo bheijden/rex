@@ -31,13 +31,13 @@ class Node:
 		self.pid = os.getpid()  # Sets the PID of the main process
 		self.raise_error_in_step = False
 
-	def step(self, ts, pytree_in):
+	def step(self, pytree_in):
 		assert self.pid == os.getpid(), "Process ID changed"
-		log("worker", "blue", WARN, "worker", f"pid={self.pid} | step {ts}")
+		log("worker", "blue", WARN, "worker", f"pid={self.pid}")
 		pytree_out = jax.tree_map(lambda x: x + 1, pytree_in)
 		if self.raise_error_in_step:
 			raise ValueError("Trigger error in step for testing.")
-		return ts, pytree_out
+		return pytree_out
 
 
 @pytest.mark.parametrize("backend, jit", [("numpy", False), ("jax", False), ("jax", True)])
@@ -58,7 +58,7 @@ def test_mp(backend, jit):
 	with rjp.use(backend=backend):
 		for i in range(5):
 			pytree_in = [jp.array([1, 2, 3]) + i, jp.array([4, 5, 6]) + i]
-			ts, pytree_out = n.step(i, pytree_in)
+			pytree_out = n.step(pytree_in)
 			pytree_equal = jax.tree_map(lambda x, y: onp.isclose(x + 1, y).all(), pytree_in, pytree_out)
 			assert all(pytree_equal), "Pytree not equal"
 
@@ -80,7 +80,7 @@ def test_mp_error(raise_error_in_initializer, raise_error_in_step, exception_typ
 	# Try to step
 	pytree_in = [jp.array([1, 2, 3]), jp.array([4, 5, 6])]
 	with pytest.raises(exception_type):
-		ts, pytree_out = n.step(0, pytree_in)
+		pytree_out = n.step(pytree_in)
 
 
 def test_mp_with_rex_nodes():
@@ -100,4 +100,4 @@ def test_mp_with_rex_nodes():
 	sensor.step = new_process(sensor.step, max_workers=2, initializer=initializer, initargs=(False,))
 
 	# Step
-	ts, step_state = sensor.step(0, step_state)
+	step_state = sensor.step(step_state)

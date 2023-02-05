@@ -1,6 +1,3 @@
-# todo: brax wrapper
-# todo: gymnax wrapper
-
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import gym
@@ -33,6 +30,8 @@ class Wrapper:
         self.__dict__.update(state)
 
     def __getattr__(self, item):
+        if item == '__setstate__':
+            raise AttributeError(item)
         if item in ["save", "load"]:
             raise AttributeError(
                 "Wrapper does not support save/load. Please use the wrapped environment instead."

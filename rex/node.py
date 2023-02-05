@@ -358,7 +358,7 @@ class BaseNode:
         node.output.connect(i)
 
     @abc.abstractmethod
-    def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
+    def step(self, step_state: StepState) -> Tuple[StepState, Output]:
         raise NotImplementedError
 
     def _reset(self, graph_state: GraphState, clock: int = SIMULATED, real_time_factor: Union[int, float] = FAST_AS_POSSIBLE):
@@ -404,10 +404,7 @@ class BaseNode:
         self.q_rng_step = deque()
 
         # Get rng for delay sampling
-        try:
-            rng = self._step_state.rng
-        except AttributeError:
-            print(f"WARNING: {self.name} does not have a random number generator. ")
+        rng = self._step_state.rng
         rng = jnp.array(rng) if isinstance(rng, onp.ndarray) else rng  # Keys will differ for jax vs numpy
 
         # Reset output
@@ -434,9 +431,6 @@ class BaseNode:
         self._set_ts_start(start)
         self._record = log_pb2.NodeRecord(info=self.info, sync=self._sync, clock=self._clock,
                                           real_time_factor=self._real_time_factor, ts_start=start, rng=self.output._rng.tolist())  # todo: log rng, class name
-
-        # Record initial step_state
-        self._record_step_states.append(self._step_state)
 
         # Start all inputs and output
         [i.start(record=self._record.inputs.add()) for i in self.inputs]
@@ -469,6 +463,11 @@ class BaseNode:
 
             # Stop all channels to receive all sent messages from their connected outputs
             [i.stop().result(timeout=timeout) for i in self.inputs]
+
+            # Record last step_state
+            if self._step_state is not None and len(self._record_step_states) < self._max_records + 1:
+                self._record_step_states.append(self._step_state)
+                self._step_state = None
 
             # Set running state
             self._state = STOPPED
@@ -615,18 +614,22 @@ class BaseNode:
             # Update StepState with grouped messages
             # todo: have a single buffer for step_state used for both in and out
             # todo: Makes a copy of the message. Is this necessary? Can we do in-place updates?
-            step_state = self._step_state.replace(inputs=inputs)
+            step_state = self._step_state.replace(seq=jp.int32(tick), ts=jp.float32(ts_step_sc), inputs=inputs)
+
+            # Log step_state
+            if len(self._record_step_states) < self._max_records:
+                self._record_step_states.append(step_state)
 
             # Run step and get msg
-            new_step_state, output = self.step(jp.float32(ts_step_sc), step_state)
+            new_step_state, output = self.step(step_state)
 
-            # Update step_state
+            # Log output
+            if output is not None and len(self._record_outputs) < self._max_records:  # Agent returns None when we are stopping/resetting.
+                self._record_outputs.append(output)
+
+            # Update step_state (increment sequence number)
             if new_step_state is not None:
-                self._step_state = new_step_state
-
-                # Log step state
-                if len(self._record_step_states) < self._max_records+1:  # +1 because we add the initial step state as well.
-                    self._record_step_states.append(self._step_state)
+                self._step_state = new_step_state.replace(seq=jp.int32(tick)+1)
 
             # Determine output timestamp
             if self._clock in [SIMULATED]:
@@ -658,10 +661,6 @@ class BaseNode:
             # Push output
             if output is not None:  # Agent returns None when we are stopping/resetting.
                 self.output.push_output(output, header)
-
-                # Log output
-                if len(self._record_outputs) < self._max_records:
-                    self._record_outputs.append(output)
 
             # Add step record
             if len(self._record.steps) < self._max_records:
@@ -721,6 +720,6 @@ class Node(BaseNode):
         # return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
     @abc.abstractmethod
-    def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
+    def step(self, step_state: StepState) -> Tuple[StepState, Output]:
         raise NotImplementedError
 

@@ -214,8 +214,11 @@ def make_update_state(name: str, stateful: bool, static: bool):
         new_nodes = dict()
         new_outputs = dict()
 
+        # Increment sequence number
+        new_ss = step_state.replace(seq=step_state.seq + 1)
+
         # Add node's step state update
-        new_nodes[name] = step_state  # todo: Do not update params if static?
+        new_nodes[name] = new_ss
         new_outputs[name] = update_output(graph_state.outputs[name], output, timing[name]["tick"])
         new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes),
                                               outputs=graph_state.outputs.copy(new_outputs))
@@ -232,6 +235,7 @@ def make_update_inputs(name: str, outputs: Dict[str, str], cond: bool = True):
 
     def _update_inputs(graph_state: GraphState, timing: Dict) -> StepState:
         ss = graph_state.nodes[name]
+        ts_step = timing[name]["ts_step"]
         new_inputs = dict()
         for input_name, node_name in outputs.items():
             _new = ss.inputs[input_name]
@@ -250,7 +254,7 @@ def make_update_inputs(name: str, outputs: Dict[str, str], cond: bool = True):
                     _new = jax.tree_map(lambda _u, _o: jp.where(pred, _u, _o), _update, _new)
             new_inputs[input_name] = _new
 
-        return ss.replace(inputs=ss.inputs.copy(new_inputs))
+        return ss.replace(ts=ts_step, inputs=ss.inputs.copy(new_inputs))
 
     return _update_inputs
 
@@ -264,7 +268,7 @@ def make_run_node(name: str, node: "Node", outputs: Dict[str, str], stateful: bo
         ss = update_inputs(graph_state, timing)
 
         # Run node step
-        new_ss, output = node.step(timing[name]["ts_step"], ss)
+        new_ss, output = node.step(ss)
 
         # Get mask
         new_graph_state = update_state(graph_state, timing, new_ss, output)
@@ -306,10 +310,13 @@ def make_run_batch_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp.ndar
                 ss = update_input_fns[name](graph_state, timing)
 
                 # Run node step
-                new_ss, output = node.step(timing[name]["ts_step"], ss)
+                new_ss, output = node.step(ss)
+
+                # Increment sequence number
+                new_seq_ss = new_ss.replace(seq=new_ss.seq + 1)
 
                 buffer = update_output(graph_state.outputs[name], output, timing[name]["tick"])
-                return new_ss, buffer  # todo: Do not update params if static?
+                return new_seq_ss, buffer
 
             # Run node step
             if cond:
@@ -366,7 +373,6 @@ def make_run_sequential_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp
         must_run = jp.argmax(jp.array(must_run_lst))
 
         # Run node
-        # new_graph_state = run_node_fns[0](graph_state, timings_step)
         new_graph_state = jumpy.lax.switch(must_run, run_node_fns, graph_state, timings_step)
 
         return new_graph_state, chunk
@@ -424,7 +430,7 @@ def make_graph_reset(trace: log_pb2.TraceRecord, name: str, default_outputs, iso
 
     update_input = make_update_inputs(name, outputs)
 
-    def _graph_reset(graph_state: GraphState) -> Tuple[GraphState, jp.float32, StepState]:
+    def _graph_reset(graph_state: GraphState) -> Tuple[GraphState, StepState]:
         # Update output buffers
         new_outputs = dict()
         for key, value in default_outputs.items():
@@ -443,12 +449,12 @@ def make_graph_reset(trace: log_pb2.TraceRecord, name: str, default_outputs, iso
         next_ss = update_input(_next_graph_state, next_timing)
         next_graph_state = _next_graph_state.replace(nodes=_next_graph_state.nodes.copy({name: next_ss}))
 
-        # Determine next ts
-        next_ts_step = rjp.dynamic_slice(isolate[name]["ts_step"], (step,), (1,))[0]
+        # # Determine next ts
+        # next_ts_step = rjp.dynamic_slice(isolate[name]["ts_step"], (step,), (1,))[0]
 
         # NOTE! We do not increment step, because graph_state.step is used to index into the timings.
         #       In graph_step we do increment step after running the chunk, because we want to index into the next timings.
-        return next_graph_state, next_ts_step, next_ss
+        return next_graph_state, next_ss
     return _graph_reset
 
 
@@ -473,7 +479,7 @@ def make_graph_step(trace: log_pb2.TraceRecord, name: str, isolate: Timings, run
     update_state = make_update_state(name, stateful, static)
     update_input = make_update_inputs(name, outputs)
 
-    def _graph_step(graph_state: GraphState, step_state: StepState, action: Any) -> Tuple[GraphState, jp.float32, StepState]:
+    def _graph_step(graph_state: GraphState, step_state: StepState, action: Any) -> Tuple[GraphState, StepState]:
         # Update graph_state with action
         timing = rjp.tree_take(isolate, graph_state.step)
         new_graph_state = update_state(graph_state, timing, step_state, action)
@@ -491,10 +497,10 @@ def make_graph_step(trace: log_pb2.TraceRecord, name: str, isolate: Timings, run
         next_ss = update_input(_next_graph_state, next_timing)
         next_graph_state = _next_graph_state.replace(nodes=_next_graph_state.nodes.copy({name: next_ss}))
 
-        # Determine next ts
-        next_ts_step = rjp.dynamic_slice(isolate[name]["ts_step"], (next_step,), (1,))[0]
+        # # Determine next ts
+        # next_ts_step = rjp.dynamic_slice(isolate[name]["ts_step"], (next_step,), (1,))[0]
 
-        return next_graph_state, next_ts_step, next_ss
+        return next_graph_state, next_ss
 
     return _graph_step
 
@@ -533,11 +539,11 @@ class CompiledGraph(BaseGraph):
         kwargs["trace"] = log_pb2.TraceRecord.FromString(kwargs.pop("trace_str"))
         super().__setstate__((args, kwargs))
 
-    def reset(self, graph_state: GraphState) -> Tuple[GraphState, jp.float32, Any]:
+    def reset(self, graph_state: GraphState) -> Tuple[GraphState, Any]:
         # todo: initialize graph_state.outputs with empty arrays
-        next_graph_state, next_ts_step, next_step_state = self.__reset(graph_state)
-        return next_graph_state, next_ts_step, next_step_state
+        next_graph_state, next_step_state = self.__reset(graph_state)
+        return next_graph_state, next_step_state
 
-    def step(self, graph_state: GraphState, step_state: StepState, output: Any) -> Tuple[GraphState, jp.float32, StepState]:
-        next_graph_state, next_ts_step, next_step_state = self.__step(graph_state, step_state, output)
-        return next_graph_state, next_ts_step, next_step_state
+    def step(self, graph_state: GraphState, step_state: StepState, output: Any) -> Tuple[GraphState, StepState]:
+        next_graph_state, next_step_state = self.__step(graph_state, step_state, output)
+        return next_graph_state, next_step_state

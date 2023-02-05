@@ -63,6 +63,8 @@ class StepState:
     inputs: FrozenDict[str, InputState]
     state: State
     params: Params
+    seq: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
+    ts: rjp.float32 = struct.field(pytree_node=True, default_factory=lambda: jp.float32(0.))
 
 
 @struct.dataclass

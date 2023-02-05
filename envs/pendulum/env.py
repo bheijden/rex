@@ -144,7 +144,7 @@ class PendulumEnv(BaseEnv):
 		new_graph_state = self._get_graph_state(rng, graph_state)
 
 		# Reset environment to get initial step_state (runs up-until the first step)
-		graph_state, ts, step_state = self.graph.reset(new_graph_state)
+		graph_state, step_state = self.graph.reset(new_graph_state)
 
 		# Get observation
 		obs = self._get_obs(step_state)
@@ -164,11 +164,10 @@ class PendulumEnv(BaseEnv):
 		# print(f"{self.name.ljust(14)} | x: {x} | u: {u.action[0]}")
 
 		# Apply step and receive next step_state
-		graph_state, ts, step_state = self.graph.step(graph_state, new_step_state, u)
+		graph_state, step_state = self.graph.step(graph_state, new_step_state, u)
 
 		# Get observation
 		obs = self._get_obs(step_state)
-		# todo: shouldn't we take index [-1]?
 		th = self._angle_normalize(step_state.inputs["state"].data.th[-1])  # Normalize angle
 		thdot = step_state.inputs["state"].data.thdot[-1]
 

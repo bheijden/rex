@@ -310,7 +310,7 @@ from time import time
 from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
 tfd = tfp.distributions
 
-from rex.distributions import Gaussian, GMM
+from rex.distributions import Gaussian, GMM, mixture_distribution_quantiles
 
 
 class GMMEstimator:
@@ -497,26 +497,3 @@ class GMMEstimator:
             gaussians.append(g)
         gmm = GMM(gaussians, w.tolist())
         return gmm
-
-
-def mixture_distribution_quantiles(dist, probs, N_grid_points=int(1e3), grid_min=None, grid_max=None):
-    """More info: https://github.com/tensorflow/probability/issues/659"""
-    base_grid = np.linspace(grid_min, grid_max, num=N_grid_points)
-    shape = (dist.batch_shape, 1) if len(dist.batch_shape) else [1]
-    full_grid = np.transpose(np.tile(base_grid, shape))
-    cdf_grid = dist.cdf(full_grid) # this is fully parallelized and even uses GPU
-    grid_check = (cdf_grid.min(axis=0).max() <= min(probs)) & (max(probs) <= cdf_grid.max(axis=0).min())
-    if not grid_check:
-        raise RuntimeError('Grid does not span full CDF range needed for interpolation!')
-
-    probs_row_grid = np.transpose(np.tile(np.array(probs), (cdf_grid.shape[0], 1)))
-    def get_quantiles_for_one_observation(cdf_grid_one_obs):
-        return base_grid[np.argmax(np.greater(cdf_grid_one_obs, probs_row_grid), axis=1)]
-
-    # TODO: this is the main performance bottleneck. uses only one CPU core
-    quantiles_grid = np.apply_along_axis(
-        func1d=get_quantiles_for_one_observation,
-        axis=0,
-        arr=cdf_grid,
-    )
-    return quantiles_grid

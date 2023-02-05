@@ -587,10 +587,13 @@ def plot_computation_graph(ax: "matplotlib.Axes",
         ax.scatter([], [], edgecolor=oc.ecolor.excluded, facecolor=oc.fcolor.excluded, alpha=0.5, label="excl. step")
 
     # Set ticks
-    yticks = ax.get_yticks().tolist()
-    [yticks.append(i) for _, i in y.items()]
-    ax.set_yticks(yticks)
-    ax.tick_params(left=False, bottom=True, labelleft=False, labelbottom=True)
+    # yticks = ax.get_yticks().tolist()
+    # ylabels = [t.get_text() for t in ax.get_yticklabels()]
+    # [yticks.append(i) for _, i in y.items()]
+    yticks = list(y.values())
+    ylabels = order
+    ax.set_yticks(yticks, labels=ylabels)
+    ax.tick_params(left=False, bottom=True, labelleft=True, labelbottom=True)
 
 
 def plot_topological_order(
@@ -922,10 +925,10 @@ def plot_depth_order(ax: "matplotlib.Axes",
         ax.scatter([], [], edgecolor=oc.ecolor.excluded, facecolor=oc.fcolor.excluded, alpha=0.5, label="excess step call")
 
     # Set ticks
-    yticks = ax.get_yticks().tolist()
-    [yticks.append(i) for _, i in y.items()]
-    ax.set_yticks(yticks)
-    ax.tick_params(left=False, bottom=True, labelleft=False, labelbottom=True)
+    yticks = list(y.values())
+    ylabels = order
+    ax.set_yticks(yticks, labels=ylabels)
+    ax.tick_params(left=False, bottom=True, labelleft=True, labelbottom=True)
 
 
 def plot_graph(ax: "matplotlib.Axes",

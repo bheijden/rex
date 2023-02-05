@@ -2,9 +2,9 @@ RecordEnv-v0:
   # callback:
   #   - rl_zoo3.callbacks.ParallelTrainCallback
   n_envs: 10
-  n_timesteps: 80000
+  n_timesteps: 10000
   policy: 'MlpPolicy'
-  learning_rate: !!float 1e-3
+  learning_rate: !!float 1e-2
 
 # Tuned
 MountainCarContinuous-v0:

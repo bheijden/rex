@@ -1,6 +1,8 @@
 from rex.proto import log_pb2
 from typing import Union, List, Tuple
+import jax
 import numpy as onp
+import jax.numpy as jnp
 import jumpy.numpy as jp
 from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
 tfd = tfp.distributions
@@ -51,6 +53,13 @@ class Gaussian:
 
     def pdf(self, x: jp.ndarray):
         return self._dist.prob(x)
+
+    def quantile(self, x: jp.ndarray):
+        """Returns the quantile of the distribution at the given percentile."""
+        if isinstance(self._dist, tfd.Deterministic):
+            return self.mean
+        else:
+            return self._dist.quantile(x)
 
     def cdf(self, x: jp.ndarray):
         return self._dist.cdf(x)
@@ -161,6 +170,16 @@ class GMM:
     def cdf(self, x: jp.ndarray):
         return self._dist.cdf(x)
 
+    def quantile(self, x: jp.ndarray):
+        """Returns the quantile of the distribution at the given percentile."""
+        deterministic = [v == 0 for v in self.stds]
+        if all(deterministic):
+            return self.means
+        else:
+            shape = x.shape if isinstance(x, (jax.Array, onp.ndarray)) else ()
+            qs = mixture_distribution_quantiles(self._dist, jp.array(x).reshape(-1), N_grid_points=int(1e3), grid_min=self.low, grid_max=self.high)
+            return qs.reshape(shape)
+
     def sample(self, rng: jp.ndarray, shape: Union[int, Tuple] = None):
         if shape is None:
             shape = ()
@@ -214,3 +233,30 @@ class GMM:
 
 
 Distribution = Union[Gaussian, GMM]
+
+
+import numpy as np
+
+
+def mixture_distribution_quantiles(dist, probs, N_grid_points: int = int(1e3), grid_min: float = None, grid_max: float = None):
+    """More info: https://github.com/tensorflow/probability/issues/659"""
+    base_grid = np.linspace(grid_min, grid_max, num=int(N_grid_points))
+    shape = (dist.batch_shape, 1) if len(dist.batch_shape) else [1]
+    full_grid = np.transpose(np.tile(base_grid, shape))
+    cdf_grid = dist.cdf(full_grid)  # this is fully parallelized and even uses GPU
+    grid_check = (cdf_grid.min(axis=0).max() <= min(probs)) & (max(probs) <= cdf_grid.max(axis=0).min())
+    if not grid_check:
+        raise RuntimeError('Grid does not span full CDF range needed for interpolation!')
+
+    probs_row_grid = np.transpose(np.tile(np.array(probs), (cdf_grid.shape[0], 1)))
+
+    def get_quantiles_for_one_observation(cdf_grid_one_obs):
+        return base_grid[np.argmax(np.greater(cdf_grid_one_obs, probs_row_grid), axis=1)]
+
+    # TODO: this is the main performance bottleneck. uses only one CPU core
+    quantiles_grid = np.apply_along_axis(
+        func1d=get_quantiles_for_one_observation,
+        axis=0,
+        arr=cdf_grid,
+    )
+    return quantiles_grid

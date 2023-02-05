@@ -114,7 +114,7 @@ class World(Node):
 			self._to_downward()
 		return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Empty]:
+	def step(self, step_state: StepState) -> Tuple[StepState, Empty]:
 		"""Step the node."""
 		# Prepare output
 		new_step_state = step_state
@@ -175,7 +175,7 @@ class Sensor(Node):
 		"""Default output of the node."""
 		return self._read_output()  # Read output from ROS service
 
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
+	def step(self, step_state: StepState) -> Tuple[StepState, Output]:
 		"""Step the node."""
 		# Update state
 		new_step_state = step_state
@@ -203,7 +203,7 @@ class Actuator(Node):
 		"""Default output of the node."""
 		return ActuatorOutput(action=jp.array([0.0], dtype=jp.float32))
 
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
+	def step(self, step_state: StepState) -> Tuple[StepState, Output]:
 		"""Step the node."""
 
 		# Unpack StepState

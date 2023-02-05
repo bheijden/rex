@@ -86,16 +86,18 @@ def set_log_level(log_level: int, node: "BaseNode" = None, color: str = None):
 
 
 class timer:
-    def __init__(self, name: str, log_level: int = INFO):
-        self.name = name
+    def __init__(self, name: str = None, log_level: int = INFO):
+        self.name = name or "timer"
         self.log_level = log_level
+        self.duration = None
 
     def __enter__(self):
         self.tstart = time()
 
     def __exit__(self, type, value, traceback):
+        self.duration = time() - self.tstart
         if self.log_level >= LOG_LEVEL:
-            print(f"[{self.name}] Elapsed: {time() - self.tstart}")
+            print(f"[{self.name}] Elapsed: {self.duration}")
 
 
 # def analyse_deadlock(nodes: List["Node"], log_level: int = INFO):

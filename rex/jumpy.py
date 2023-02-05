@@ -201,3 +201,10 @@ def vmap(fun: F, include: Sequence[bool] = None) -> F:
 
     return _batched
 
+
+def normal(key, shape=(), dtype=onp.float32):
+    """Draw random samples from a normal (Gaussian) distribution."""
+    if jumpy.core.which_np(key, shape, dtype) is jnp:
+        return jax.random.normal(key, shape, dtype)
+    else:
+        return onp.random.normal(size=shape).astype(dtype)

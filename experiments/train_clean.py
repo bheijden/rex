@@ -1,10 +1,5 @@
-# Script to define environments from
-# Automatically register all environments in the envs folder
-# Script to fit delays --> Save as proto for either ode or real
-# Script to evaluate performance
-import gym
 import os
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 import tempfile
 import datetime
@@ -29,150 +24,142 @@ import sbx
 import stable_baselines3 as sb3
 import time
 import rex
-from rex.distributions import Distribution, Gaussian
 from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, SEQUENTIAL, WARN, REAL_TIME, \
 	ASYNC, WALL_CLOCK, SCHEDULING_MODES, JITTER_MODES, CLOCK_MODES, GRAPH_MODES, VECTORIZED
-import rex.open_colors as oc
 from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 import experiments as exp
 import envs.pendulum as pend
 import envs.double_pendulum as dpend
-from jax.tree_util import tree_map
 
 
-class SysIdPolicy:
-	def __init__(self, duration: float = 5.0, min: float = -8, max: float = 8, seed: int = 0, model=None):
-
-		self._model = model
-		self._duration = duration
-		self._last_time = 0
-		self._max = max
-		self._min = min
-		self._action = jp.array([0], dtype=jp.float32)
-		self._use_model = False
-		self._rng = jumpy.random.PRNGKey(seed)
-
-	def predict(self, obs, deterministic: bool = True):
-		tstep = time.time()
-		if tstep - self._last_time > self._duration:
-			self._last_time = tstep
-			if model is not None and not self._use_model:
-				self._use_model = True
-			else:
-				self._use_model = False
-				self._rng, rng_action = jumpy.random.split(self._rng)
-				action = jumpy.random.uniform(rng_action, low=self._min, high=self._max)
-				self._action = jp.array([action], dtype=jp.float32)
-		if self._use_model:
-			return self._model.predict(obs, deterministic=deterministic)
-		else:
-			return self._action, None
+HYPERPARAMS = {
+	# "gamma": 0.95,
+	"learning_rate": 0.01,
+	"gradient_steps": 10,  # Antonin
+	"train_freq": 10,  # Antonin
+	"qf_learning_rate": 1e-3,  # Antonin
+	# "batch_size": 1024, # todo: maybe this was turned on?
+	# "buffer_size": 10000,
+	# "learning_starts": 0,
+	# "train_freq": 4,
+	# "gradient_steps": 4,  # same as train_freq
+	# "ent_coef": "auto",
+	# "tau": 0.08,
+	# "target_entropy": "auto",
+	# "policy_kwargs": dict(log_std_init=-0.07520582048294414, net_arch=[256, 256], use_sde=False),  # todo: ADD?
+}
 
 
-record_settings = {"agent": dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True),
+RECORD_SETTINGS = {"agent": dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True),
                    "world": dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True),
                    "actuator": dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True),
                    "sensor": dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True),
                    "render": dict(node=True, outputs=False, rngs=True, states=True, params=True, step_states=True)}
 
 if __name__ == "__main__":
-	# todo: Add thdot back in.
-	# todo: Implement moving window estimator on thdot on cpp side..
-	# Logging
-	NAME = "dp_8torque_delay_4obs_3act"
-	LOG_DIR = os.path.dirname(rex.__file__) + f"/../logs/{NAME}_{datetime.datetime.today().strftime('%Y-%m-%d-%H%M')}"
-	MUST_LOG = True
-	MUST_PLOT = True
+	# todo: thdot2 sometimes saturates above 50.
+	# todo: Modify env
+	#     - Increase max angular velocity ( and take into account in observation space).
+	#     - Change initial state distribution (ie thdot, thdot2 = 0., 0.).
+	#     - HIgh sensor rate (100 Hz), low actuator rate (30 Hz). Increase sensor window.
+	#     - Increase penalty on action changes
+	#     - Increase noise (th, th2, thdot, thdot2)
+	#     - Consistently learn
+	# todo: Make new process wrapper for node. Replace unpickled nodes of inputs with BaseNodes.
+	#       This allows supports basic interactions.
+	# todo: Modify graph sorting that traces multiple outputs (i.e. add rendering to compiled graph).
 
 	# Environment
 	ENV = "double_pendulum"  # "disc_pendulum"
-	DIST_FILE = f"21eps_pretrained_sbx_sac_gmms_2comps.pkl"
+	# DIST_FILE = f"21eps_pretrained_sbx_sac_gmms_2comps.pkl"
+	DIST_FILE = f"record_sysid-gmms-2comps.pkl"
+	# DIST_FILE = f"real_pendulum_2023-01-27-1806_phase_blocking_120s_record_sysid-gmms-2comps.pkl"
 	JITTER = BUFFER
 	SCHEDULING = PHASE
 	MAX_STEPS = 5*80
-	WIN_ACTION = 3
-	WIN_OBS = 4
+	START_STEPS = 8*MAX_STEPS
+	WIN_ACTION = 2
+	WIN_OBS = 3
 	BLOCKING = True
 	ADVANCE = False
 	ENV_FN = dpend.ode.build_double_pendulum  #  dpend.ode.build_double_pendulum  # pend.ode.build_pendulum
 	ENV_CLS = dpend.env.DoublePendulumEnv  # dpend.env.DoublePendulumEnv  # pend.env.PendulumEnv
 	CLOCK = SIMULATED
-	RTF = REAL_TIME
+	RTF = FAST_AS_POSSIBLE
+	# todo: INCREASE NOISE
+	# TODO: CHANGE WORLD TO 150 when using ODE
+	# todo: I CHANGED THE MAX SPEED TO 50 FROM 32!!!
 	RATES = dict(world=150, agent=80, actuator=80, sensor=80, render=20)
-	DELAY_FN = lambda d: d.high*0.6
-	WITH_DELAY = True   # todo: TOGGLE WITH/WITHOUT DELAYS HERE
+	USE_DELAYS = True
+	DELAY_FN = lambda d: d.quantile(0.99)*int(USE_DELAYS)
+
+	# Logging
+	NAME = f"continue_lessnoise_50maxvel_8torque_30hz_005deltaact_agentpolicy_{ENV}"
+	LOG_DIR = os.path.dirname(rex.__file__) + f"/../logs/{NAME}_{datetime.datetime.today().strftime('%Y-%m-%d-%H%M')}"
+	MUST_LOG = False
+	SHOW_PLOTS = True
 
 	# Load models
-	MODEL_CLS = sb3.SAC  # sbx.SAC
+	MODEL_CLS = sbx.SAC  # sbx.SAC  sb3.SAC
 	MODEL_MODULE = dpend.models
-	MODEL_PRELOAD = "/home/r2ci/rex/logs/dp_8torque_delay_4obs_3act_2023-01-29-1747/model.zip"
-	# MODEL_PRELOAD = "sb_sac_pendulum"  # sb_sac_pendulum
+	MODEL_PRELOAD = "/home/r2ci/rex/logs/sim_dp_sbx_2023-02-01-1510/model.zip"  # todo: very good sbx model.
+	# MODEL_PRELOAD = "/home/r2ci/rex/logs/50maxvel_8torque_30hz_005deltaact_agentpolicy_double_pendulum_2023-02-03-1905/model.zip"
+	# MODEL_PRELOAD = "/home/r2ci/rex/logs/lessnoise_50maxvel_8torque_30hz_005deltaact_agentpolicy_double_pendulum_2023-02-03-1942/model.zip"
+	# MODEL_PRELOAD = "/home/r2ci/rex/logs/continued_8torque_80hz_02deltaact_agentpolicy_double_pendulum_2023-02-03-1809/model.zip"
+	# MODEL_PRELOAD = "/home/r2ci/rex/logs/testready_continue_good_20nenvs_withnoise_double_pendulum_2023-02-03-1526/model.zip"
+	# MODEL_PRELOAD = "sbx_sac_pendulum"  # sb_sac_pendulum
 
 	# Training
+	CONTINUE = True
 	SEED = 0
-	LEARNING_RATE = 1e-2  # larger than 1e-2 results in Nans.
 	NUM_ENVS = 10
-	SAVE_FREQ = 30_000
-	NSTEPS = 4_000_000
-	NUM_EVAL_PRE = 5
+	SAVE_FREQ = 40_000
+	NSTEPS = 200_000
+	NUM_EVAL_PRE = 1
 	NUM_EVAL_POST = 20
 
-	# Load distributions & set rates
-	delays_sim = exp.load_distributions(DIST_FILE)
-	delays_sim["step"]["world"] = Gaussian(0.)
-	delays_sim["inputs"]["world"]["actuator"] = Gaussian(0.)
-	delays_sim["inputs"]["sensor"]["world"] = Gaussian(0.)
-	delays_sim = tree_map(lambda d: Gaussian(0), delays_sim) if not WITH_DELAY else delays_sim
-	delays = jax.tree_map(DELAY_FN, delays_sim)
+	# Load distributions
+	delays_sim = exp.load_distributions(DIST_FILE, module=dpend.dists)
 
 	# Prepare environment
-	env = exp.make_env(delays_sim, delays, RATES, blocking=BLOCKING, advance=ADVANCE, win_action=WIN_ACTION, win_obs=WIN_OBS,
+	env = exp.make_env(delays_sim, DELAY_FN, RATES, blocking=BLOCKING, advance=ADVANCE, win_action=WIN_ACTION, win_obs=WIN_OBS,
 	                   scheduling=SCHEDULING, jitter=JITTER,
 	                   env_fn=ENV_FN, env_cls=ENV_CLS, name=ENV, eval_env=True, clock=CLOCK, real_time_factor=RTF,
-	                   max_steps=MAX_STEPS)
+	                   max_steps=MAX_STEPS + START_STEPS, use_delays=USE_DELAYS)
 	gym_env = GymWrapper(env)
 
 	# Load model
-	try:
-		model = exp.load_model(MODEL_PRELOAD, MODEL_CLS, env=gym_env, seed=SEED, module=MODEL_MODULE)
-		policy = exp.make_policy(model)
-	except ValueError as e:
-		if "spaces" in e.__str__():
-			print("Observation spaces don't match. Loading a random model instead.")
-			model = MODEL_CLS("MlpPolicy", env=gym_env, seed=0, verbose=1)
-			policy = exp.make_policy(model, constant_action=0.)
-		else:
-			raise e
+	model: sbx.SAC = exp.load_model(MODEL_PRELOAD, MODEL_CLS, env=gym_env, seed=SEED, module=MODEL_MODULE)
 
-	# TODO: REMOVE SYS ID POLICY --> INFER DURATION FROM TICKS.
-	# sys_model = SysIdPolicy(duration=3.0, min=-1.5, max=1.5, seed=0, model=model)
-	# policy = exp.make_policy(sys_model)
+	sys_model = exp.SysIdPolicy(rate=RATES["agent"], duration=5.0, min=-0.01, max=0.01, seed=0, model=model, use_ros=False)
+	policy = exp.make_policy(sys_model)
+	# policy = exp.make_policy(model)
 
 	# Evaluate model
-	record_pre = exp.eval_env(gym_env, policy, n_eval_episodes=NUM_EVAL_PRE, verbose=True, seed=SEED, record_settings=record_settings)
+	record_pre = exp.eval_env(gym_env, policy, n_eval_episodes=NUM_EVAL_PRE, verbose=True, seed=SEED, record_settings=RECORD_SETTINGS)
 
 	# Get data
 	# data = exp.RecordHelper(record_pre)
 
-	# if MUST_LOG:
-	# 	# Save pre-train record to file
-	# 	os.mkdir(LOG_DIR)
-	# 	with open(LOG_DIR + "/record_sysid.pb", "wb") as f:
-	# 		f.write(record_pre.SerializeToString())
-	# 	print("SAVED!")
-	# exit()
+	if MUST_LOG:
+		# Save pre-train record to file
+		os.mkdir(LOG_DIR)
+		with open(LOG_DIR + "/record_sysid.pb", "wb") as f:
+			f.write(record_pre.SerializeToString())
+		print("SAVED!")
+	exit()
 
 	# Compile env
-	cenv = exp.make_compiled_env(env, record_pre.episode[-1], max_steps=MAX_STEPS, eval_env=False, graph_type=VECTORIZED, plot=MUST_PLOT)
+	cenv = exp.make_compiled_env(env, record_pre.episode[-1], max_steps=MAX_STEPS, eval_env=False, graph_type=VECTORIZED)
 
 	# Plot
-	if MUST_PLOT:
-		fig_cg, _ = exp.show_computation_graph(cenv.graph.trace)
-		fig_com, _ = exp.show_communication(record_pre.episode[-1])
-		fig_grp, _ = exp.show_grouped(record_pre.episode[-1].node[-1], "state")
+	fig_cg, _ = exp.show_computation_graph(cenv.graph.trace)
+	fig_com, _ = exp.show_communication(record_pre.episode[-1])
+	fig_grp, _ = exp.show_grouped(record_pre.episode[-1].node[-1], "state")
+
+	# Only show
+	if SHOW_PLOTS:
 		plt.show()
-	else:
-		fig_cg, fig_com, fig_grp = None, None, None
 
 	if MUST_LOG:
 		os.mkdir(LOG_DIR)
@@ -200,20 +187,33 @@ if __name__ == "__main__":
 	cenv = VecMonitor(cenv)  # Wrap into vectorized monitor
 	cenv.jit()  # Jit
 
+	# Initialize model
+	if CONTINUE:
+		model_path = f"{LOG_DIR}/model.zip" if MUST_LOG else f"{tempfile.mkdtemp()}/reload_model.zip"
+		model.save(model_path)
+		cmodel = MODEL_CLS.load(model_path, env=cenv, seed=SEED, **HYPERPARAMS, verbose=1, tensorboard_log=LOG_DIR)
+		# cmodel = MODEL_CLS.load(model_path, env=cenv, verbose=1, tensorboard_log=LOG_DIR)
+	else:
+		cmodel = MODEL_CLS("MlpPolicy", cenv, seed=SEED, **HYPERPARAMS, verbose=1, tensorboard_log=LOG_DIR)
+
 	# Learn
-	cmodel = MODEL_CLS("MlpPolicy", cenv, learning_rate=LEARNING_RATE, verbose=1, tensorboard_log=LOG_DIR)
 	cmodel.learn(total_timesteps=NSTEPS, progress_bar=True, callback=checkpoint_callback)
 
 	# Save file
 	model_path = f"{LOG_DIR}/model.zip" if MUST_LOG else f"{tempfile.mkdtemp()}/model.zip"
 	cmodel.save(model_path)
 
+	env = exp.make_env(delays_sim, DELAY_FN, RATES, blocking=BLOCKING, advance=ADVANCE, win_action=WIN_ACTION, win_obs=WIN_OBS,
+	                   scheduling=SCHEDULING, jitter=JITTER,
+	                   env_fn=ENV_FN, env_cls=ENV_CLS, name=ENV, eval_env=True, clock=CLOCK, real_time_factor=REAL_TIME,
+	                   max_steps=MAX_STEPS, use_delays=USE_DELAYS)
+
 	# Load model
 	model_reloaded = exp.load_model(model_path, MODEL_CLS, env=GymWrapper(env))
 
 	# Evaluate model
 	policy_reloaded = exp.make_policy(model_reloaded)
-	record_post = exp.eval_env(env, policy_reloaded, n_eval_episodes=NUM_EVAL_POST, verbose=True, record_settings=record_settings)
+	record_post = exp.eval_env(env, policy_reloaded, n_eval_episodes=NUM_EVAL_POST, verbose=True, record_settings=RECORD_SETTINGS)
 
 	# Log
 	if MUST_LOG:

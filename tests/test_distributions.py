@@ -1,3 +1,4 @@
+import jax.numpy as jnp
 from rex.distributions import Gaussian, GMM
 import jax.random as rnd
 import pickle
@@ -32,6 +33,17 @@ def test_distributions():
     _ = g1.sample(rnd.PRNGKey(0))
     _ = g1.pdf(0.5)
     _ = g1.cdf(0.5)
+
+    # Test quantile (inverse cdf).
+    gmm_quantile = GMM([g1], [1.0])
+    _ = g1.quantile(jnp.array([[0.5, 0.4]]*2))
+    _ = gmm_quantile.quantile(jnp.array([[0.5, 0.4]]*2))
+    _ = g1.quantile(0.5)
+    _ = gmm_quantile.quantile(0.5)
+
+    # Check deterministic quantile
+    _ = gmmdet.quantile(0.5)
+    _ = det1.quantile(0.5)
 
     # Test pickle API
     g1 = pickle.loads(pickle.dumps(g1))

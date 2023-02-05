@@ -113,7 +113,7 @@ class DummyNode(Node):
 	# 	inputs = self.default_inputs(rng_inputs, graph_state)
 	# 	return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, DummyOutput]:
+	def step(self, step_state: StepState) -> Tuple[StepState, DummyOutput]:
 		"""Step the node."""
 		# Unpack StepState
 		rng, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
@@ -128,7 +128,7 @@ class DummyNode(Node):
 			seqs_sum += jp.sum(i.seq)
 
 		# Update params (optional)
-		new_params = params.replace(param_1=ts)
+		new_params = params.replace(param_1=step_state.ts)
 
 		# Update state
 		new_state = state.replace(step=state.step + 1, seqs_sum=seqs_sum)
@@ -241,7 +241,7 @@ class DummyEnv(BaseEnv):
 		new_graph_state = self._get_graph_state(rng, graph_state)
 
 		# Reset environment to get initial step_state (runs up-until the first step)
-		graph_state, ts, step_state = self.graph.reset(new_graph_state)
+		graph_state, step_state = self.graph.reset(new_graph_state)
 
 		# ***DO SOMETHING WITH StepState TO GET OBSERVATION***
 		obs = self._get_obs(step_state)
@@ -277,7 +277,7 @@ class DummyEnv(BaseEnv):
 		new_step_state = step_state.replace(rng=new_rng, state=new_state, params=new_params)
 
 		# Apply step to receive next step_state
-		graph_state, ts, step_state = self.graph.step(graph_state, new_step_state, action)
+		graph_state, step_state = self.graph.step(graph_state, new_step_state, action)
 
 		# ***DO SOMETHING WITH StepState TO GET OBS/reward/done/info***
 		obs = self._get_obs(step_state)

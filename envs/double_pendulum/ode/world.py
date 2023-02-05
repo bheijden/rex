@@ -1,4 +1,5 @@
 from typing import Any, Dict, Tuple, Union
+
 import jumpy
 import jumpy.numpy as jp
 from math import ceil
@@ -8,6 +9,7 @@ from rex.constants import WARN, LATEST, PHASE
 from rex.base import StepState, GraphState, Empty
 from rex.node import Node
 from rex.multiprocessing import new_process
+import rex.jumpy as rjp
 
 from envs.double_pendulum.env import Output as ActuatorOutput
 from envs.double_pendulum.render import Render
@@ -77,6 +79,14 @@ class State:
 
 
 @struct.dataclass
+class SensorParams:
+	th_std: jp.float32
+	th2_std: jp.float32
+	thdot_std: jp.float32
+	thdot2_std: jp.float32
+
+
+@struct.dataclass
 class Output:
 	cos_th: jp.float32
 	sin_th: jp.float32
@@ -110,7 +120,7 @@ def ode_double_pendulum(params: Params, x, u):
 	alpha_dot2 = x[3]
 	M = jp.array([[J1 + J2 + m2 * l1 * l1 + 2 * P3 * jp.cos(alpha2), J2 + P3 * jp.cos(alpha2)],
 	              [J2 + P3 * jp.cos(alpha2), J2]])
-	C = jp.array([[b1 - P3 * alpha_dot2 * jp.sin(alpha2), -P3 * (alpha_dot2) * jp.sin(alpha2)],
+	C = jp.array([[b1 - 2*P3 * alpha_dot2 * jp.sin(alpha2), -P3 * (alpha_dot2) * jp.sin(alpha2)],
 	              [P3 * alpha_dot1 * jp.sin(alpha2), b2]])
 	G = jp.array([[-F1 * jp.sin(alpha1) - F2 * jp.sin(alpha1 + alpha2)],
 	              [-F2 * jp.sin(alpha1 + alpha2)]])
@@ -186,8 +196,8 @@ class World(Node):
 		if not self.eval_env:
 			th = jumpy.random.uniform(rng_th, shape=(), low=-3.14, high=3.14)
 			th2 = jumpy.random.uniform(rng_th, shape=(), low=-3.14, high=3.14)
-			thdot = 0.
-			thdot2 = 0.
+			thdot = jumpy.random.uniform(rng_th, shape=(), low=-3.14, high=3.14)
+			thdot2 = jumpy.random.uniform(rng_th, shape=(), low=-3.14, high=3.14)
 		else:
 			# goal: th2 = jp.pi - th
 			# [th, th2] = [0, 0] = th=down, th2=down
@@ -218,7 +228,7 @@ class World(Node):
 			thdot2 = jp.float32(0.)
 		return State(th=th, th2=th2, thdot=thdot, thdot2=thdot2)
 
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, State]:
+	def step(self, step_state: StepState) -> Tuple[StepState, State]:
 		"""Step the node."""
 
 		# Unpack StepState
@@ -253,6 +263,9 @@ class World(Node):
 
 class Sensor(Node):
 
+	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> SensorParams:
+		return SensorParams(th_std=jp.float32(0.05), th2_std=jp.float32(0.05), thdot_std=jp.float32(0.1), thdot2_std=jp.float32(0.5))
+
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
 		"""Default output of the node."""
 		# Grab output from state
@@ -268,19 +281,27 @@ class Sensor(Node):
 			thdot2 = jp.float32(0.)
 		return Output(cos_th=jp.cos(th), sin_th=jp.sin(th), cos_th2=jp.cos(th2), sin_th2=jp.sin(th2), thdot=thdot, thdot2=thdot2)
 
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
+	def step(self, step_state: StepState) -> Tuple[StepState, Output]:
 		"""Step the node."""
 
 		# Unpack StepState
-		_, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
-
-		# Update state
-		new_step_state = step_state
+		rng, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
 
 		# World state
 		dp_state = inputs["world"][-1].data
 		th, th2 = dp_state.th, dp_state.th2
 		thdot, thdot2 = dp_state.thdot, dp_state.thdot2
+
+		# Add noise
+		th_std, th2_std, thdot_std, thdot2_std = params.th_std, params.th2_std, params.thdot_std, params.thdot2_std
+		new_rng, rng_th, rng_th2, rng_thdot, rng_thdot2 = jumpy.random.split(rng, num=5)
+		th = th + th_std * rjp.normal(rng_th, shape=th.shape, dtype=jp.float32)
+		th2 = th2 + th2_std * rjp.normal(rng_th2, shape=th2.shape, dtype=jp.float32)
+		thdot = thdot + thdot_std * rjp.normal(rng_thdot, shape=thdot.shape, dtype=jp.float32)
+		thdot2 = thdot2 + thdot2_std * rjp.normal(rng_thdot2, shape=thdot2.shape, dtype=jp.float32)
+
+		# Update state
+		new_step_state = step_state.replace(rng=new_rng)
 
 		# Prepare output
 		output = Output(cos_th=jp.cos(th), sin_th=jp.sin(th), cos_th2=jp.cos(th2), sin_th2=jp.sin(th2), thdot=thdot, thdot2=thdot2)
@@ -293,7 +314,7 @@ class Actuator(Node):
 		"""Default output of the node."""
 		return ActuatorOutput(action=jp.array([0.0], dtype=jp.float32))
 
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, ActuatorOutput]:
+	def step(self, step_state: StepState) -> Tuple[StepState, ActuatorOutput]:
 		"""Step the node."""
 
 		# Unpack StepState

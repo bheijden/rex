@@ -77,11 +77,11 @@ def test_plot():
 
     # Simulate
     tstart = time.time()
-    ts_step, step_state = agent.observation.popleft().result()  # Retrieve first obs
+    step_state = agent.observation.popleft().result()  # Retrieve first obs
     for _ in range(num_steps):
         action = agent.default_output(seed)  # NOTE! Re-using the seed here.
         agent.action[-1].set_result((step_state, action))  # The set result must be the action of the agent.
-        ts_step, step_state = agent.observation.popleft().result()  # Retrieve observation
+        step_state = agent.observation.popleft().result()  # Retrieve observation
     tend = time.time()
 
     # Initiate reset

@@ -27,6 +27,7 @@ class Params:
 class State:
 	"""Pendulum agent state definition"""
 	reward: jp.float32
+	starting_step: jp.int32
 
 
 @struct.dataclass
@@ -42,14 +43,14 @@ class Agent(BaseAgent):
 	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
 		"""Default params of the agent."""
 		return Params(max_torque=jp.float32(8.0),
-		              max_speed=jp.float32(32.0),
-		              max_speed2=jp.float32(32.0),
+		              max_speed=jp.float32(50.0),
+		              max_speed2=jp.float32(50.0),
 		              length=jp.float32(0.1),
 		              length2=jp.float32(0.1))
 
 	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
 		"""Default state of the agent."""
-		return State(reward=jp.float32(0.0))
+		return State(reward=jp.float32(0.0), starting_step=jp.int32(0))
 
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
 		"""Default output of the agent."""
@@ -63,7 +64,7 @@ class DoublePendulumEnv(BaseEnv):
 			self,
 			nodes: Dict[str, "Node"],
 			agent: Agent,
-			max_steps: int = 320,  # 4*rate
+			max_steps: int = 400,  # 4*rate
 			trace: log_pb2.TraceRecord = None,
 			clock: int = SIMULATED,
 			real_time_factor: Union[int, float] = FAST_AS_POSSIBLE,
@@ -90,8 +91,8 @@ class DoublePendulumEnv(BaseEnv):
 		# Prepare
 		num_state = inputs["state"].window
 		num_last_action = inputs["last_action"].window if "last_action" in inputs else 0
-		# high = [1.0] * num_state * 4 + [params.max_speed] * num_state + [params.max_speed2] * num_state + [params.max_torque] * num_last_action
-		high = [1.0] * num_state * 4 + [params.max_torque] * num_last_action
+		high = [1.0] * num_state * 4 + [32.0] * num_state + [32.0] * num_state + [params.max_torque] * num_last_action
+		# high = [1.0] * num_state * 4 + [params.max_torque] * num_last_action
 		high = jp.array(high, dtype=jp.float32)
 		return Box(low=-high, high=high, dtype=jp.float32)
 
@@ -137,14 +138,18 @@ class DoublePendulumEnv(BaseEnv):
 		for (name, n), rng_in in zip(self.nodes_world_and_agent.items(), rngs):
 			new_nodes[name] = new_nodes[name].replace(inputs=n.default_inputs(rng_in, graph_state))
 
-		return GraphState(step=jp.int32(0), nodes=FrozenDict(new_nodes))
+		# Randomly start at random step
+		starting_step = jumpy.random.randint(rng, shape=(), low=0, high=self._max_starting_step+1)  # High is never selected.
+		ss_agent = new_nodes[self.agent.name]
+		new_nodes[self.agent.name] = ss_agent.replace(state=ss_agent.state.replace(starting_step=starting_step))
+		return GraphState(step=starting_step, nodes=FrozenDict(new_nodes))
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
 		"""Reset environment."""
 		new_graph_state = self._get_graph_state(rng, graph_state)
 
 		# Reset environment to get initial step_state (runs up-until the first step)
-		graph_state, ts, step_state = self.graph.reset(new_graph_state)
+		graph_state, step_state = self.graph.reset(new_graph_state)
 
 		# Get observation
 		obs = self._get_obs(step_state)
@@ -159,7 +164,7 @@ class DoublePendulumEnv(BaseEnv):
 		u = Output(action=action)
 
 		# Apply step and receive next step_state
-		graph_state, ts, step_state = self.graph.step(graph_state, new_step_state, u)
+		graph_state, step_state = self.graph.step(graph_state, new_step_state, u)
 
 		# Get observation
 		# goal: th2 = jp.pi - th
@@ -169,52 +174,26 @@ class DoublePendulumEnv(BaseEnv):
 		# [th, th2] = [pi, pi] = th=up, th2=down
 		obs = self._get_obs(step_state)
 		last_obs = step_state.inputs["state"][-1].data
+		last_action = step_state.inputs["last_action"][-1].data.action
 		cos_th, sin_th, cos_th2, sin_th2 = last_obs.cos_th, last_obs.sin_th, last_obs.cos_th2, last_obs.sin_th2
 		th, th2 = jp.arctan2(sin_th, cos_th), jp.arctan2(sin_th2, cos_th2)
 		thdot, thdot2 = last_obs.thdot, last_obs.thdot2
 
 		# Calculate cost (penalize angle error, angular velocity and input voltage)
 		delta_goal = (jp.pi - jp.abs(th + th2))
-		# cost = th2 ** 2 + 0.1 * (thdot2 / (1 + 10 * abs(th2))) ** 2 + 0.01 * action[0] ** 2
-		# cost = th2 ** 2 + 0.1 * thdot2 ** 2 + 0.01 * action[0] ** 2
-		# cost = delta_goal ** 2 + 0.1 * thdot + 0.1 * thdot2 ** 2 + 0.01 * action[0] ** 2
-		cost = delta_goal ** 2 + 0.1*(thdot / (1 + 10 * abs(delta_goal)))**2 + 0.05*(thdot2 / (1 + 10 * abs(delta_goal)))**2 + 0.01 * action[0] ** 2
-		cost -= 0.3*(th / (1 + 10 * abs(delta_goal)))**2
-		# Runyu cost
-		# u = action[0]
-		# vel = jp.array([thdot, thdot2])
-		# angle = jp.array([cos_th, sin_th, cos_th2, sin_th2]).reshape((4, 1))
-		# target_vel = jp.array([-0, 0])
-		#
-		# pos = jp.array([angle[0][0] + jp.cos(th + th2), angle[1][0] + jp.sin(th + th2)])
-		# target_pos = jp.array([-2, 0])
-		# L2_pos = (pos - target_pos).T @ (pos - target_pos)
-		#
-		# cost = 0
-		# cost -= jp.where(L2_pos < 0.25, 200, 0.)
-		# cost -= jp.where(L2_pos < 0.05, 600, 0.)
-		# _tmp = jp.where(L2_pos < 0.05, 800 + 100 * jp.exp(20 * (0.3 - jp.abs(vel[1]))), 0.)
-		# cost -= jp.where(jp.abs(vel[1]) <= 0.3, _tmp, 0.)
-		# cost -= jp.where(jp.abs(th) > jp.pi / 2, (abs(th) - jp.pi / 2) * 40 * (jp.pi / 2 - abs(th2)), 0.)
-		# D2 = jp.where(L2_pos < 0.25, jp.diag([1, 4]), jp.diag([0.05, 0.25]))
-		# D2 = jp.where(L2_pos < 0.05, jp.diag([5, 15]), D2)
-		#
-		# Dp = jp.diag([20, 10])
-		# cost += (pos - target_pos).T @ Dp @ (pos - target_pos) + (vel - target_vel).T @ D2 @ (
-		# 			vel - target_vel) + 0.001 * u ** 2
+		cost = delta_goal ** 2 + 0.1*(thdot / (1 + 10 * abs(delta_goal)))**2 + 0.05*(thdot2 / (1 + 10 * abs(delta_goal)))**2 #+ 0.01 * action[0] ** 2
+		cost += 0.05 * (last_action[0] - action[0]) ** 2
+		cost -= 0.6*(th / (1 + 10 * abs(delta_goal)))**2
 
 		# Termination condition
-		done = self._is_terminal(graph_state)
-		info = {"TimeLimit.truncated": graph_state.step >= self.max_steps}
+		done = graph_state.step - step_state.state.starting_step >= self.max_steps
+		info = {"TimeLimit.truncated": done}
 
 		# update graph_state
-		new_ss = step_state.replace(state=State(reward=-cost))
+		new_ss = step_state.replace(state=step_state.state.replace(reward=-cost))
 		graph_state = graph_state.replace(nodes=graph_state.nodes.copy({self.agent.name: new_ss}))
 
 		return graph_state, obs, -cost, done, info
-
-	def _is_terminal(self, graph_state: GraphState) -> bool:
-		return graph_state.step >= self.max_steps
 
 	def _get_obs(self, step_state: StepState) -> Any:
 		"""Get observation from environment."""
@@ -226,8 +205,8 @@ class DoublePendulumEnv(BaseEnv):
 		thdot = inputs["state"].data.thdot
 		thdot2 = inputs["state"].data.thdot2
 		last_action = inputs["last_action"].data.action[:, 0] if 'last_action' in inputs else jp.array([])
-		# obs = jp.concatenate([cos_th, sin_th, cos_th2, sin_th2, thdot, thdot2, last_action], axis=-1)
-		obs = jp.concatenate([cos_th, sin_th, cos_th2, sin_th2, last_action], axis=-1)
+		obs = jp.concatenate([cos_th, sin_th, cos_th2, sin_th2, thdot, thdot2, last_action], axis=-1)
+		# obs = jp.concatenate([cos_th, sin_th, cos_th2, sin_th2, last_action], axis=-1)
 		return obs
 
 	def _angle_normalize(self, th: jp.array):

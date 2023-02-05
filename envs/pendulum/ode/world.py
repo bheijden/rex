@@ -172,7 +172,7 @@ class World(Node):
 			thdot = jp.float32(0.)
 		return Output(th=th, thdot=thdot)
 
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
+	def step(self, step_state: StepState) -> Tuple[StepState, Output]:
 		"""Step the node."""
 
 		# Unpack StepState
@@ -212,7 +212,7 @@ class Sensor(Node):
 			thdot = jp.float32(0.)
 		return Output(th=th, thdot=thdot)
 
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
+	def step(self, step_state: StepState) -> Tuple[StepState, Output]:
 		"""Step the node."""
 
 		# Unpack StepState
@@ -232,7 +232,7 @@ class Actuator(Node):
 		"""Default output of the node."""
 		return ActuatorOutput(action=jp.array([0.0], dtype=jp.float32))
 
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, ActuatorOutput]:
+	def step(self, step_state: StepState) -> Tuple[StepState, ActuatorOutput]:
 		"""Step the node."""
 
 		# Unpack StepState

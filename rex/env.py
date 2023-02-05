@@ -10,7 +10,7 @@ from rex.graph import Graph, BaseGraph
 from rex.compiled import CompiledGraph
 from rex.base import GraphState, Params
 from rex.proto import log_pb2
-from rex.constants import SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, INTERPRETED, VECTORIZED, SEQUENTIAL, BATCHED, WARN
+from rex.constants import SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, INTERPRETED, VECTORIZED, SEQUENTIAL, BATCHED, WARN, INFO
 from rex.agent import Agent
 
 
@@ -41,10 +41,12 @@ class BaseEnv:
             cgraph_type = SEQUENTIAL if graph_type == INTERPRETED else graph_type
             assert cgraph_type in [SEQUENTIAL, VECTORIZED, BATCHED], "Invalid graph type"
             self._cgraph = CompiledGraph(nodes, trace, agent, cgraph_type)
-            assert self._cgraph.max_steps >= self.max_steps, f"max_steps ({self.max_steps}) must be smaller than the max number of compiled steps in the graph ({self._cgraph.max_steps})"
+            self._max_starting_step = self._cgraph.max_steps - self.max_steps
+            assert self._max_starting_step >= 0, f"max_steps ({self.max_steps}) must be smaller than the max number of compiled steps in the graph ({self._cgraph.max_steps})"
         else:
             assert graph_type == INTERPRETED, "Cannot compile a graph without a trace."
             self._cgraph = None
+            self._max_starting_step = 0
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -114,7 +116,7 @@ class BaseEnv:
 
         with open(path, "wb") as f:
             pickle.dump(self, f)
-            self.log(f"Saved environment `{self.name}` to {path}.")
+            self.log("Environment", f"Saved environment `{self.name}` to {path}.", INFO)
 
     @staticmethod
     def load(path: str):
@@ -125,5 +127,5 @@ class BaseEnv:
 
         with open(path, "rb") as f:
             env = pickle.load(f)
-            env.log(f"Loaded environment `{env.name}` from {path}.")
+            env.log("Environment", f"Loaded environment `{env.name}` from {path}.", INFO)
         return env

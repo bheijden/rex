@@ -3,6 +3,7 @@
 # Script to fit delays --> Save as proto for either ode or real
 # Script to evaluate performance
 import os
+from functools import partial
 from typing import Dict, List, Tuple, Union, Callable, Any, Type, Optional
 from types import ModuleType
 from pickle import UnpicklingError
@@ -12,15 +13,19 @@ import jax
 import flax.serialization as serialization
 from jax.tree_util import tree_map
 import numpy as onp
+import jumpy
 import jumpy.numpy as jp
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
 from stable_baselines3.common.vec_env import VecMonitor
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.base_class import BaseAlgorithm
 
 import rex.utils as utils
-from rex.plot import plot_computation_graph, plot_grouped, plot_input_thread, plot_event_thread
+from rex.plot import plot_graph, plot_computation_graph, plot_grouped, plot_input_thread, plot_event_thread, \
+    plot_topological_order, plot_depth_order
 from rex.gmm_estimator import GMMEstimator
 from rex.tracer import trace
 from rex.env import BaseEnv
@@ -40,7 +45,7 @@ import envs.pendulum.ode as ode
 
 
 def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distribution]]]],
-             delays: Dict[str, Dict[str, Union[float, Dict[str, float]]]],
+             delay_fn: Callable[[Distribution], float],
              rates: Dict[str, float],
              blocking: bool = True,
              advance: bool = False,
@@ -54,7 +59,15 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
              eval_env: bool = False,
              max_steps: int = 100,
              clock: int = WALL_CLOCK,
-             real_time_factor: int = REAL_TIME) -> BaseEnv:
+             real_time_factor: int = REAL_TIME,
+             use_delays: bool = True) -> BaseEnv:
+    # Override delays
+    delays_sim["step"]["world"] = Gaussian(0.)
+    delays_sim["inputs"]["world"]["actuator"] = Gaussian(0.)
+    delays_sim["inputs"]["sensor"]["world"] = Gaussian(0.)
+    delays_sim = tree_map(lambda d: Gaussian(0), delays_sim) if not use_delays else delays_sim
+    delays = jax.tree_map(delay_fn, delays_sim)
+
     # Determine whether we use the real system
     real = True if "real" in env_fn.__module__ else False
 
@@ -98,8 +111,7 @@ def make_compiled_env(env: PendulumEnv,
                       record: log_pb2.EpisodeRecord,
                       eval_env: bool = False,
                       max_steps: int = 100,
-                      graph_type: int = SEQUENTIAL,
-                      plot: bool = True) -> PendulumEnv:
+                      graph_type: int = SEQUENTIAL) -> PendulumEnv:
     # Re-initialize nodes
     nodes: Dict[str, Union[Node, Agent]] = {}
     for n in record.node:
@@ -142,7 +154,8 @@ def make_compiled_env(env: PendulumEnv,
     env_name.append("compiled")
     env_name.append(f"{GRAPH_MODES[graph_type]}")
     env_name = "_".join(env_name)
-    env = env.__class__(nodes, agent, max_steps, record_trace, clock=clock, real_time_factor=rtf, graph=graph_type, name=env_name)
+    env = env.__class__(nodes, agent, max_steps, record_trace, clock=clock, real_time_factor=rtf, graph=graph_type,
+                        name=env_name)
     return env
 
 
@@ -182,7 +195,7 @@ def show_communication(record: log_pb2.EpisodeRecord) -> Tuple[plt.Figure, plt.A
     ystart = plot_input_thread(ax, d["sensor"].inputs[0], ystart=ystart - margin, dy=dy / 2, name="")
     ystart = plot_event_thread(ax, d["sensor"], ystart=ystart, dy=dy)
 
-    idx = len(d["agent"].inputs)-1
+    idx = len(d["agent"].inputs) - 1
     ystart = plot_input_thread(ax, d["agent"].inputs[idx], ystart=ystart - margin, dy=dy / 2, name="")
     ystart = plot_event_thread(ax, d["agent"], ystart=ystart, dy=dy)
 
@@ -198,15 +211,30 @@ def show_communication(record: log_pb2.EpisodeRecord) -> Tuple[plt.Figure, plt.A
     return fig, ax
 
 
-def show_computation_graph(trace_record: log_pb2.TraceRecord) -> Tuple[plt.Figure, plt.Axes]:
+def show_computation_graph(trace_record: log_pb2.TraceRecord, plot_type: str = "computation", xmax: float = 0.6) -> Tuple[
+    plt.Figure, plt.Axes]:
+    order = ["world", "sensor", "agent", "actuator"]
+    cscheme = {"world": "gray", "sensor": "grape", "agent": "teal", "actuator": "indigo"}
+
     # Create new plot
     fig, ax = plt.subplots()
     fig.set_size_inches(12, 5)
-    ax.set(facecolor=oc.ccolor("gray"), xlabel="time (s)", yticks=[], xlim=[-0.01, 0.3])
-    order = ["world", "sensor", "agent", "actuator"]
-    cscheme = {"world": "gray", "sensor": "grape", "agent": "teal", "actuator": "indigo"}
-    plot_computation_graph(ax, trace_record, order=order, cscheme=cscheme, xmax=1.0, node_size=200, draw_excluded=True,
-                           draw_stateless=False, draw_nodelabels=True, node_labeltype="tick", connectionstyle="arc3,rad=0.1")
+
+    if plot_type == "computation":
+        ax.set(facecolor=oc.ccolor("gray"), xlabel="time (s)", yticks=[], xlim=[-0.01, 0.3])
+        plot_computation_graph(ax, trace_record, order=order, cscheme=cscheme, xmax=xmax, node_size=200, draw_excluded=True,
+                               draw_stateless=False, draw_nodelabels=True, node_labeltype="tick",
+                               connectionstyle="arc3,rad=0.1")
+    elif plot_type == "topological":
+        # Create new plot
+        ax.set(facecolor=oc.ccolor("gray"), xlabel="Topological order", yticks=[], xlim=[-1, 20])
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        plot_topological_order(ax, trace_record, xmax=xmax, cscheme=cscheme)
+    elif plot_type == "depth":
+        ax.set(facecolor=oc.ccolor("gray"), xlabel="Depth order", yticks=[], xlim=[-1, 10])
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        plot_depth_order(ax, trace_record, order=order, xmax=xmax, cscheme=cscheme, node_labeltype="tick", draw_excess=True)
+
     # Plot legend
     handles, labels = ax.get_legend_handles_labels()
     by_label = dict(zip(labels, handles))
@@ -214,6 +242,28 @@ def show_computation_graph(trace_record: log_pb2.TraceRecord) -> Tuple[plt.Figur
     ax.legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
               bbox_to_anchor=(1.0, 0.50))
 
+    return fig, ax
+
+
+def show_graph(episode_record: log_pb2.EpisodeRecord, pos: Dict[str, Tuple[float]] = None, cscheme: Dict[str, str] = None) -> \
+        Tuple[plt.Figure, plt.Axes]:
+    cscheme = cscheme or {"world": "gray", "sensor": "grape", "agent": "teal", "actuator": "indigo"}
+    pos = pos or {"world": (0, 0), "sensor": (1.5, 0), "agent": (3, 0), "actuator": (4.5, 0), "render": (1.5, 1.5)}
+
+    # Create new plot
+    fig, ax = plt.subplots()
+    fig.set_size_inches(12, 5)
+    ax.set(facecolor=oc.ccolor("gray"))
+
+    # Draw graph
+    plot_graph(ax, episode_record, cscheme=cscheme, pos=pos)
+
+    # Plot legend
+    handles, labels = ax.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    by_label = dict(sorted(by_label.items()))
+    ax.legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
+              bbox_to_anchor=(1.0, 0.50))
     return fig, ax
 
 
@@ -341,18 +391,87 @@ def load_distributions(file: str, module: ModuleType = envs.pendulum.dists) -> D
     return dists
 
 
-def load_model(file, model_cls: Type[BaseAlgorithm], module: ModuleType = envs.pendulum.models, **kwargs) -> BaseAlgorithm:
+def load_model(file, model_cls: Type[BaseAlgorithm], module: ModuleType = envs.pendulum.models, fail: bool = False,
+               **kwargs) -> BaseAlgorithm:
     # Append zip extension
     if not file.endswith(".zip"):
         file = file + ".zip"
 
     # If not an absolute path, load from within module
-    if not file.startswith("/"):
-        module_path = os.path.dirname(os.path.abspath(module.__file__))
-        model = model_cls.load(f"{module_path}/{file}", **kwargs)
-    else:
-        model = model_cls.load(file, **kwargs)
+    try:
+        if not file.startswith("/"):
+            module_path = os.path.dirname(os.path.abspath(module.__file__))
+            model = model_cls.load(f"{module_path}/{file}", **kwargs)
+        else:
+            model = model_cls.load(file, **kwargs)
+    except (FileNotFoundError, ValueError, AttributeError) as e:
+        if fail:
+            raise e
+        else:
+            if "spaces" in e.__str__():
+                print("Spaces don't match (action and/or observation). Loading a random model instead.")
+            elif isinstance(e, FileNotFoundError):
+                print(f"Could not load model from {file}. Loading a random model instead.")
+            elif isinstance(e, AttributeError):
+                print(f"Could not load model from {file}. Are you loading an sb3 model into an sbx algo? Loading a random model instead.")
+            model = model_cls("MlpPolicy", verbose=1, **kwargs)
     return model
+
+
+class SysIdPolicy:
+    def __init__(self, rate: float, duration: float = 5.0, min: float = -8, max: float = 8, seed: int = 0, model=None, use_ros: bool = False):
+        if use_ros:
+            import rospy
+            from std_msgs.msg import Float32
+            rospy.init_node("pendulum_client", anonymous=True)
+            self._msg_cls = Float32
+            self._pub_action = rospy.Publisher("/sysid/action", Float32, queue_size=1)
+        self._use_ros = use_ros
+        self._rate = rate
+        self._steps = 0
+        self._model = model
+        self._duration = duration
+        self._last_time = 0
+        self._max = max
+        self._min = min
+        self._action = jp.array([max], dtype=jp.float32)
+        self._use_model = True
+        self._rng = jumpy.random.PRNGKey(seed)
+
+    def _wall_clock_switch(self):
+        tstep = time.time()
+        switch = tstep - self._last_time > self._duration
+        if switch:
+            self._last_time = tstep
+        return switch
+
+    def _step_switch(self):
+        self._steps += 1
+        switch = self._steps % (self._rate * self._duration) == 0
+        return switch
+
+    def predict(self, obs, deterministic: bool = True):
+        # switch = self._wall_clock_switch()
+        switch = self._step_switch()
+        if switch:
+            if self._model is not None and not self._use_model:
+                self._use_model = True
+            else:
+                self._use_model = False
+                self._rng, rng_action = jumpy.random.split(self._rng)
+                action = jumpy.random.uniform(rng_action, low=self._min, high=self._max)
+                self._action = jp.array([action], dtype=jp.float32)
+        if self._use_model:
+            self._action, _ = self._model.predict(obs, deterministic=deterministic)
+            # policy_action, _ = self._model.predict(obs, deterministic=deterministic)
+            # onp.array(policy_action)
+        else:
+            policy_action, _ = self._model.predict(obs, deterministic=deterministic)
+            onp.array(policy_action)
+        if self._use_ros:
+            msg = self._msg_cls(self._action[0])
+            self._pub_action.publish(msg)
+        return self._action, None
 
 
 import gym
@@ -434,6 +553,7 @@ def obs_as_tensor(obs, device):
 
 
 import stable_baselines3.common.on_policy_algorithm
+
 stable_baselines3.common.on_policy_algorithm.obs_as_tensor = obs_as_tensor
 
 
@@ -564,3 +684,87 @@ class RecordHelper:
         # Stack data
         self._data_stacked = tree_map(_truncated_stack, *self._data)
         self._delays_stacked = tree_map(_truncated_stack, *self._delays)
+
+
+class RolloutWrapper(object):
+    def __init__(self, env: BaseEnv, model_forward=None):
+        """Wrapper to define batch evaluation for generation parameters."""
+        self.env = env
+        self.model_forward = model_forward
+        self.num_env_steps = self.env.max_steps
+
+    # @partial(jax.jit, static_argnums=(0,))
+    # def population_rollout(self, rng_eval, policy_params):
+    # 	"""Reshape parameter vector and evaluate the generation."""
+    # 	# Evaluate population of nets on gymnax task - vmap over rng & params
+    # 	pop_rollout = jax.vmap(self.batch_rollout, in_axes=(None, 0))
+    # 	return pop_rollout(rng_eval, policy_params)
+
+    @partial(jax.jit, static_argnums=(0,))
+    def batch_rollout(self, rng_eval):
+        """Evaluate a generation of networks on RL/Supervised/etc. task."""
+        # vmap over different MC fitness evaluations for single network
+        batch_rollout = jax.vmap(self.single_rollout, in_axes=(0,))
+        return batch_rollout(rng_eval)
+
+    @partial(jax.jit, static_argnums=(0,))
+    def single_rollout(self, rng_input):
+        """Rollout a pendulum episode with lax.scan."""
+        # Reset the environment
+        rng_reset, rng_policy, rng_episode = jax.random.split(rng_input, num=3)
+        state, obs = self.env.reset(rng_reset)
+
+        if self.model_forward is not None:
+            policy_state = self.model_forward.policy.actor_state
+            # policy_state = self.model_forward.reset(rng_policy)
+        else:
+            policy_state = None
+
+        def policy_step(state_input, tmp):
+            """lax.scan compatible step transition in jax env."""
+            obs, state, policy_state, rng, cum_reward, valid_mask = state_input
+            rng, rng_net = jax.random.split(rng, 2)
+            if self.model_forward is not None:
+                scaled_action = self.model_forward.policy._predict(obs, deterministic=True)
+                action = self.model_forward.policy.unscale_action(scaled_action)
+            else:
+                action = self.env.action_space().sample(rng_net)
+            next_state, next_obs, reward, done, info = self.env.step(state, action)
+            new_cum_reward = cum_reward + reward * valid_mask
+            new_valid_mask = valid_mask * (1 - done)
+            carry = [
+                next_obs,
+                next_state,
+                policy_state,
+                rng,
+                new_cum_reward,
+                new_valid_mask,
+            ]
+            y = [obs, action, reward, next_obs, done]
+            return carry, y
+
+        # Scan over episode step loop
+        carry_out, scan_out = jax.lax.scan(
+            policy_step,
+            [
+                obs,
+                state,
+                policy_state,
+                rng_episode,
+                jnp.array([0.0]),
+                jnp.array([1.0]),
+            ],
+            (),
+            self.num_env_steps,
+        )
+        # Return the sum of rewards accumulated by agent in episode rollout
+        obs, action, reward, next_obs, done = scan_out
+        cum_return = carry_out[-2]
+        return obs, action, reward, next_obs, done, cum_return
+
+    @property
+    def input_shape(self):
+        """Get the shape of the observation."""
+        rng = jax.random.PRNGKey(0)
+        obs, state = self.env.reset(rng, self.env_params)
+        return obs.shape
