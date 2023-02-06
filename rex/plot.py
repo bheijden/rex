@@ -466,7 +466,7 @@ def plot_computation_graph(ax: "matplotlib.Axes",
     :param draw_edgelabels: Draw edge labels with ts (=True) or not (=False).
     :param draw_nodelabels: Draw node labels with ts/tick (=True) or not (=False).
     :param draw_excluded: Draw excluded nodes (=True) or not (=False).
-    :param draw_stateless: Draw monotonic time constraint (=True) or not (=False). Only relevant for stateless nodes when tracing with static=True.
+    :param draw_stateless: Draw monotonic time constraint (=True) or not (=False). Only relevant for stateless nodes.
     :return:
     """
     import rex.open_colors as oc
@@ -522,7 +522,7 @@ def plot_computation_graph(ax: "matplotlib.Axes",
                 if not d.used and not draw_excluded:
                     continue
                 # Do not draw links between stateless nodes
-                if not draw_stateless and not t.stateful and t.static and d.source.name == d.target.name:
+                if not draw_stateless and not t.stateful and d.source.name == d.target.name:
                     continue
                 if t.used:
                     is_rerouted = True if d.target.rerouted.name != '' else False
@@ -776,7 +776,7 @@ def plot_depth_order(ax: "matplotlib.Axes",
     :param draw_edgelabels: Draw edge labels with ts (=True) or not (=False).
     :param draw_nodelabels: Draw node labels with ts/tick (=True) or not (=False).
     :param draw_excess: Draw excess step calls (=True) or not (=False).
-    :param draw_stateless: Draw monotonic time constraint (=True) or not (=False). Only relevant for stateless nodes when tracing with static=True.
+    :param draw_stateless: Draw monotonic time constraint (=True) or not (=False). Only relevant for stateless nodes.
     :return:
     """
     import rex.open_colors as oc
@@ -843,7 +843,7 @@ def plot_depth_order(ax: "matplotlib.Axes",
             if not d.used:
                 continue
             # Do not draw links between stateless nodes
-            if not draw_stateless and not t.stateful and t.static and d.source.name == d.target.name:
+            if not draw_stateless and not t.stateful and d.source.name == d.target.name:
                 continue
             is_rerouted = True if d.target.rerouted.name != '' else False
             alpha = 1.0

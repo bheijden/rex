@@ -142,73 +142,73 @@ def test_compiler():
     [record.node.append(node.record()) for node in nodes.values()]
 
     # Trace
-    trace_opt = trace(record, "agent", -1, static=True)
-    trace_all = trace(record, "agent", -1, static=False)
+    trace_seq = trace(record, "agent", -1)
+    trace_vec = trace(record, "agent", -1)
 
     # Plot
-    # _plot(trace_all)
-    # _plot(trace_opt)
+    # _plot(trace_vec)
+    # _plot(trace_seq)
 
     # Plot progress
     must_plot = False
     if must_plot:
         from scripts.dummy_plot import plot_delay, plot_graph, plot_grouped, plot_threads
         r = {n.info.name: n for n in record.node}
-        plot_graph(trace_opt)
+        plot_graph(trace_seq)
         plot_delay(r)
         plot_grouped(r)
         plot_threads(r)
 
     # Compile environments
-    env_opt = DummyEnv(nodes, agent=agent, max_steps=max_steps, trace=trace_opt, graph=SEQUENTIAL, name="env_opt")
-    env_all = DummyEnv(nodes, agent=agent, max_steps=max_steps, trace=trace_all, graph=VECTORIZED, name="env_all")
+    env_seq = DummyEnv(nodes, agent=agent, max_steps=max_steps, trace=trace_seq, graph=SEQUENTIAL, name="env_seq")
+    env_vec = DummyEnv(nodes, agent=agent, max_steps=max_steps, trace=trace_vec, graph=VECTORIZED, name="env_vec")
 
     # Test pickle
-    env_opt._cgraph = pickle.loads(pickle.dumps(env_opt._cgraph))
+    env_seq._cgraph = pickle.loads(pickle.dumps(env_seq._cgraph))
 
     # Evaluate compiled envs
-    gs_opt, obs_opt, ss_opt = evaluate(env_opt, name="opt-nojit-numpy", backend="numpy", use_jit=False, seed=0)
-    gs_all, obs_all, ss_all = evaluate(env_all, name="all-jit-jax", backend="jax", use_jit=True, seed=0)
+    gs_seq, obs_seq, ss_seq = evaluate(env_seq, name="seq-nojit-numpy", backend="numpy", use_jit=False, seed=0)
+    gs_vec, obs_vec, ss_vec = evaluate(env_vec, name="vec-jit-jax", backend="jax", use_jit=True, seed=0)
 
-    gs_opt, obs_opt, ss_opt = evaluate(env_opt, name="opt-jit-jax", backend="jax", use_jit=True, seed=0)
-    gs_all, obs_all, ss_all = evaluate(env_all, name="all-nojit-numpy", backend="numpy", use_jit=False, seed=0)
+    gs_seq, obs_seq, ss_seq = evaluate(env_seq, name="seq-jit-jax", backend="jax", use_jit=True, seed=0)
+    gs_vec, obs_vec, ss_vec = evaluate(env_vec, name="vec-nojit-numpy", backend="numpy", use_jit=False, seed=0)
 
     # Compare
-    def compare(_async, _opt, _all):
+    def compare(_async, _seq, _vec):
         if not isinstance(_async, (onp.ndarray, jnp.ndarray)):
-            _equal_all = onp.allclose(_async, _all)
-            _equal_opt = onp.allclose(_all, _opt)
-            _op_all = "==" if _equal_all else "!="
-            _op_opt = "==" if _equal_opt else "!="
-            msg = f"{_async} {_op_all} {_all} {_op_opt} {_opt}"
-            assert _equal_all, msg
-            assert _equal_opt, msg
+            _equal_vec = onp.allclose(_async, _vec)
+            _equal_seq = onp.allclose(_vec, _seq)
+            _op_vec = "==" if _equal_vec else "!="
+            _op_seq = "==" if _equal_seq else "!="
+            msg = f"{_async} {_op_vec} {_vec} {_op_seq} {_seq}"
+            assert _equal_vec, msg
+            assert _equal_seq, msg
         else:
             for i in range(len(_async)):
-                _equal_all = onp.allclose(_async[i], _all[i])
-                _equal_opt = onp.allclose(_all[i], _opt[i])
-                _op_all = "==" if _equal_all else "!="
-                _op_opt = "==" if _equal_opt else "!="
-                msg = f"{_async} {_op_all} {_all} {_op_opt} {_opt}"
+                _equal_vec = onp.allclose(_async[i], _vec[i])
+                _equal_seq = onp.allclose(_vec[i], _seq[i])
+                _op_vec = "==" if _equal_vec else "!="
+                _op_seq = "==" if _equal_seq else "!="
+                msg = f"{_async} {_op_vec} {_vec} {_op_seq} {_seq}"
                 try:
-                    assert _equal_all, msg
-                    assert _equal_opt, msg
+                    assert _equal_vec, msg
+                    assert _equal_seq, msg
                 except AssertionError:
                     print("waiting for debugger...")
                     raise
 
     # Test InputState API
-    _ = ss_all[0].inputs["observer"][0]
+    _ = ss_vec[0].inputs["observer"][0]
 
     # Merge all logged obs, gs, and ss
-    obs = jax.tree_map(lambda *args: args, obs_async, obs_opt, obs_all)
-    ss = jax.tree_map(lambda *args: args, ss_async, ss_opt, ss_all)
-    params = [[__ss.params for __ss in _ss] for _ss in [ss_async, ss_opt, ss_all]]
-    state = [[__ss.state for __ss in _ss] for _ss in [ss_async, ss_opt, ss_all]]
+    obs = jax.tree_map(lambda *args: args, obs_async, obs_seq, obs_vec)
+    ss = jax.tree_map(lambda *args: args, ss_async, ss_seq, ss_vec)
+    params = [[__ss.params for __ss in _ss] for _ss in [ss_async, ss_seq, ss_vec]]
+    state = [[__ss.state for __ss in _ss] for _ss in [ss_async, ss_seq, ss_vec]]
 
     # Compare observations and agent step states
     print("Comparing agent.inputs...")
-    jax.tree_map(compare, obs_async, obs_opt, obs_all)
+    jax.tree_map(compare, obs_async, obs_seq, obs_vec)
     print("agent.inputs ok")
     print("Comparing agent.params...")
     jax.tree_map(compare, *params)

@@ -82,7 +82,7 @@ while True:
             print(f"agent_steps={num_steps} | node_steps={[n._i for n in nodes]} | t={(tend - tstart): 2.4f} sec | fps={num_steps / (tend - tstart): 2.4f}")
 
             # Trace
-            trace_record = trace(record, "agent", -1, static=True)
+            trace_record = trace(record, "agent", -1)
 
             # Write record to file
             # with open(f"/home/r2ci/rex/scripts/record_{i}.pb", "wb") as f:

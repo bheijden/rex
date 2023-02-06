@@ -20,7 +20,6 @@ class Step:
 		"""
 		:param record: The node record.
 		:param tick: The tick of the step.
-		:param static: Whether the step is static or not. This means that the parameters of the step are not changed over time.
 		"""
 		self._tick = tick
 		self._record = record
@@ -50,17 +49,16 @@ class Step:
 		[steptrace.upstream.extend(dependencies) for _, dependencies in self._upstream_inputs.items()]
 		return steptrace
 
-	def reset(self, steps: Dict[str, List["Step"]], static: bool, deps: Dict[str, List[bool]] = None, isolate: bool = True):
+	def reset(self, steps: Dict[str, List["Step"]], deps: Dict[str, List[bool]] = None, isolate: bool = True):
 		"""Reset the step trace.
 		:param steps:
-		:param static:
 		:param deps:
 		"""
 		# Whether to isolate the step trace in a separate depth or not.
 		self._isolate = isolate
 
 		# Create step trace
-		self._steptrace = log_pb2.TracedStep(used=False, stateful=self._stateful, static=static, isolate=isolate, name=self._info.name, tick=self._tick, ts_step=self._step.ts_step)
+		self._steptrace = log_pb2.TracedStep(used=False, stateful=self._stateful, isolate=isolate, name=self._info.name, tick=self._tick, ts_step=self._step.ts_step)
 
 		# Determine if this step will be used (derived from a previous trace).
 		is_used = deps[self._info.name][self._tick] if deps is not None else False
@@ -78,7 +76,7 @@ class Step:
 
 		# Does this step have an upstream state dependency
 		depends_on_prev_state = prev_tick >= 0
-		if (not self._stateful and static and not is_used) or prev_tick in excluded_ticks:
+		if (not self._stateful and not is_used) or prev_tick in excluded_ticks:
 			depends_on_prev_state = False
 
 		# Prepare upstream state dependency
@@ -177,25 +175,22 @@ class Step:
 			self._steptrace.downstream.append(dependency)
 		return index[0], self._steptrace.depth
 
-	def trace(self, steps: Dict[str, List["Step"]], static: Union[bool, Dict[str, bool]] = False, isolate: bool = True) -> log_pb2.TraceRecord:
+	def trace(self, steps: Dict[str, List["Step"]], isolate: bool = True) -> log_pb2.TraceRecord:
 		"""Traces the step and returns a TraceRecord."""
-		if isinstance(static, bool):
-			static = {s: static for s in steps}
-
 		# Prepare steps
 		num_steps = sum([len(u) for _, u in steps.items()])
 
-		# Initial trace (with static=True), does not respect chronological order.
+		# Initial trace: does not respect chronological order.
 		isolate = {name: isolate if name == self._info.name else False for name in steps}
-		[[s.reset(steps, static=static.get(s._info.name, False), isolate=isolate.get(s._info.name)) for s in lst] for n, lst in steps.items()]
+		[[s.reset(steps, isolate=isolate.get(s._info.name)) for s in lst] for n, lst in steps.items()]
 		with RecursionDepth(num_steps):
 			_end, _end_depth = self._trace(steps, [0], log_pb2.Dependency(used=True), final=True)
 
 		# Get dependencies
 		deps = {name: [s._steptrace.used for s in lst] for name, lst in steps.items()}
 
-		# Re-trace (with static=Optional[True]), does respect chronological order if we provide deps.
-		[[s.reset(steps, static=static.get(s._info.name, False), deps=deps, isolate=isolate.get(s._info.name)) for s in lst] for _, lst in steps.items()]
+		# Re-trace: does respect chronological order if we provide deps.
+		[[s.reset(steps, deps=deps, isolate=isolate.get(s._info.name)) for s in lst] for _, lst in steps.items()]
 		with RecursionDepth(num_steps):
 			end, end_depth = self._trace(steps, [0], log_pb2.Dependency(used=True), final=True)
 
@@ -350,12 +345,11 @@ class Step:
 		return traceback
 
 
-def trace(record: log_pb2.EpisodeRecord, name: str, tick: int = -1, static: Union[bool, Dict[str, bool]] = False, verbose: bool = True, isolate: bool = True) -> log_pb2.TraceRecord:
+def trace(record: log_pb2.EpisodeRecord, name: str, tick: int = -1, verbose: bool = True, isolate: bool = True) -> log_pb2.TraceRecord:
 	""" Trace a step in the episode record.
 	:param record: The episode record to trace.
 	:param name: The name of the node to trace.
 	:param tick: The tick of the step to trace.
-	:param static: Whether to trace static dependencies. If a dictionary is passed, it is used to specify the static dependencies per node.
 	:param verbose: Whether to print the trace.
 	:param isolate: Whether to isolate the traced node in a separate depth.
 	"""
@@ -366,7 +360,7 @@ def trace(record: log_pb2.EpisodeRecord, name: str, tick: int = -1, static: Unio
 
 	# Trace step
 	tick = tick % len(steps[name])
-	record_trace = steps[name][tick].trace(steps, static=static, isolate=isolate)
+	record_trace = steps[name][tick].trace(steps, isolate=isolate)
 
 	# Add node info
 	record_trace.node.extend([n.info for n in record.node])

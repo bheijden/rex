@@ -192,7 +192,7 @@ def test_plot():
     # d['actuator'].inputs[0].info.window = 2
 
     # Trace record
-    traceback = trace(record, "agent", -1, static=True)
+    traceback = trace(record, "agent", -1)
 
     from rex.plot import plot_computation_graph, plot_topological_order, plot_depth_order
     from matplotlib.ticker import MaxNLocator

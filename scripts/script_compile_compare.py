@@ -97,8 +97,8 @@ if __name__ == "__main__":
     r = {n.info.name: n for n in record.node}
 
     # Trace
-    trace_all = trace(record, "agent", -1, static=False)
-    trace_opt = trace(record, "agent", -1, static=True)
+    trace_all = trace(record, "agent", -1)
+    trace_opt = trace(record, "agent", -1)
 
     # Write record to file
     # with open(f"/home/r2ci/rex/scripts/record_{i}.pb", "wb") as f:

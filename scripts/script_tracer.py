@@ -27,7 +27,7 @@ rdict["agent"].info.stateful = True
 rdict['actuator'].inputs[0].info.window = 2
 
 # Trace record
-traceback = trace(record, "agent", -1, static=True)
+traceback = trace(record, "agent", -1)
 
 # Create new plot
 fig, ax = plt.subplots()
