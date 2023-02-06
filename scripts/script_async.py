@@ -20,7 +20,6 @@
 # todo: [PLOT] In grouped plot, do not scale y with x axis. Instead, use a fixed scale.
 # todo: [PLOT] Optionally add tick numbers to callback blocks in even_thread plot --> to connect with graph plot
 #        link: https://matplotlib.org/stable/gallery/lines_bars_and_markers/bar_label_demo.html
-# todo: [TRACE] Remove static, and fully rely on stateful flag.
 # todo: [TRACE] Add helper functions to modify traces (e.g. remove nodes, add nodes, etc.)
 # todo: [DELAY] Make a distribution that samples from a pre-recorded delay sequence.
 

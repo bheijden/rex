@@ -100,7 +100,7 @@ def make_timings(nodes: Dict[str, "Node"], trace: log_pb2.TraceRecord, depths: L
             timings[t.name]["run"][idx] = True
             timings[t.name]["ts_step"][idx] = t.ts_step
             timings[t.name]["tick"][idx] = t.tick
-            timings[t.name]["stateful"][idx] = t.stateful or not t.static
+            timings[t.name]["stateful"][idx] = t.stateful
 
             # Sort upstream dependencies per input channel & sequence number
             _sorted_deps = dict()
@@ -207,7 +207,7 @@ def update_output(buffer, output: Output, tick: int32) -> Output:
     return new_buffer
 
 
-def make_update_state(name: str, stateful: bool, static: bool):
+def make_update_state(name: str, stateful: bool):
 
     def _update_state(graph_state: GraphState, timing: Dict, step_state: StepState, output: Any) -> GraphState:
         # Define node's step state update
@@ -259,9 +259,9 @@ def make_update_inputs(name: str, outputs: Dict[str, str], cond: bool = True):
     return _update_inputs
 
 
-def make_run_node(name: str, node: "Node", outputs: Dict[str, str], stateful: bool, static: bool):
+def make_run_node(name: str, node: "Node", outputs: Dict[str, str], stateful: bool):
     update_inputs = make_update_inputs(name, outputs)
-    update_state = make_update_state(name, stateful, static)
+    update_state = make_update_state(name, stateful)
 
     def _run_node(graph_state: GraphState, timing: Dict) -> GraphState:
         # Update inputs
@@ -278,7 +278,7 @@ def make_run_node(name: str, node: "Node", outputs: Dict[str, str], stateful: bo
 
 
 def make_run_batch_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp.ndarray, graph: int,
-                         batch_nodes: Dict[str, "Node"], batch_outputs: Dict, stateful: Dict, static: Dict,
+                         batch_nodes: Dict[str, "Node"], batch_outputs: Dict, stateful: Dict,
                          cond: bool = True):
     if graph == VECTORIZED:
         assert jp.all(substeps[chunks] == substeps[chunks][0]), "All substeps must be equal when vectorized."
@@ -355,10 +355,10 @@ def make_run_batch_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp.ndar
 
 
 def make_run_sequential_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp.ndarray, graph: int,
-                              batch_nodes: Dict[str, "Node"], batch_outputs: Dict[str, Dict[str, str]], stateful: Dict, static: Dict):
+                              batch_nodes: Dict[str, "Node"], batch_outputs: Dict[str, Dict[str, str]], stateful: Dict):
 
     # Define step functions
-    run_node_fns = [make_run_node(name, node, batch_outputs[name], stateful[name], static[name]) for name, node in batch_nodes.items()]
+    run_node_fns = [make_run_node(name, node, batch_outputs[name], stateful[name]) for name, node in batch_nodes.items()]
 
     def _run_step(substep: int32, carry: Tuple[GraphState, int32]):
         # Unpack carry
@@ -400,12 +400,11 @@ def make_run_chunk(nodes: Dict[str, "Node"], trace: log_pb2.TraceRecord,
     # Structure is {node_name: {input_name: output_node_name}}
     batch_outputs = {name: {i.input_name: i.output.name for i in n.inputs if i.output.name not in trace.pruned} for name, n in batch_nodes.items()}
 
-    # Infer static and stateful nodes
+    # Infer stateful nodes
     node_names = list(batch_nodes.keys())
-    stateful, static = {}, {}
+    stateful = {}
     for s in trace.used:
         if s.name in node_names:
-            static[s.name] = s.static
             stateful[s.name] = s.stateful
             node_names.remove(s.name)
             if len(node_names) == 0:
@@ -413,9 +412,9 @@ def make_run_chunk(nodes: Dict[str, "Node"], trace: log_pb2.TraceRecord,
     assert len(node_names) == 0, "All nodes must be accounted for."
 
     if graph in [VECTORIZED, BATCHED]:
-        return make_run_batch_chunk(timings, chunks, substeps, graph, batch_nodes, batch_outputs, stateful, static)
+        return make_run_batch_chunk(timings, chunks, substeps, graph, batch_nodes, batch_outputs, stateful)
     elif graph in [SEQUENTIAL]:
-        return make_run_sequential_chunk(timings, chunks, substeps, graph, batch_nodes, batch_outputs, stateful, static)
+        return make_run_sequential_chunk(timings, chunks, substeps, graph, batch_nodes, batch_outputs, stateful)
     else:
         raise ValueError("Unknown graph type.")
 
@@ -459,15 +458,13 @@ def make_graph_reset(trace: log_pb2.TraceRecord, name: str, default_outputs, iso
 
 
 def make_graph_step(trace: log_pb2.TraceRecord, name: str, isolate: Timings, run_chunk: Callable):
-    # Infer static and stateful nodes
-    stateful, static = None, None
+    # Infer stateful nodes
+    stateful = None
     for s in trace.used:
         if s.name == name:
-            static = s.static
             stateful = s.stateful
             break
     assert stateful is not None, "Node not found in trace."
-    assert static is not None, "Node not found in trace."
 
     outputs = dict()
     for node_info in trace.node:
@@ -476,7 +473,7 @@ def make_graph_step(trace: log_pb2.TraceRecord, name: str, isolate: Timings, run
         for i in node_info.inputs:
                 outputs[i.name] = i.output
 
-    update_state = make_update_state(name, stateful, static)
+    update_state = make_update_state(name, stateful)
     update_input = make_update_inputs(name, outputs)
 
     def _graph_step(graph_state: GraphState, step_state: StepState, action: Any) -> Tuple[GraphState, StepState]:

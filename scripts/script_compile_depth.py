@@ -69,7 +69,7 @@ if __name__ == "__main__":
 
     # Split trace into chunks
     eps_record = record.episode
-    new_record = trace(record.episode, "agent", -1, static=True, isolate=True)
+    new_record = trace(record.episode, "agent", -1, isolate=True)
 
     # Plot
     # _plot(new_record)
