@@ -64,6 +64,7 @@ class StepState:
     state: State
     params: Params
     inputs: FrozenDict[str, InputState] = struct.field(pytree_node=True, default_factory=lambda: None)
+    eps: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
     seq: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
     ts: rjp.float32 = struct.field(pytree_node=True, default_factory=lambda: jp.float32(0.))
 
@@ -72,7 +73,8 @@ class StepState:
 class GraphState:
     nodes: FrozenDict[str, StepState]
     step: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: None)  # todo: used to be jp.int32(0).
+    eps: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
     outputs: FrozenDict[str, Output] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
+    # todo: outputs should add one more dimension to the data related to eps.
     # todo: add timings
-    # todo: add episode: rjp.int32
-    # todo: add Minimal Common Subgraph (MCS) for nodes that are shared between patterns graphs.
+    # todo: add Minimal Common Supergraph (MCS) that spans all motifs in timings. pytree_node=False.

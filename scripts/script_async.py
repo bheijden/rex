@@ -18,8 +18,6 @@
 #              - Writing to step_state
 #              - Running all nodes
 #              - Grabbing from timings pytree may be slow.
-# todo: [JIT] Test difference cond vs select (GPU, CPU, vectorized)
-# todo: [JIT] Implement BATCHED graph mode.
 # todo: [PLOT] Half phase bars, and place sleep behind it
 # todo: [PLOT] Fix plot_step_timing bug with isfinite.
 # todo: [PLOT] Allow setting a name for plot_input_thread plots
