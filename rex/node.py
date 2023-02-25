@@ -257,7 +257,6 @@ class BaseNode:
         # Initializes a node from a NodeInfo proto log
         node = BaseNode(name=info.name, rate=info.rate, delay_sim=GMM.from_info(info.delay_sim), delay=info.delay,
                         advance=info.advance, stateful=info.stateful)
-        # todo: reconnect inputs
         return node
 
     def unpickle(self, nodes: Dict[str, "Node"]):
@@ -713,13 +712,12 @@ class Node(BaseNode):
     def reset(self, rng: jp.ndarray, graph_state: GraphState = None):
         """Reset the node."""
         pass
-        # rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
-        # params = self.default_params(rng_params, graph_state)
-        # state = self.default_state(rng_state, graph_state)
-        # inputs = self.default_inputs(rng_inputs, graph_state)
-        # return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
     @abc.abstractmethod
     def step(self, step_state: StepState) -> Tuple[StepState, Output]:
         raise NotImplementedError
+
+    @property
+    def unwrapped(self):
+        return self
 

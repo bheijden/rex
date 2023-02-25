@@ -50,6 +50,12 @@ class Output:
         return self.node.rate
 
     @property
+    def max_window(self) -> int:
+        wins = [i.window for i in self.inputs]
+        max_win = max(wins) if len(wins) > 0 else 0
+        return max_win
+
+    @property
     def phase(self) -> float:
         if self._phase is None:
             return self.node.phase + self.delay

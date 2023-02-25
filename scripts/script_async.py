@@ -2,6 +2,7 @@
 # todo: [TESTS] Install jumpy from github on CI
 # todo: [PROTO] Write API to easily extract graph_state and step_state from trace --> script_reinitialize.py
 # todo: [PROTO] Record ts start (and end?) of each step.
+# todo: [ASYNC] Stress test with varying frequencies and delays.
 # todo: [ASYNC] Do nodes require at least one input (only when clock=SIMULATED)?
 # todo: [ASYNC] Only compiled graphs can be transformed with vmap.
 # todo: [ASYNC] We reuse the initial step_state.key for seeding the inputs. Is this a problem?
@@ -12,6 +13,11 @@
 # todo: [API] Define transform functions with the API of scipy that can be used for input transformations.
 # todo: [API] Switch `input.name` and `input.input_name` in the API.
 # todo: [JIT] Is jumpy.core.is_jitted() True when in pmap?
+# todo: [JIT] Investigate effects of components on running speed by process of elimination. Look at:
+#              - Writing to output buffer
+#              - Writing to step_state
+#              - Running all nodes
+#              - Grabbing from timings pytree may be slow.
 # todo: [JIT] Test difference cond vs select (GPU, CPU, vectorized)
 # todo: [JIT] Implement BATCHED graph mode.
 # todo: [PLOT] Half phase bars, and place sleep behind it
@@ -21,16 +27,18 @@
 # todo: [PLOT] Optionally add tick numbers to callback blocks in even_thread plot --> to connect with graph plot
 #        link: https://matplotlib.org/stable/gallery/lines_bars_and_markers/bar_label_demo.html
 # todo: [TRACE] Add helper functions to modify traces (e.g. remove nodes, add nodes, etc.)
-# todo: [DELAY] Make a distribution that samples from a pre-recorded delay sequence.
+# todo: [PICKLE] Pickle the nodes inside Inputs as BaseNodes, stripped of any node specifics.
+# todo: [API] Rename "agent" in BaseEnv, Graph, Agent to "RootNode", "Root", "EnvNode", "MainNode", "Supervisor".
 
 import time
-import jax.random as rnd
+import jumpy.random as rnd
+import jumpy
 from rex.proto import log_pb2
 import rex.utils as utils
 from rex.constants import LATEST, BUFFER, SILENT, DEBUG, INFO, WARN, REAL_TIME, FAST_AS_POSSIBLE, SIMULATED, WALL_CLOCK, SYNC, ASYNC, FREQUENCY, PHASE
 from rex.distributions import Gaussian, GMM
 from rex.tracer import trace
-from rex.base import GraphState
+from rex.base import GraphState, StepState
 from dummy import DummyNode, DummyAgent
 from dummy_plot import plot_threads, plot_delay, plot_graph, plot_grouped
 
@@ -38,11 +46,11 @@ utils.set_log_level(WARN)
 
 # Create nodes
 c = 1e3
-world = DummyNode("world",           rate=c*20/1e3, delay_sim=Gaussian(0/c))
-sensor = DummyNode("sensor",         rate=c*20/1e3, delay_sim=Gaussian(7/c))
-observer = DummyNode("observer",     rate=c*30/1e3, delay_sim=Gaussian(16/c))
+world = DummyNode("world",           rate=c*120/1e3, delay_sim=Gaussian(0/c))
+sensor = DummyNode("sensor",         rate=c*60/1e3, delay_sim=Gaussian(7/c))
+observer = DummyNode("observer",     rate=c*45/1e3, delay_sim=Gaussian(16/c))
 agent = DummyAgent("agent",          rate=c*45/1e3, delay_sim=Gaussian(5/c, 1/c), advance=True)
-actuator = DummyNode("actuator",     rate=c*45/1e3, delay_sim=Gaussian((c/45)/c), advance=False, stateful=False)
+actuator = DummyNode("actuator",     rate=c*80/1e3, delay_sim=Gaussian(0.5*(c/45)/c, 5/c), advance=False, stateful=False)
 nodes = [world, sensor, observer, agent, actuator]
 
 # Connect
@@ -61,7 +69,7 @@ seed = rnd.PRNGKey(0)
 rngs = rnd.split(seed, num=len(nodes))
 
 # Start episode
-num_steps = 1000
+num_steps = 200
 while True:
     # Sleep
     for i in range(72000):
@@ -84,8 +92,10 @@ while True:
             trace_record = trace(record, "agent", -1)
 
             # Write record to file
-            # with open(f"/home/r2ci/rex/scripts/record_{i}.pb", "wb") as f:
-            #     f.write(trace_record.SerializeToString())
+            with open(f"/home/r2ci/rex/scripts/trace_record_{i}.pb", "wb") as f:
+                f.write(trace_record.SerializeToString())
+            with open(f"/home/r2ci/rex/scripts/eps_record_{i}.pb", "wb") as f:
+                f.write(record.SerializeToString())
 
             # Plot progress
             plot_graph(trace_record)
@@ -101,7 +111,15 @@ while True:
         # real_time_factor, scheduling, clock, sync = 20, PHASE, WALL_CLOCK, ASYNC
 
         # Get graph state
-        node_ss = {n.name: n.reset(rng) for rng, n in zip(rngs, nodes)}
+        def reset_node(node, rng):
+            rng_params, rng_state, rng_inputs, rng_step, rng_reset = jumpy.random.split(rng, num=5)
+            params = node.default_params(rng_params)
+            state = node.default_state(rng_state)
+            inputs = node.default_inputs(rng_inputs)
+            node.reset(rng_reset)
+            return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
+
+        node_ss = {n.name: reset_node(n, rng) for n, rng in zip(nodes, rngs)}
         graph_state = GraphState(step=0, nodes=node_ss)
 
         # Reset nodes (Allows setting the run mode)
@@ -120,14 +138,12 @@ while True:
 
         # Simulate
         tstart = time.time()
-        ts_step, step_state = agent.observation.popleft().result()  # Retrieve first obs
+        step_state = agent.observation.popleft().result()  # Retrieve first obs
         for _ in range(num_steps):
             action = agent.default_output(seed)  # NOTE! Re-using the seed here.
             agent.action[-1].set_result((step_state, action))  # The set result must be the action of the agent.
-            ts_step, step_state = agent.observation.popleft().result()  # Retrieve observation
+            step_state = agent.observation.popleft().result()  # Retrieve observation
         tend = time.time()
 
         # Initiate reset
         agent.action[-1].cancel()  # Cancel to stop the actions being sent by the agent node.
-
-

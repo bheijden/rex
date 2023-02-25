@@ -185,9 +185,9 @@ def make_delay_distributions(record: Union[RecordHelper, log_pb2.ExperimentRecor
 
 if __name__ == "__main__":
 
-	SAVE_DELAY_DISTRIBUTIONS = True
+	SAVE_DELAY_DISTRIBUTIONS = False
 	FIT_DELAY_DISTRIBUTIONS = True
-	SHOW_PLOTS = False
+	SHOW_PLOTS = True
 
 	# Load episode record
 	# name = "21eps-pretrained-sbx-sac"

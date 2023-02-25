@@ -6,7 +6,7 @@ from flax.core import FrozenDict
 
 from rex.proto import log_pb2
 from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, INTERPRETED, WARN
-from rex.base import InputState, StepState, GraphState
+from rex.base import StepState, GraphState
 from rex.env import BaseEnv
 from rex.node import Node
 from rex.agent import Agent as BaseAgent
@@ -113,7 +113,7 @@ class PendulumEnv(BaseEnv):
 		# Get new step_state
 		def get_step_state(node: Node, _rng: jp.ndarray, _graph_state) -> StepState:
 			"""Get new step_state for a node."""
-			rng_params, rng_state, rng_step = jumpy.random.split(rng, num=3)
+			rng_params, rng_state, rng_step = jumpy.random.split(_rng, num=3)
 			params = node.default_params(rng_params, _graph_state)
 			state = node.default_state(rng_state, _graph_state)
 			return StepState(rng=rng_step, params=params, state=state, inputs=None)
@@ -131,12 +131,6 @@ class PendulumEnv(BaseEnv):
 		# Reset nodes
 		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_world_and_agent) + 1)
 		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_world_and_agent.values(), rngs)]
-
-		# Prepare inputs
-		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_world_and_agent) + 1)
-		for (name, n), rng_in in zip(self.nodes_world_and_agent.items(), rngs):
-			new_nodes[name] = new_nodes[name].replace(inputs=n.default_inputs(rng_in, graph_state))
-
 		return GraphState(step=jp.int32(0), nodes=FrozenDict(new_nodes))
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
@@ -150,7 +144,7 @@ class PendulumEnv(BaseEnv):
 		obs = self._get_obs(step_state)
 		return graph_state, obs
 
-	def step(self, graph_state: GraphState, action: jp.ndarray) -> Tuple[GraphState, InputState, float, bool, Dict]:
+	def step(self, graph_state: GraphState, action: jp.ndarray) -> Tuple[GraphState, jp.ndarray, float, bool, Dict]:
 		"""Perform step transition in environment."""
 		# Update step_state (if necessary)
 		step_state = self.agent.get_step_state(graph_state)

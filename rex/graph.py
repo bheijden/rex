@@ -1,6 +1,7 @@
 import time
 import abc
 from typing import Any, Dict, List, Tuple, Union
+import jumpy
 import jumpy.numpy as jp
 import jax.numpy as jnp
 import numpy as onp
@@ -8,9 +9,9 @@ from flax.core import FrozenDict
 
 from rex.agent import Agent
 from rex.constants import SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE
-from rex.base import StepState, GraphState
+from rex.base import StepState, GraphState, InputState
 from rex.proto import log_pb2
-from rex.node import BaseNode
+from rex.node import BaseNode, Node
 
 
 # float32 = Union[jnp.float32, onp.float32]
@@ -22,7 +23,7 @@ class BaseGraph:
         assert _assert, "The agent should be provided separately, so not inside the `nodes` dict"
         self.agent = agent
         self.nodes = nodes
-        self.nodes_and_agent = {**nodes, agent.name: agent}
+        self.nodes_and_agent: Dict[str, Node] = {**nodes, agent.name: agent}
 
     def __getstate__(self):
         args, kwargs = (), dict(agent=self.agent, nodes=self.nodes)
@@ -70,12 +71,37 @@ class Graph(BaseGraph):
         args, kwargs = (), dict(nodes=self.nodes, agent=self.agent, clock=self.clock, real_time_factor=self.real_time_factor)
         return args, kwargs
 
+    def _default_inputs(self, graph_state: GraphState):
+        # Prepare outputs
+        rngs_new, outputs = {}, {}
+        for name, node in self.nodes_and_agent.items():
+            rng_new, *rngs_out = jumpy.random.split(graph_state.nodes[name].rng, num=1 + node.output.max_window)
+            rngs_new[name] = rng_new
+            outputs[name] = [node.default_output(_rng, graph_state) for _rng in rngs_out]
+
+        # Prepare inputs
+        new_nodes = {}
+        for name, node in self.nodes_and_agent.items():
+            inputs = {}
+            for i in node.inputs:
+                window = i.window
+                seq = jp.arange(-window, 0, dtype=jp.int32)
+                ts_sent = 0 * jp.arange(-window, 0, dtype=jp.float32)
+                ts_recv = 0 * jp.arange(-window, 0, dtype=jp.float32)
+                _msgs = outputs[i.output.name][:window]
+                inputs[i.input_name] = InputState.from_outputs(seq, ts_sent, ts_recv, _msgs)
+            new_nodes[name] = graph_state.nodes[name].replace(rng=rngs_new[name], inputs=FrozenDict(inputs))
+        return graph_state.replace(nodes=FrozenDict(new_nodes))
+
     def reset(self, graph_state: GraphState) -> Tuple[GraphState, StepState]:
         # Stop first, if we were previously running.
         self.stop()
 
         # An additional reset is required when running async (futures, etc..)
         self.agent._agent_reset()
+
+        # Prepare inputs
+        graph_state = self._default_inputs(graph_state)
 
         # Reset async backend of every node
         for node in self.nodes_and_agent.values():

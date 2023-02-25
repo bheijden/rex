@@ -121,7 +121,7 @@ def dynamic_slice(
         def dynamic_slice(operand, start_indices, slice_sizes):
           return operand[tuple(slice(start, start + size) for start, size in zip(start_indices, slice_sizes))]
     """
-    if jumpy.core.is_jitted():
+    if jumpy.core.is_jitted() or jumpy.core.which_np(operand, start_indices, slice_sizes) is jnp:
         return jax.lax.dynamic_slice(operand, start_indices, slice_sizes)
     else:
         # if jumpy.is_jax_installed:
@@ -144,12 +144,21 @@ def index_update(x: jp.ndarray, idx: jp.ndarray, y: jp.ndarray, copy: bool = Tru
         return x
 
 
-def tree_take(tree: Any, i: Union[jp.ndarray, Sequence[int], int], axis: int = 0) -> Any:
+def tree_take(tree: Any, i: Union[jp.ndarray, Sequence[int], int], axis: int = 0, mode: str = None) -> Any:
     """Returns tree sliced by i."""
-    np = jumpy.core.which_np(i)
+    np = jumpy.core.which_np(*([i]+jax.tree_util.tree_flatten(tree)[0]))
     if isinstance(i, (list, tuple)):
         i = np.array(i, dtype=int)
-    return jax.tree_util.tree_map(lambda x: np.take(x, i, axis=axis, mode="clip"), tree)
+    if np is jnp:
+        mode = mode or "fill"
+        return jax.tree_util.tree_map(lambda x: jnp.take(x, i, axis=axis, mode=mode), tree)
+    else:
+        try:
+            mode = mode or "raise"
+            return jax.tree_util.tree_map(lambda x: np.take(x, i, axis=axis, mode=mode), tree)
+        except (IndexError, NotImplementedError):
+            print("IndexError in tree_take")
+            raise
 
 
 def vmap(fun: F, include: Sequence[bool] = None) -> F:
@@ -195,7 +204,7 @@ def vmap(fun: F, include: Sequence[bool] = None) -> F:
                     b_args.append(tree_take(a, b_idx))
                 else:
                     b_args.append(a)
-            rets.append(fun(*b_args))
+            rets.append(fun(*b_args, **kwargs))
 
         return jax.tree_util.tree_map(lambda *x: onp.stack(x), *rets)
 
@@ -208,3 +217,11 @@ def normal(key, shape=(), dtype=onp.float32):
         return jax.random.normal(key, shape, dtype)
     else:
         return onp.random.normal(size=shape).astype(dtype)
+
+
+def log(x):
+    """Elementwise natural logarithm."""
+    if jumpy.core.which_np(x) is jnp:
+        return jnp.log(x)
+    else:
+        return onp.log(x)

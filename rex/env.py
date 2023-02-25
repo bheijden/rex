@@ -18,7 +18,7 @@ class BaseEnv:
     def __init__(self,
                  nodes: Dict[str, "Node"],
                  agent: Agent,
-                 max_steps: int = 200,
+                 max_steps: int = None,
                  clock: int = SIMULATED,
                  real_time_factor: Union[int, float] = FAST_AS_POSSIBLE,
                  graph_type: int = INTERPRETED,
@@ -27,8 +27,6 @@ class BaseEnv:
                  ):
         self.name = name
         self.graph_type = graph_type
-        self.max_steps = 100 if max_steps is None else max_steps
-        assert self.max_steps > 0, "max_steps must be a positive integer"
 
         # Check that the agent is of the correct type
         assert isinstance(agent, Agent), "The agent must be an instance of Agent"
@@ -41,12 +39,16 @@ class BaseEnv:
             cgraph_type = SEQUENTIAL if graph_type == INTERPRETED else graph_type
             assert cgraph_type in [SEQUENTIAL, VECTORIZED, BATCHED], "Invalid graph type"
             self._cgraph = CompiledGraph(nodes, trace, agent, cgraph_type)
+            self.max_steps = max_steps or self._cgraph.max_steps
+            assert self.max_steps > 0, "max_steps must be a positive integer"
             self._max_starting_step = self._cgraph.max_steps - self.max_steps
             assert self._max_starting_step >= 0, f"max_steps ({self.max_steps}) must be smaller than the max number of compiled steps in the graph ({self._cgraph.max_steps})"
         else:
             assert graph_type == INTERPRETED, "Cannot compile a graph without a trace."
             self._cgraph = None
+            self.max_steps = max_steps or 100
             self._max_starting_step = 0
+        assert self.max_steps > 0, "max_steps must be a positive integer"
 
     def __getstate__(self):
         state = self.__dict__.copy()

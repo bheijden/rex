@@ -16,16 +16,18 @@ class RecursionDepth:
 
 
 class Step:
-	def __init__(self, record: log_pb2.NodeRecord, tick: int):
+	def __init__(self, record: log_pb2.NodeRecord, tick: int, excludes_inputs: bool):
 		"""
 		:param record: The node record.
 		:param tick: The tick of the step.
+		:param excludes_inputs: Whether to exclude the inputs as dependencies.
 		"""
 		self._tick = tick
 		self._record = record
 		self._info = record.info
 		self._inputs = {i.info.name: i for i in self._record.inputs}
-		self._window = {i.info.output: i.info.window for i in self._record.inputs}
+		self._excludes_inputs = excludes_inputs
+		self._window = {i.info.output: i.info.window if not excludes_inputs else 0 for i in self._record.inputs}
 		self._stateful = record.info.stateful
 		self._step = record.steps[tick]
 
@@ -58,7 +60,9 @@ class Step:
 		self._isolate = isolate
 
 		# Create step trace
-		self._steptrace = log_pb2.TracedStep(used=False, stateful=self._stateful, isolate=isolate, name=self._info.name, tick=self._tick, ts_step=self._step.ts_step)
+		self._steptrace = log_pb2.TracedStep(used=False, stateful=self._stateful, isolate=isolate,
+		                                     excludes_inputs=self._excludes_inputs,
+		                                     name=self._info.name, tick=self._tick, ts_step=self._step.ts_step)
 
 		# Determine if this step will be used (derived from a previous trace).
 		is_used = deps[self._info.name][self._tick] if deps is not None else False
@@ -125,9 +129,13 @@ class Step:
 		# Determine the number of dependencies to add
 		num_add = min(len(dependencies), num)
 		num_upstream = max(0, num - len(dependencies))
+		assert num_add + num_upstream == num
+
+		# Return if no dependencies are to be added
+		if num_add == 0:
+			return max(depths)
 
 		# Add input dependencies that were received right before this tick
-		assert num_add + num_upstream == num
 		for idx, d in enumerate(dependencies[-num_add:]):  # Only add dependencies up to num size.
 			if not d.used:  # Only add dependency if it was not previously added (if node is stateless)
 				_, depth = steps[output][d.source.tick]._trace(steps, index, d)
@@ -175,8 +183,10 @@ class Step:
 			self._steptrace.downstream.append(dependency)
 		return index[0], self._steptrace.depth
 
-	def trace(self, steps: Dict[str, List["Step"]], isolate: bool = True) -> log_pb2.TraceRecord:
+	def trace(self, steps: Dict[str, List["Step"]], isolate: bool = True, sort: str = "depth") -> log_pb2.TraceRecord:
 		"""Traces the step and returns a TraceRecord."""
+		assert sort in ["topological", "depth"], f"Invalid sort: {sort=}. Valid values are 'topological' and 'depth'."
+
 		# Prepare steps
 		num_steps = sum([len(u) for _, u in steps.items()])
 
@@ -255,7 +265,7 @@ class Step:
 			# Update depths (takes the isolated depth offset into account)
 			for u in depth:
 				u.depth = i
-				u.index = topological_index
+				u.index = topological_index if sort == "depth" else u.index
 				topological_index += 1
 
 			# Count max sequential steps without an isolated step
@@ -345,22 +355,28 @@ class Step:
 		return traceback
 
 
-def trace(record: log_pb2.EpisodeRecord, name: str, tick: int = -1, verbose: bool = True, isolate: bool = True) -> log_pb2.TraceRecord:
+def trace(record: log_pb2.EpisodeRecord, name: str, tick: int = -1, verbose: bool = True, isolate: bool = True,
+          excludes_inputs: List[str] = None, sort: str = "depth") -> log_pb2.TraceRecord:
 	""" Trace a step in the episode record.
 	:param record: The episode record to trace.
 	:param name: The name of the node to trace.
 	:param tick: The tick of the step to trace.
 	:param verbose: Whether to print the trace.
 	:param isolate: Whether to isolate the traced node in a separate depth.
+	:param excludes_inputs: A list of node names for which the input dependencies are excluded during the trace.
+						   Useful when the step of a node replays recorded outputs, instead of computing outputs using inputs.
 	"""
+	# Convert exclude_inputs to dict
+	excludes_inputs = excludes_inputs or []
+	excludes_inputs = {n.info.name: True if n.info.name in excludes_inputs else False for n in record.node}
 
 	# Prepare steps of work
-	fn_generate_steps = lambda record: [Step(record, tick=tick) for tick in range(0, len(record.steps))]
+	fn_generate_steps = lambda record: [Step(record, tick=tick, excludes_inputs=excludes_inputs[record.info.name]) for tick in range(0, len(record.steps))]
 	steps: Dict[str, List["Step"]] = {n.info.name: fn_generate_steps(n) for n in record.node}
 
 	# Trace step
 	tick = tick % len(steps[name])
-	record_trace = steps[name][tick].trace(steps, isolate=isolate)
+	record_trace = steps[name][tick].trace(steps, isolate=isolate, sort=sort)
 
 	# Add node info
 	record_trace.node.extend([n.info for n in record.node])

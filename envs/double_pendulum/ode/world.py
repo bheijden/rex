@@ -1,14 +1,20 @@
 from typing import Any, Dict, Tuple, Union
 
+import jax
 import jumpy
 import jumpy.numpy as jp
 from math import ceil
 from flax import struct
+from flax.core import FrozenDict
+
 from rex.distributions import Distribution, Gaussian
-from rex.constants import WARN, LATEST, PHASE
+from rex.constants import WARN, LATEST, PHASE, FAST_AS_POSSIBLE, SIMULATED, VECTORIZED, INTERPRETED
 from rex.base import StepState, GraphState, Empty
 from rex.node import Node
 from rex.multiprocessing import new_process
+from rex.agent import Agent as BaseAgent
+from rex.env import BaseEnv
+from rex.proto import log_pb2
 import rex.jumpy as rjp
 
 from envs.double_pendulum.env import Output as ActuatorOutput
@@ -120,7 +126,7 @@ def ode_double_pendulum(params: Params, x, u):
 	alpha_dot2 = x[3]
 	M = jp.array([[J1 + J2 + m2 * l1 * l1 + 2 * P3 * jp.cos(alpha2), J2 + P3 * jp.cos(alpha2)],
 	              [J2 + P3 * jp.cos(alpha2), J2]])
-	C = jp.array([[b1 - 2*P3 * alpha_dot2 * jp.sin(alpha2), -P3 * (alpha_dot2) * jp.sin(alpha2)],
+	C = jp.array([[b1 - 2 * P3 * alpha_dot2 * jp.sin(alpha2), -P3 * (alpha_dot2) * jp.sin(alpha2)],
 	              [P3 * alpha_dot1 * jp.sin(alpha2), b2]])
 	G = jp.array([[-F1 * jp.sin(alpha1) - F2 * jp.sin(alpha1 + alpha2)],
 	              [-F2 * jp.sin(alpha1 + alpha2)]])
@@ -142,11 +148,6 @@ def ode_double_pendulum(params: Params, x, u):
 def _angle_normalize(th: jp.array):
 	th_norm = th - 2 * jp.pi * jp.floor((th + jp.pi) / (2 * jp.pi))
 	return th_norm
-
-# def sigmoid(x):
-# 	pos = 1.0 / (1.0 + jp.exp(-x))
-# 	neg = jp.exp(x) / (1.0 + jp.exp(x))
-# 	return jp.where(x >= 0, pos, neg)
 
 
 class World(Node):
@@ -170,10 +171,14 @@ class World(Node):
 
 	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
 		"""Default params of the node."""
-		agent_params = graph_state.nodes["agent"].params
-		max_torque = agent_params.max_torque
-		max_speed, max_speed2 = agent_params.max_speed, agent_params.max_speed2
-		length, length2 = agent_params.length, agent_params.length2
+		if graph_state is None or graph_state.nodes.get("agent", None) is None:
+			max_torque, max_speed, max_speed2 = jp.float32(8.0), jp.float32(50.0), jp.float32(50.0)
+			length, length2 = jp.float32(0.1), jp.float32(0.1)
+		else:
+			agent_params = graph_state.nodes["agent"].params
+			max_torque = agent_params.max_torque
+			max_speed, max_speed2 = agent_params.max_speed, agent_params.max_speed2
+			length, length2 = agent_params.length, agent_params.length2
 		return Params(max_torque=max_torque,
 		              max_speed=max_speed,
 		              max_speed2=max_speed2,
@@ -200,17 +205,17 @@ class World(Node):
 			thdot2 = jumpy.random.uniform(rng_th, shape=(), low=-3.14, high=3.14)
 		else:
 			# goal: th2 = jp.pi - th
-			# [th, th2] = [0, 0] = th=down, th2=down
+			# [th, th2] = [0, 0] = th=down, th2=down,
 			# [th, th2] = [pi, 0] = th=up, th2=up
 			# [th, th2] = [0, pi] = th=down , th2=up
 			# [th, th2] = [pi, pi] = th=up, th2=down
-			alpha = jumpy.random.uniform(rng_th, shape=(), low=-jp.pi, high=jp.pi)
-			th = alpha
-			th2 = jp.pi-alpha
-			th = jumpy.random.uniform(rng_th, shape=(), low=-0.3, high=0.3)
-			th2 = jumpy.random.uniform(rng_th, shape=(), low=-0.3, high=0.3)
+			# alpha = jumpy.random.uniform(rng_th, shape=(), low=-jp.pi, high=jp.pi)
+			# th = alpha
+			# th2 = jp.pi - alpha
+			th = jumpy.random.uniform(rng_th, shape=(), low=-0.3, high=0.3)*0
+			th2 = jumpy.random.uniform(rng_th, shape=(), low=-0.3, high=0.3)*0
 			thdot = 0.  # jumpy.random.uniform(rng_thdot, shape=(), low=-0.05, high=0.05)
-			thdot2 = 0. # jumpy.random.uniform(rng_thdot, shape=(), low=-0.1, high=0.1)
+			thdot2 = 0.  # jumpy.random.uniform(rng_thdot, shape=(), low=-0.1, high=0.1)
 		return State(th=th, th2=th2, thdot=thdot, thdot2=thdot2)
 
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
@@ -245,7 +250,6 @@ class World(Node):
 
 		# Update state
 		next_th, next_th2, next_thdot, next_thdot2 = next_x
-		# next_th, next_th2, next_thdot, next_thdot2 = x
 
 		# Clip speed
 		next_thdot = jp.clip(next_thdot, -params.max_speed, params.max_speed)
@@ -257,14 +261,13 @@ class World(Node):
 
 		# Prepare output
 		output = State(th=next_th, th2=next_th2, thdot=next_thdot, thdot2=next_thdot2)
-		# print(f"{self.name.ljust(14)} | x: {x} | u: {u} -> next_x: {next_x}")
 		return new_step_state, output
 
 
 class Sensor(Node):
 
 	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> SensorParams:
-		return SensorParams(th_std=jp.float32(0.05), th2_std=jp.float32(0.05), thdot_std=jp.float32(0.1), thdot2_std=jp.float32(0.5))
+		return SensorParams(th_std=jp.float32(0.0), th2_std=jp.float32(0.0), thdot_std=jp.float32(0.0), thdot2_std=jp.float32(0.0))
 
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
 		"""Default output of the node."""
@@ -279,7 +282,8 @@ class Sensor(Node):
 			th2 = jp.float32(0.)
 			thdot = jp.float32(0.)
 			thdot2 = jp.float32(0.)
-		return Output(cos_th=jp.cos(th), sin_th=jp.sin(th), cos_th2=jp.cos(th2), sin_th2=jp.sin(th2), thdot=thdot, thdot2=thdot2)
+		return Output(cos_th=jp.cos(th), sin_th=jp.sin(th), cos_th2=jp.cos(th2), sin_th2=jp.sin(th2), thdot=thdot,
+		              thdot2=thdot2)
 
 	def step(self, step_state: StepState) -> Tuple[StepState, Output]:
 		"""Step the node."""
@@ -304,7 +308,8 @@ class Sensor(Node):
 		new_step_state = step_state.replace(rng=new_rng)
 
 		# Prepare output
-		output = Output(cos_th=jp.cos(th), sin_th=jp.sin(th), cos_th2=jp.cos(th2), sin_th2=jp.sin(th2), thdot=thdot, thdot2=thdot2)
+		output = Output(cos_th=jp.cos(th), sin_th=jp.sin(th), cos_th2=jp.cos(th2), sin_th2=jp.sin(th2), thdot=thdot,
+		                thdot2=thdot2)
 		return new_step_state, output
 
 

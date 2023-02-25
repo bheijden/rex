@@ -155,9 +155,32 @@ def double_pendulum_render_fn(data: onp.ndarray, th: float, th2: float, thdot: f
 
 
 if __name__ == '__main__':
-    data = onp.zeros((500, 500, 3), onp.uint8)
+    import rex.utils as utils
+    import rex.multiprocessing as mp
+    data = onp.zeros((1000, 500, 500, 3), onp.uint8)
     data.fill(255)
     th, th2, thdot, thdot2 = 0., 0, 0.5, 0.5
-    double_pendulum_render_fn(data, th, th2, thdot, thdot2)
-    cv2.imshow('image', data)
-    cv2.waitKey(0)
+    double_pendulum_render_fn = mp.new_process(double_pendulum_render_fn, max_workers=2)
+
+    timer = utils.timer("Render")
+    with timer:
+        images = []
+        for i, d in enumerate(data):
+            th += i/1000 * onp.pi
+            # img = double_pendulum_render_fn(d, th, th2, thdot, thdot2)
+            img = double_pendulum_render_fn.submit(d, th, th2, thdot, thdot2)
+            images.append(img)
+    print(f"[{timer.name}] Elapsed: {timer.duration}")
+
+    timer = utils.timer("wait")
+    with timer:
+        images = [img.result() for img in images]
+    print(f"[{timer.name}] Elapsed: {timer.duration}")
+
+    for img in images:
+        cv2.imshow(f"image", img)
+        cv2.waitKey(10)
+
+    # double_pendulum_render_fn(data, th, th2, thdot, thdot2)
+    # cv2.imshow('image', data)
+    # cv2.waitKey(0)

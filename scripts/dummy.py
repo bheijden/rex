@@ -227,12 +227,6 @@ class DummyEnv(BaseEnv):
 		# Reset nodes
 		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_and_agent) + 1)
 		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_and_agent.values(), rngs)]
-
-		# Prepare inputs
-		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_and_agent) + 1)
-		for (name, n), rng_in in zip(self.nodes_and_agent.items(), rngs):
-			new_nodes[name] = new_nodes[name].replace(inputs=n.default_inputs(rng_in, graph_state))
-
 		# ***DO SOMETHING WITH graph_state TO RESET ALL NODES***
 		return GraphState(step=jp.int32(0), nodes=FrozenDict(new_nodes))
 

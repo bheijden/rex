@@ -316,13 +316,13 @@ from rex.distributions import Gaussian, GMM, Recorded, Distribution, mixture_dis
 class GMMEstimator:
     def __init__(self, data, name="GMM", threshold=1e-7):
         self.name = name
-        self.data = data
+        self.data: np.ndarray = data.astype(np.float32)
         self.final_state_norm = None
         self.threshold = threshold
         self.is_deterministic = True if self.data.std() < threshold else False
         self._mean = np.mean(data)
         self._std = np.std(data)
-        self._data_norm = (data-data.mean())/data.std()
+        self._data_norm: np.ndarray = (data-data.mean())/max(data.std(), 1e-7) if not self.is_deterministic else data
 
     def fit(self, num_steps: int, num_components: int, step_size: float = 0.05, seed: int = 0):
         if self.is_deterministic:
@@ -386,12 +386,11 @@ class GMMEstimator:
         log_component_scales = log_component_scales + np.log(self._std)
         return log_component_weights, log_concentration, component_mus, log_component_scales
 
-    def plot_hist(self, ax: plt.Axes = None, edgecolor: str = None, facecolor: str = None, bins=100, xmin: float = None, xmax: float = None, num_points: int = 1000):
+    def plot_hist(self, ax: plt.Axes = None, edgecolor: str = None, facecolor: str = None, bins=100, xmin: float = None, xmax: float = None, num_points: int = 1000, plot_dist: bool = True):
         if ax is None:
             fig, ax = plt.subplots()
-        # sns.histplot(self.data, ax=ax, bins=bins, stat="density", label="data", edgecolor=edgecolor, facecolor=facecolor, alpha=0.5)
         ax.hist(self.data, bins=bins, density=True, label="data", edgecolor=edgecolor, facecolor=facecolor, alpha=0.5)
-        if not self.is_deterministic and self.final_state_norm is not None:
+        if plot_dist and not self.is_deterministic and self.final_state_norm is not None:
             xmin = xmin or np.min(self.data)
             xmax = xmax or np.max(self.data)
             w, _, m, s = self._rescale(self.adam_get_params(self.final_state_norm))
@@ -448,13 +447,13 @@ class GMMEstimator:
                                self.log_component_scales_history]
 
         anim = animate_training(params_for_plotting, self.data, num_frames, fig=fig, ax=ax, edgecolor=edgecolor,
-                                     facecolor=facecolor, bins=bins, xmin=xmin, xmax=xmax, num_points=num_points)
+                                facecolor=facecolor, bins=bins, xmin=xmin, xmax=xmax, num_points=num_points)
         return anim
 
     def get_dist(self, percentile: float = 0.01, include_data: bool = False) -> Distribution:
         if self.is_deterministic:
-            dist = Gaussian(mean=self.data.mean(), std=0, percentile=percentile)
-            dist = Recorded(dist, self.data) if include_data else dist
+            dist = Gaussian(mean=self.data.mean(dtype="float32"), std=0, percentile=percentile)
+            dist = Recorded(dist, self.data.astype(dtype="float32")) if include_data else dist
             return dist
         assert self.final_state_norm is not None, "Must train model before truncating."
 
@@ -489,8 +488,6 @@ class GMMEstimator:
             grid_max=np.max(self.data)*1.1,
         )[0]
         percentiles = 1 - cdist.cdf(q)  # Get percentile per component
-        # high = np.array(len(w)*[q])
-        # low = np.zeros(high.shape)
 
         # Prepare truncated GMM
         gaussians = []

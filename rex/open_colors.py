@@ -203,9 +203,29 @@ default_cscheme = {"computation": "blue",
                    "scheduled": "black",
                    "phase_input": "yellow",
                    "excluded": "red",  # Used steps
+                   "pruned": "red",  # Removed steps
                    "used": "gray",  # Removed steps
                    "rerouted": "orange",  # Rerouted dependency
                    "skip": "green",  # Normal dependency
                    "normal": "gray",  # Normal dependency
                    }
 ecolor, fcolor = cscheme_fn(default_cscheme)
+
+
+class _Cwheel:
+  def __init__(self, mode):
+    assert mode in ["edge", "face"], f"Invalid mode: {mode}."
+    self._mode = mode
+
+  def __getitem__(self, item):
+    if self._mode == "edge":
+      return CWHEEL[item][EDGE_INDEX]
+    elif self._mode == "face":
+      return CWHEEL[item][FACE_INDEX]
+
+
+ewheel = _Cwheel("edge")
+ewheel["blue"]
+fwheel = _Cwheel("face")
+fwheel["blue"]
+

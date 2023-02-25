@@ -120,7 +120,6 @@ def make_compiled_env(env: PendulumEnv,
 
     # Grab agent
     agent: Agent = nodes["agent"]
-    # actuator: Node = nodes["actuator"]
 
     # Grab world
     world: Node = nodes["world"]
@@ -130,21 +129,9 @@ def make_compiled_env(env: PendulumEnv,
     # Trace record
     record_trace = trace(record, "agent")
 
-    # # Visualize computation graph
-    # if plot:
-    #     show_computation_graph(record_trace)
-
     # Get run-time settings
     clock = record.node[0].clock
     rtf = record.node[0].real_time_factor
-    # scheduling = record.node[0].scheduling
-    # sensor_to_agent = [i for i in agent.inputs if i.input_name == "state"][0]
-    # agent_to_agent = [i for i in agent.inputs if i.input_name == "last_action"][0]
-    # jitter = sensor_to_agent.jitter
-    # blocking = sensor_to_agent.blocking
-    # win_obs = sensor_to_agent.window
-    # win_action = agent_to_agent.window
-    # advance = actuator.advance
 
     # Create env
     _name = env.name
@@ -214,7 +201,7 @@ def show_communication(record: log_pb2.EpisodeRecord) -> Tuple[plt.Figure, plt.A
 def show_computation_graph(trace_record: log_pb2.TraceRecord, plot_type: str = "computation", xmax: float = 0.6) -> Tuple[
     plt.Figure, plt.Axes]:
     order = ["world", "sensor", "agent", "actuator"]
-    cscheme = {"world": "gray", "sensor": "grape", "agent": "teal", "actuator": "indigo"}
+    cscheme = {"world": "gray", "sensor": "grape", "agent": "teal", "actuator": "indigo", "estimator": "orange"}
 
     # Create new plot
     fig, ax = plt.subplots()
@@ -350,13 +337,17 @@ def make_policy(model: BaseAlgorithm, constant_action: float = None):
     return policy
 
 
-def make_delay_distributions(record: log_pb2.ExperimentRecord,
+def make_delay_distributions(record: Union[log_pb2.ExperimentRecord],
                              num_steps: int = 100,
                              num_components: int = 2,
                              step_size: float = 0.05,
                              seed: int = 0):
     # Prepare data
-    data, info = utils.get_delay_data(record)
+    if isinstance(record, log_pb2.ExperimentRecord):
+        data, info = utils.get_delay_data(record, concatenate=True)
+    # data = tree_map(lambda *x: jp.concatenate(x, axis=0), *record._delays)
+    else:
+        raise NotImplementedError
 
     def init_estimator(x, i):
         name = i.name if not isinstance(i, tuple) else f"{i[0].name}.input({i[1].name})"
@@ -370,8 +361,8 @@ def make_delay_distributions(record: log_pb2.ExperimentRecord,
     jax.tree_map(lambda e: e.fit(num_steps=num_steps, num_components=num_components, step_size=step_size, seed=seed), est)
 
     # Get distributions
-    dist = jax.tree_map(lambda e: e.get_dist(), est)
-    return est, dist
+    dist = jax.tree_map(lambda e: e.get_dist(include_data=True), est)
+    return data, info, est, dist
 
 
 def load_distributions(file: str, module: ModuleType = envs.pendulum.dists) -> Dict[
@@ -413,13 +404,15 @@ def load_model(file, model_cls: Type[BaseAlgorithm], module: ModuleType = envs.p
             elif isinstance(e, FileNotFoundError):
                 print(f"Could not load model from {file}. Loading a random model instead.")
             elif isinstance(e, AttributeError):
-                print(f"Could not load model from {file}. Are you loading an sb3 model into an sbx algo? Loading a random model instead.")
+                print(
+                    f"Could not load model from {file}. Are you loading an sb3 model into an sbx algo? Loading a random model instead.")
             model = model_cls("MlpPolicy", verbose=1, **kwargs)
     return model
 
 
 class SysIdPolicy:
-    def __init__(self, rate: float, duration: float = 5.0, min: float = -8, max: float = 8, seed: int = 0, model=None, use_ros: bool = False):
+    def __init__(self, rate: float, duration: float = 5.0, min: float = -8, max: float = 8, seed: int = 0, model=None,
+                 use_ros: bool = False):
         if use_ros:
             import rospy
             from std_msgs.msg import Float32
@@ -461,13 +454,14 @@ class SysIdPolicy:
                 self._rng, rng_action = jumpy.random.split(self._rng)
                 action = jumpy.random.uniform(rng_action, low=self._min, high=self._max)
                 self._action = jp.array([action], dtype=jp.float32)
-        if self._use_model:
+        if self._use_model and self._model is not None:
             self._action, _ = self._model.predict(obs, deterministic=deterministic)
             # policy_action, _ = self._model.predict(obs, deterministic=deterministic)
             # onp.array(policy_action)
         else:
-            policy_action, _ = self._model.predict(obs, deterministic=deterministic)
-            onp.array(policy_action)
+            if self._model is not None:
+                policy_action, _ = self._model.predict(obs, deterministic=deterministic)
+                onp.array(policy_action)
         if self._use_ros:
             msg = self._msg_cls(self._action[0])
             self._pub_action.publish(msg)

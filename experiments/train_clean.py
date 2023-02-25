@@ -65,6 +65,9 @@ if __name__ == "__main__":
 	#     - Increase penalty on action changes
 	#     - Increase noise (th, th2, thdot, thdot2)
 	#     - Consistently learn
+	#     - Add process noise to actuator scaled by delta action.
+	#     - Add coulomb friction to make the learning easier in the upright position.
+	#     - Use a stabilizing controller for upright position, and augment actions with a switching parameter.
 	# todo: Verify that measured delays are working correctly
 	# todo: Make new process wrapper that unpickle nodes of inputs as BaseNodes (enables access to e.g. phase, msg structures).
 	# todo: Modify graph sorting that traces multiple outputs (i.e. add rendering to compiled graph).
@@ -77,7 +80,7 @@ if __name__ == "__main__":
 	JITTER = BUFFER
 	SCHEDULING = PHASE
 	MAX_STEPS = 5*80
-	START_STEPS = 8*MAX_STEPS
+	START_STEPS = 0*MAX_STEPS
 	WIN_ACTION = 2
 	WIN_OBS = 3
 	BLOCKING = True
@@ -85,16 +88,16 @@ if __name__ == "__main__":
 	ENV_FN = dpend.ode.build_double_pendulum  #  dpend.ode.build_double_pendulum  # pend.ode.build_pendulum
 	ENV_CLS = dpend.env.DoublePendulumEnv  # dpend.env.DoublePendulumEnv  # pend.env.PendulumEnv
 	CLOCK = SIMULATED
-	RTF = REAL_TIME
+	RTF = WALL_CLOCK
 	RATES = dict(world=150, agent=80, actuator=80, sensor=80, render=20)
 	USE_DELAYS = True
-	DELAY_FN = lambda d: d.quantile(0.99)*int(USE_DELAYS)
+	DELAY_FN = lambda d: d.quantile(0.99)*int(USE_DELAYS)  # todo: this is slow (takes 3 seconds).
 
 	# Logging
-	NAME = f"continue_lessnoise_50maxvel_8torque_30hz_005deltaact_agentpolicy_{ENV}"
+	NAME = f"sysid_{ENV}"
 	LOG_DIR = os.path.dirname(rex.__file__) + f"/../logs/{NAME}_{datetime.datetime.today().strftime('%Y-%m-%d-%H%M')}"
 	MUST_LOG = False
-	SHOW_PLOTS = True
+	SHOW_PLOTS = False
 
 	# Load models
 	MODEL_CLS = sbx.SAC  # sbx.SAC  sb3.SAC
@@ -125,10 +128,40 @@ if __name__ == "__main__":
 	                   max_steps=MAX_STEPS + START_STEPS, use_delays=USE_DELAYS)
 	gym_env = GymWrapper(env)
 
+	# Reload protobuf record
+	# from rex.proto import log_pb2
+	# NAME = f"sysid_double_pendulum_2023-02-06-0914"
+	# LOG_DIR = os.path.dirname(rex.__file__) + f"/../logs/{NAME}"
+	# ENV = "double_pendulum_ode_train_buffer_phase_awin2_owin3_blocking_noadvance_compiled_vectorized.pkl"
+	# RECORD = "record_pre.pb"
+	# record_pre = log_pb2.ExperimentRecord()
+	# with open(f"{LOG_DIR}/{RECORD}", "rb") as f:
+	# 	record_pre.ParseFromString(f.read())
+	# data = exp.RecordHelper(record_pre)
+	#
+	# from rex.base import StepState
+	# import rex.jumpy as rjp
+	#
+	# def make_replay_step(node, outputs, step_states: StepState = None):
+	# 	def _replay_step(step_state: StepState):
+	# 		seq = step_state.seq
+	# 		output = rjp.tree_take(outputs, seq, axis=0)
+	# 		if step_states is not None:
+	# 			new_step_state = rjp.tree_take(step_states, seq+1, axis=0)
+	# 		else:
+	# 			new_step_state = step_state
+	# 		return new_step_state, output
+	# 	return _replay_step
+	#
+	#
+	# outputs = data._data[0]["actuator"]["outputs"].tree
+	# actuator = env.unwrapped.graph.nodes["actuator"]
+	# actuator.step = make_replay_step(actuator, outputs)
+
 	# Load model
 	model: sbx.SAC = exp.load_model(MODEL_PRELOAD, MODEL_CLS, env=gym_env, seed=SEED, module=MODEL_MODULE)
 
-	sys_model = exp.SysIdPolicy(rate=RATES["agent"], duration=5.0, min=-3.0, max=3.0, seed=0, model=model, use_ros=False)
+	sys_model = exp.SysIdPolicy(rate=RATES["agent"], duration=5.0, min=-1.0, max=1.0, seed=0, model=model, use_ros=False)
 	policy = exp.make_policy(sys_model)
 	# policy = exp.make_policy(model)
 
@@ -138,14 +171,14 @@ if __name__ == "__main__":
 	# Get data
 	# data = exp.RecordHelper(record_pre)
 
-	if MUST_LOG:
-		# todo: save environment
-		# Save pre-train record to file
-		os.mkdir(LOG_DIR)
-		with open(LOG_DIR + "/record_sysid.pb", "wb") as f:
-			f.write(record_pre.SerializeToString())
-		print("SAVED!")
-	exit()
+	# if MUST_LOG:
+	# 	env.unwrapped.save(f"{LOG_DIR}/{env.unwrapped.name}.pkl")
+	# 	# Save pre-train record to file
+	# 	os.mkdir(LOG_DIR)
+	# 	with open(LOG_DIR + "/record_sysid.pb", "wb") as f:
+	# 		f.write(record_pre.SerializeToString())
+	# 	print("SAVED!")
+	# exit()
 
 	# Compile env
 	cenv = exp.make_compiled_env(env, record_pre.episode[-1], max_steps=MAX_STEPS, eval_env=False, graph_type=VECTORIZED)
@@ -178,6 +211,8 @@ if __name__ == "__main__":
 	else:
 		LOG_DIR = None
 		checkpoint_callback = None
+
+	exit()
 
 	# Wrap model
 	cenv = AutoResetWrapper(cenv)  # Wrap into auto reset wrapper

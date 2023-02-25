@@ -137,8 +137,8 @@ message TracedStep {
     uint32 index = 2; // Index in the topologically sorted computation graph
     uint32 depth = 3; // Depth of the graph
     bool stateful = 4; // Whether the node is stateful (=True) or stateless (=False).
-    bool static = 5;    // Whether the node's params are static (=True) or stateless (=False).
     bool isolate = 11; // Whether the node is isolated (=True) or not (=False).
+    bool excludes_inputs = 12; // Whether the step call excludes upstream input dependencies (=True) or not (=False).
     string name = 6; // Node name.
     uint32 tick = 7; // The tick count.
     double ts_step = 8; // Step timestamp (after considering any input, scheduling, or last output phase shifts).
