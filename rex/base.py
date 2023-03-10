@@ -1,6 +1,6 @@
 import jax
 import jumpy
-from typing import Any, Union, List, TypeVar
+from typing import Any, Union, List, TypeVar, Dict, Union
 from flax import struct
 from flax.core import FrozenDict
 import jumpy.numpy as jp
@@ -10,6 +10,7 @@ import rex.jumpy as rjp
 Output = TypeVar('Output')
 State = TypeVar('State')
 Params = TypeVar('Params')
+Timings = List[Dict[str, Dict[str, Union[jp.ndarray, Dict[str, Dict[str, jp.ndarray]]]]]]
 
 
 @struct.dataclass
@@ -72,9 +73,7 @@ class StepState:
 @struct.dataclass
 class GraphState:
     nodes: FrozenDict[str, StepState]
-    step: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: None)  # todo: used to be jp.int32(0).
+    step: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: None)
     eps: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
     outputs: FrozenDict[str, Output] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
-    # todo: outputs should add one more dimension to the data related to eps.
-    # todo: add timings
-    # todo: add Minimal Common Supergraph (MCS) that spans all motifs in timings. pytree_node=False.
+    timings: Timings = struct.field(pytree_node=True, default_factory=lambda: None)

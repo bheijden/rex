@@ -323,30 +323,6 @@ def _init(env: BaseEnv, nodes: Dict[str, Node]):
 	init_gs = GraphState(nodes=FrozenDict(ndict), step=jp.int32(0), outputs=FrozenDict(default_outputs))
 	init_gs, _ = jit_reset(jumpy.random.PRNGKey(0), init_gs)
 
-	# Perform steps
-	# _wseqs = [0]
-	# _ws = [world_state]
-	# done, seed = False, jumpy.random.PRNGKey(0)
-	# gs, loss = jit_reset(seed, init_gs)
-	# _ws.append(gs.nodes["world"].state)
-	# _wseqs.append(gs.nodes["world"].seq)
-	# while not done:
-	# 	gs, loss, _, done, info = jit_step(gs, loss)
-		# _ws.append(gs.nodes["world"].state)
-		# _wseqs.append(gs.nodes["world"].seq)
-	# Print initial loss
-	# print(f"Warmup | seed={seed} | start={init_gs.step} | loss={loss} | end={gs.step} | loss={loss}")
-
-	# Prepare parameters
-	# _ws = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *_ws)
-	# p_est = EstimatorParams(world_states=_ws)
-	# p_est.world_states.th[:] = 0.
-	# p_est.world_states.th2[:] = 0.
-	# p_est.world_states.thdot[:] = 0.
-	# p_est.world_states.thdot2[:] = 0.
-	# p_world = jax.tree_util.tree_map(lambda x: None, gs.nodes["world"].params).replace(mass=jp.float32(0.18))
-	# initial_params = {"estimator": p_est, "world": p_world}
-
 	return init_gs
 
 

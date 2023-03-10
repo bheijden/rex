@@ -27,7 +27,7 @@ if __name__ == "__main__":
     world = DummyNode.from_info(d["world"].info)
     sensor = DummyNode.from_info(d["sensor"].info)
     observer = DummyNode.from_info(d["observer"].info)
-    agent = DummyAgent.from_info(d["agent"].info)
+    agent = DummyAgent.from_info(d["root"].info)
     actuator = DummyNode.from_info(d["actuator"].info)
     nodes = [world, sensor, observer, agent, actuator]
     nodes = {n.name: n for n in nodes}
@@ -36,13 +36,13 @@ if __name__ == "__main__":
     # todo: use pickle
     sensor.connect_from_info(inputs["sensor"]["world"].info, world)
     observer.connect_from_info(inputs["observer"]["sensor"].info, sensor)
-    observer.connect_from_info(inputs["observer"]["agent"].info, agent)
-    agent.connect_from_info(inputs["agent"]["observer"].info, observer)
-    actuator.connect_from_info(inputs["actuator"]["agent"].info, agent)
+    observer.connect_from_info(inputs["observer"]["root"].info, agent)
+    agent.connect_from_info(inputs["root"]["observer"].info, observer)
+    actuator.connect_from_info(inputs["actuator"]["root"].info, agent)
     world.connect_from_info(inputs["world"]["actuator"].info, actuator)
 
     # Create environment
-    # env = DummyEnv(nodes, agent=agent, max_steps=200, sync=SYNC, clock=SIMULATED, scheduling=PHASE, real_time_factor=FAST_AS_POSSIBLE)
+    # env = DummyEnv(nodes, root=root, max_steps=200, sync=SYNC, clock=SIMULATED, scheduling=PHASE, real_time_factor=FAST_AS_POSSIBLE)
     env = DummyEnv(nodes, agent=agent, max_steps=20, trace=record)
 
     # Warmup

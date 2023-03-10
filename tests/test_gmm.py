@@ -95,7 +95,7 @@ def test_gmm_estimator():
 	jax.tree_map(partial(plot_gmm, edgecolor=ecolor.computation), axes_step, dist_step, data_step, info_step)
 	# jax.tree_map(partial(plot_gmm, edgecolor=ecolor.communication), axes_inputs, dist_inputs, data_inputs, info_inputs)
 
-	# Animate agent training
+	# Animate root training
 	est_step: Dict[str, GMMEstimator]
 	anim_step = est_step["agent"].animate_training(fig=fig_step, ax=axes_step["agent"], edgecolor=ecolor.computation, facecolor=fcolor.computation)
 	anim_step.save("gmm_step.mp4")

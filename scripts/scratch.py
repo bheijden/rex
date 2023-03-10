@@ -107,7 +107,7 @@ class RolloutWrapper(object):
             (),
             self.num_env_steps,
         )
-        # Return the sum of rewards accumulated by agent in episode rollout
+        # Return the sum of rewards accumulated by root in episode rollout
         obs, action, reward, next_obs, done = scan_out
         cum_return = carry_out[-2]
         return obs, action, reward, next_obs, done, cum_return

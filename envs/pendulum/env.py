@@ -15,20 +15,20 @@ from rex.spaces import Box
 
 @struct.dataclass
 class Params:
-	"""Pendulum agent param definition"""
+	"""Pendulum root param definition"""
 	max_torque: jp.float32
 	max_speed: jp.float32
 
 
 @struct.dataclass
 class State:
-	"""Pendulum agent state definition"""
+	"""Pendulum root state definition"""
 	pass
 
 
 @struct.dataclass
 class Output:
-	"""Pendulum agent output definition"""
+	"""Pendulum root output definition"""
 	action: jp.ndarray
 
 
@@ -37,19 +37,19 @@ class Agent(BaseAgent):
 		super().__init__(*args, **kwargs)
 
 	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
-		"""Default params of the agent."""
+		"""Default params of the root."""
 		return Params(max_torque=jp.float32(2.0), max_speed=jp.float32(22.0))
 
 	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
-		"""Default state of the agent."""
+		"""Default state of the root."""
 		return State()
 
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
-		"""Default output of the agent."""
+		"""Default output of the root."""
 		return Output(action=jp.array([0.0], dtype=jp.float32))
 
 	# def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-	# 	"""Reset the agent."""
+	# 	"""Reset the root."""
 	# 	rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
 	# 	params = self.default_params(rng_params, graph_state)
 	# 	state = self.default_state(rng_state, graph_state)
@@ -63,7 +63,7 @@ class PendulumEnv(BaseEnv):
 	def __init__(
 			self,
 			nodes: Dict[str, "Node"],
-			agent: Agent,
+			root: Agent,
 			max_steps: int = 100,
 			trace: log_pb2.TraceRecord = None,
 			clock: int = SIMULATED,
@@ -71,16 +71,16 @@ class PendulumEnv(BaseEnv):
 			graph: int = INTERPRETED,
 			name: str = "disc-pendulum-v0"
 	):
-		# Exclude the node for which this environment is a drop-in replacement (i.e. the agent)
-		nodes = {node.name: node for _, node in nodes.items() if node.name != agent.name}
-		super().__init__(nodes, agent, max_steps, clock, real_time_factor, graph, trace, name=name)
+		# Exclude the node for which this environment is a drop-in replacement (i.e. the root)
+		nodes = {node.name: node for _, node in nodes.items() if node.name != root.name}
+		super().__init__(nodes, root, max_steps, clock, real_time_factor, graph, trace, name=name)
 
 		# Required for step and reset functions
 		assert "world" in nodes, "Pendulum environment requires a world node."
 		self.world = nodes["world"]
-		self.agent = agent
+		self.agent = root
 		self.nodes = {node.name: node for _, node in nodes.items() if node.name != self.world.name}
-		self.nodes_world_and_agent = self.graph.nodes_and_agent
+		self.nodes_world_and_agent = self.graph.nodes_and_root
 
 	def observation_space(self, params: Params = None):
 		"""Observation space of the environment."""
@@ -118,7 +118,7 @@ class PendulumEnv(BaseEnv):
 			state = node.default_state(rng_state, _graph_state)
 			return StepState(rng=rng_step, params=params, state=state, inputs=None)
 
-		# Step_state agent & world (agent must be reset before world, as the world may copy some params from the agent)
+		# Step_state root & world (root must be reset before world, as the world may copy some params from the root)
 		new_nodes[self.agent.name] = get_step_state(self.agent, rng_agent, graph_state)
 		new_nodes[self.world.name] = get_step_state(self.world, rng_world, graph_state)
 

@@ -238,7 +238,7 @@ class StateFitCallback(BaseCallback):
 
 	def on_training_start(self, config: Config) -> Metric:
 		self._record = config.env.unwrapped._cgraph.trace.episode
-		self._nodes = config.env.unwrapped.graph.nodes_and_agent
+		self._nodes = config.env.unwrapped.graph.nodes_and_root
 		# NOTE: we add [0] to indicate the initial state (before step [0]).
 		self._ts_world = onp.concatenate(([0], config.env.unwrapped._cgraph._isolate["world"]["ts_step"]))
 

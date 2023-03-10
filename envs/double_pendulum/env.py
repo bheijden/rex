@@ -4,6 +4,7 @@ import jumpy.numpy as jp
 from flax import struct
 from flax.core import FrozenDict
 
+from rex.graph import BaseGraph
 from rex.proto import log_pb2
 from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, INTERPRETED, WARN
 from rex.base import StepState, GraphState
@@ -25,14 +26,14 @@ class Params:
 
 @struct.dataclass
 class State:
-	"""Pendulum agent state definition"""
+	"""Pendulum root state definition"""
 	reward: jp.float32
 	starting_step: jp.int32
 
 
 @struct.dataclass
 class Output:
-	"""Pendulum agent output definition"""
+	"""Pendulum root output definition"""
 	action: jp.ndarray
 
 
@@ -41,7 +42,7 @@ class Agent(BaseAgent):
 		super().__init__(*args, **kwargs)
 
 	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
-		"""Default params of the agent."""
+		"""Default params of the root."""
 		return Params(max_torque=jp.float32(8.0),
 		              max_speed=jp.float32(50.0),
 		              max_speed2=jp.float32(50.0),
@@ -49,38 +50,31 @@ class Agent(BaseAgent):
 		              length2=jp.float32(0.1))
 
 	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
-		"""Default state of the agent."""
+		"""Default state of the root."""
 		return State(reward=jp.float32(0.0), starting_step=jp.int32(0))
 
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
-		"""Default output of the agent."""
+		"""Default output of the root."""
 		return Output(action=jp.array([0.0], dtype=jp.float32))
 
 
 class DoublePendulumEnv(BaseEnv):
-	agent_cls = Agent
+	root_cls = Agent
 
 	def __init__(
 			self,
-			nodes: Dict[str, "Node"],
-			agent: Agent,
+			graph: BaseGraph,
 			max_steps: int = 400,  # 4*rate
-			trace: log_pb2.TraceRecord = None,
-			clock: int = SIMULATED,
-			real_time_factor: Union[int, float] = FAST_AS_POSSIBLE,
-			graph: int = INTERPRETED,
 			name: str = "double-pendulum-v0"
 	):
-		# Exclude the node for which this environment is a drop-in replacement (i.e. the agent)
-		nodes = {node.name: node for _, node in nodes.items() if node.name != agent.name}
-		super().__init__(nodes, agent, max_steps, clock, real_time_factor, graph, trace, name=name)
+		super().__init__(graph, max_steps, name=name)
 
 		# Required for step and reset functions
-		assert "world" in nodes, "Double-pendulum environment requires a world node."
-		self.world = nodes["world"]
-		self.agent = agent
-		self.nodes = {node.name: node for _, node in nodes.items() if node.name != self.world.name}
-		self.nodes_world_and_agent = self.graph.nodes_and_agent
+		assert "world" in self.graph.nodes, "Double-pendulum environment requires a world node."
+		self.world = self.graph.nodes["world"]
+		self.agent = self.graph.root
+		self.nodes = {node.name: node for _, node in self.graph.nodes.items() if node.name != self.world.name}
+		self.nodes_world_and_agent = self.graph.nodes_and_root
 
 	def observation_space(self, params: Params = None):
 		"""Observation space of the environment."""
@@ -105,7 +99,8 @@ class DoublePendulumEnv(BaseEnv):
 	def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> GraphState:
 		"""Get the graph state."""
 		# Prepare new graph state
-		starting_step = jumpy.random.randint(rng, shape=(), low=0, high=self._max_starting_step + 1)  # High is never selected.
+		max_starting_step = self.graph.max_starting_step(graph_state, self.max_steps)
+		starting_step = jumpy.random.randint(rng, shape=(), low=0, high=max_starting_step + 1)  # High is never selected.
 		new_nodes = dict()
 		graph_state = GraphState(step=starting_step, nodes=new_nodes)
 
@@ -120,7 +115,7 @@ class DoublePendulumEnv(BaseEnv):
 			state = node.default_state(rng_state, _graph_state)
 			return StepState(rng=rng_step, params=params, state=state, inputs=None)
 
-		# Step_state agent & world (agent must be reset before world, as the world may copy some params from the agent)
+		# Step_state root & world (root must be reset before world, as the world may copy some params from the root)
 		new_nodes[self.agent.name] = get_step_state(self.agent, rng_agent, graph_state)
 		new_nodes[self.world.name] = get_step_state(self.world, rng_world, graph_state)
 

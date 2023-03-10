@@ -158,7 +158,7 @@ class EstimatorEnv(BaseEnv):
 	def __init__(
 			self,
 			nodes: Dict[str, "Node"],
-			agent: Estimator,
+			root: Estimator,
 			trace: log_pb2.TraceRecord,
 			loss_fn: Callable[[GraphState], Any],
 			max_steps: int = 1,
@@ -168,18 +168,18 @@ class EstimatorEnv(BaseEnv):
 	):
 		assert graph_type not in [INTERPRETED]
 
-		# Exclude the node for which this environment is a drop-in replacement (i.e. the agent)
-		nodes = {node.name: node for _, node in nodes.items() if node.name != agent.name}
-		super().__init__(nodes, agent, max_steps, SIMULATED, FAST_AS_POSSIBLE, graph_type, trace, name=name)
+		# Exclude the node for which this environment is a drop-in replacement (i.e. the root)
+		nodes = {node.name: node for _, node in nodes.items() if node.name != root.name}
+		super().__init__(nodes, root, max_steps, SIMULATED, FAST_AS_POSSIBLE, graph_type, trace, name=name)
 
 		# Required for step and reset functions
 		assert "world" in nodes, "Double-pendulum environment requires a world node."
 		self.loss_fn = loss_fn
 		self.world = nodes["world"]
-		self.agent = agent
-		self.estimator = agent
+		self.agent = root
+		self.estimator = root
 		self.nodes = {node.name: node for _, node in nodes.items() if node.name != self.world.name}
-		self.nodes_world_and_agent = self.graph.nodes_and_agent
+		self.nodes_world_and_agent = self.graph.nodes_and_root
 
 	# def sample_starting_step(self, rng: jp.ndarray):
 	# 	return jumpy.random.randint(rng, shape=(), low=0, high=self._max_starting_step + 1)  # High is never selected.
@@ -212,15 +212,15 @@ class EstimatorEnv(BaseEnv):
 		# Define new graph state
 		graph_state = GraphState(nodes=new_nodes, step=starting_step, outputs=outputs)
 
-		# Step_state agent & world (agent must be reset before world, as the world may copy some params from the agent)
-		new_nodes["agent"] = get_step_state(self.nodes["agent"], rng_agent, graph_state)
+		# Step_state root & world (root must be reset before world, as the world may copy some params from the root)
+		new_nodes["root"] = get_step_state(self.nodes["root"], rng_agent, graph_state)
 		new_nodes[self.world.name] = get_step_state(self.world, rng_world, graph_state)
-		new_nodes[self.estimator.name] = get_step_state(self.estimator, rng_estimator, graph_state)  # NOTE: isinstance(self.agent, Estimator)
+		new_nodes[self.estimator.name] = get_step_state(self.estimator, rng_estimator, graph_state)  # NOTE: isinstance(self.root, Estimator)
 
 		# Get new step_state for other nodes in arbitrary order
 		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes) + 1)
 		for (name, n), rng_n in zip(self.nodes.items(), rngs):
-			if name == "agent" or name == self.estimator.name or name == self.world.name:
+			if name == "root" or name == self.estimator.name or name == self.world.name:
 				continue
 			# Replace step state in graph state
 			new_nodes[name] = get_step_state(n, rng_n, graph_state)

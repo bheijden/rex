@@ -10,7 +10,7 @@ def test_node_api():
     world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000))
     sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007))
     observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016))
-    agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
+    agent = DummyAgent("root", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
     actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), advance=False,
                          stateful=True)
     nodes = [world, sensor, observer, agent, actuator]
@@ -34,10 +34,10 @@ def test_node_api():
     reload_nodes = {n.name: n for n in reload_nodes}
 
     # Re-initialize connections with info
-    [n.connect_from_info(nodes[name].info.inputs, reload_nodes) for name, n in reload_nodes.items() if name != "agent"]
+    [n.connect_from_info(nodes[name].info.inputs, reload_nodes) for name, n in reload_nodes.items() if name != "root"]
 
-    # Re-initialize agent connection with info
-    reload_nodes["agent"].connect_from_info(nodes["agent"].info.inputs[0], reload_nodes)
+    # Re-initialize root connection with info
+    reload_nodes["root"].connect_from_info(nodes["root"].info.inputs[0], reload_nodes)
 
     try:
         [n.connect_from_info(nodes[name].info.inputs, reload_nodes) for name, n in reload_nodes.items()]
@@ -61,7 +61,7 @@ def test_node_pickle_reload():
     world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000))
     sensor = DummyNode("sensor", rate=20, delay_sim=GMM([Gaussian(0.007)], [1.0]))
     observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016))
-    agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
+    agent = DummyAgent("root", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
     actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), advance=False,
                          stateful=True)
     nodes = [world, sensor, observer, agent, actuator]

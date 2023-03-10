@@ -13,7 +13,7 @@ import numpy as onp
 world = DummyNode("world", rate=20, delay_sim=Gaussian(0 / 1e3))
 sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(7 / 1e3))
 observer = DummyNode("observer", rate=30, delay_sim=Gaussian(16 / 1e3))
-agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(5 / 1e3, 1 / 1e3), advance=True)
+agent = DummyAgent("root", rate=45, delay_sim=Gaussian(5 / 1e3, 1 / 1e3), advance=True)
 actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), advance=False, stateful=False)
 nodes = [world, sensor, observer, agent, actuator]
 nodes = {n.name: n for n in nodes}
@@ -27,7 +27,7 @@ actuator.connect(agent, blocking=True, delay_sim=Gaussian(3 / 1e3, 1 / 1e3), ski
 world.connect(actuator, blocking=False, delay_sim=Gaussian(4 / 1e3), skip=True, jitter=LATEST)
 
 # Define environment
-env = DummyEnv(nodes, agent=agent, max_steps=200)
+env = DummyEnv(nodes, root=agent, max_steps=200)
 
 # Get initial graph_state
 base_gs = env._get_graph_state(jumpy.random.PRNGKey(0))

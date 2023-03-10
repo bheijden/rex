@@ -11,6 +11,7 @@ import dill as pickle
 import time
 import jax
 import flax.serialization as serialization
+import networkx as nx
 from jax.tree_util import tree_map
 import numpy as onp
 import jumpy
@@ -24,6 +25,9 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.base_class import BaseAlgorithm
 
 import rex.utils as utils
+from rex.graph import Graph
+from rex.compiled_new import CompiledGraph
+
 from rex.plot import plot_graph, plot_computation_graph, plot_grouped, plot_input_thread, plot_event_thread, \
     plot_topological_order, plot_depth_order
 from rex.gmm_estimator import GMMEstimator
@@ -79,9 +83,9 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
     assert hasattr(world, "eval_env"), "World node must have an eval_env attribute"
     world.eval_env = eval_env
 
-    # Define agent
-    agent = env_cls.agent_cls("agent", rate=rates["agent"], advance=True,
-                              delay_sim=delays_sim["step"]["agent"], delay=delays["step"]["agent"])
+    # Define root
+    agent = env_cls.root_cls("agent", rate=rates["agent"], advance=True,
+                             delay_sim=delays_sim["step"]["agent"], delay=delays["step"]["agent"])
     nodes["agent"] = agent
 
     # Connect
@@ -103,7 +107,8 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
     env_name.append("blocking" if blocking else "nonblocking")
     env_name.append("advance" if advance else "noadvance")
     env_name = "_".join(env_name)
-    env = env_cls(nodes, agent=agent, max_steps=max_steps, clock=clock, real_time_factor=real_time_factor, name=env_name)
+    graph = Graph(nodes, root=agent, clock=clock, real_time_factor=real_time_factor)
+    env = env_cls(graph, max_steps=max_steps, name=env_name)
     return env
 
 
@@ -118,7 +123,7 @@ def make_compiled_env(env: PendulumEnv,
         nodes[n.info.name] = pickle.loads(n.info.state)
     [n.unpickle(nodes) for n in nodes.values()]
 
-    # Grab agent
+    # Grab root
     agent: Agent = nodes["agent"]
 
     # Grab world
@@ -198,8 +203,10 @@ def show_communication(record: log_pb2.EpisodeRecord) -> Tuple[plt.Figure, plt.A
     return fig, ax
 
 
-def show_computation_graph(trace_record: log_pb2.TraceRecord, plot_type: str = "computation", xmax: float = 0.6) -> Tuple[
+def show_computation_graph(record: log_pb2.EpisodeRecord, MCS: nx.DiGraph, excludes_inputs: List[str] = None,
+                           plot_type: str = "computation", xmax: float = 0.6) -> Tuple[
     plt.Figure, plt.Axes]:
+    root = "estimator"
     order = ["world", "sensor", "agent", "actuator"]
     cscheme = {"world": "gray", "sensor": "grape", "agent": "teal", "actuator": "indigo", "estimator": "orange"}
 
@@ -209,18 +216,20 @@ def show_computation_graph(trace_record: log_pb2.TraceRecord, plot_type: str = "
 
     if plot_type == "computation":
         ax.set(facecolor=oc.ccolor("gray"), xlabel="time (s)", yticks=[], xlim=[-0.01, 0.3])
-        plot_computation_graph(ax, trace_record, order=order, cscheme=cscheme, xmax=xmax, node_size=200, draw_excluded=True,
-                               draw_stateless=False, draw_nodelabels=True, node_labeltype="tick",
-                               connectionstyle="arc3,rad=0.1")
+        plot_computation_graph(ax, record, root=root, excludes_inputs=excludes_inputs,
+                               order=order, cscheme=cscheme, xmax=xmax, node_size=200,
+                               draw_pruned=True, draw_nodelabels=True, node_labeltype="seq", connectionstyle="arc3,rad=0.1")
     elif plot_type == "topological":
         # Create new plot
         ax.set(facecolor=oc.ccolor("gray"), xlabel="Topological order", yticks=[], xlim=[-1, 20])
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        plot_topological_order(ax, trace_record, xmax=xmax, cscheme=cscheme)
+        plot_topological_order(ax, record, root=root, excludes_inputs=excludes_inputs,
+                               xmax=xmax, cscheme=cscheme, node_labeltype="seq", draw_excess=True, draw_root_excess=False)
     elif plot_type == "depth":
         ax.set(facecolor=oc.ccolor("gray"), xlabel="Depth order", yticks=[], xlim=[-1, 10])
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        plot_depth_order(ax, trace_record, order=order, xmax=xmax, cscheme=cscheme, node_labeltype="tick", draw_excess=True)
+        plot_depth_order(ax, record, root=root, MCS=MCS, excludes_inputs=excludes_inputs,
+                         xmax=xmax, cscheme=cscheme, node_labeltype="seq", draw_excess=True)
 
     # Plot legend
     handles, labels = ax.get_legend_handles_labels()
@@ -265,7 +274,7 @@ def eval_env(env: BaseEnv,
 
     :param env: The environment
     :param policy: A policy to evaluate
-    :param n_eval_episodes: Number of episodes to evaluate the agent
+    :param n_eval_episodes: Number of episodes to evaluate the root
     :param verbose: Whether to print the evaluation results
     :param record_settings: What to record. If None, all is recorded, except the step_states.
     :return: (mean episode reward, std of the reward)
@@ -282,7 +291,7 @@ def eval_env(env: BaseEnv,
     episode_records = log_pb2.ExperimentRecord(environment=pickle.dumps(env.unwrapped))
     record_settings = record_settings or {}
     _record_settings = {}
-    for name in env.graph.nodes_and_agent.keys():
+    for name in env.graph.nodes_and_root.keys():
         # Set default settings
         _record_settings[name] = dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True)
         # Get user provided settings
@@ -306,7 +315,7 @@ def eval_env(env: BaseEnv,
                 env.stop()
 
                 # Save record
-                node_records = [node.record(**_record_settings[name]) for name, node in env.graph.nodes_and_agent.items()]
+                node_records = [node.record(**_record_settings[name]) for name, node in env.graph.nodes_and_root.items()]
                 episode_records.episode.append(log_pb2.EpisodeRecord(node=node_records))
 
                 # Print evaluation
@@ -751,7 +760,7 @@ class RolloutWrapper(object):
             (),
             self.num_env_steps,
         )
-        # Return the sum of rewards accumulated by agent in episode rollout
+        # Return the sum of rewards accumulated by root in episode rollout
         obs, action, reward, next_obs, done = scan_out
         cum_return = carry_out[-2]
         return obs, action, reward, next_obs, done, cum_return

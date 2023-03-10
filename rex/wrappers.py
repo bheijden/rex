@@ -54,7 +54,7 @@ class AutoResetWrapper(Wrapper):
 
         #Auto-reset environment
         assert isinstance(done, bool) or done.ndim < 2, "done must be a scalar or a vector of booleans."
-        rng_re = self.env.graph.agent.get_step_state(graph_state).rng
+        rng_re = self.env.graph.root.get_step_state(graph_state).rng
         graph_state_re, obs_re = self.env.reset(rng_re, graph_state)
 
         def where_done(x, y):
@@ -71,7 +71,7 @@ class AutoResetWrapper(Wrapper):
 class GymWrapper(Wrapper, gym.Env):
     def __init__(self, env):
         super().__init__(env)
-        self._name = self.env.agent.name
+        self._name = self.env.graph.root.name
         self._graph_state: GraphState = None
         self._seed: int = None
         self._rng: jp.ndarray = None
@@ -161,7 +161,7 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
     def __init__(self, env, num_envs: int = 1):
         assert not isinstance(env, GymWrapper), "VecGymWrapper cannot accept an env that is wrapped with a GymWrapper."
         Wrapper.__init__(self, env)
-        self._name = self.unwrapped.agent.name
+        self._name = self.unwrapped.graph.root.name
         self._graph_state: GraphState = None
         self._seed: int = None
         self._rng: jp.ndarray = None

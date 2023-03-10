@@ -21,7 +21,7 @@ def test_wallclock():
     world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000))
     sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007))
     observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016))
-    agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
+    agent = DummyAgent("root", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
     actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), advance=False,
                          stateful=True)
     nodes = [world, sensor, observer, agent, actuator]
@@ -77,12 +77,12 @@ def test_wallclock():
     step_state = agent.observation.popleft().result()  # Retrieve first obs
     for _ in range(num_steps):
         action = agent.default_output(seed)  # NOTE! Re-using the seed here.
-        agent.action[-1].set_result((step_state, action))  # The set result must be the action of the agent.
+        agent.action[-1].set_result((step_state, action))  # The set result must be the action of the root.
         step_state = agent.observation.popleft().result()  # Retrieve observation
     tend = time.time()
 
     # Initiate reset
-    agent.action[-1].cancel()  # Cancel to stop the actions being sent by the agent node.
+    agent.action[-1].cancel()  # Cancel to stop the actions being sent by the root node.
 
     # Stop all ndoes
     fs = [n._stop() for n in nodes]

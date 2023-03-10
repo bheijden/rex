@@ -26,7 +26,7 @@
 #        link: https://matplotlib.org/stable/gallery/lines_bars_and_markers/bar_label_demo.html
 # todo: [TRACE] Add helper functions to modify traces (e.g. remove nodes, add nodes, etc.)
 # todo: [PICKLE] Pickle the nodes inside Inputs as BaseNodes, stripped of any node specifics.
-# todo: [API] Rename "agent" in BaseEnv, Graph, Agent to "RootNode", "Root", "EnvNode", "MainNode", "Supervisor".
+# todo: [API] Rename "root" in BaseEnv, Graph, Agent to "RootNode", "Root", "EnvNode", "MainNode", "Supervisor".
 
 import time
 import jumpy.random as rnd
@@ -47,7 +47,7 @@ c = 1e3
 world = DummyNode("world",           rate=c*120/1e3, delay_sim=Gaussian(0/c))
 sensor = DummyNode("sensor",         rate=c*60/1e3, delay_sim=Gaussian(7/c))
 observer = DummyNode("observer",     rate=c*45/1e3, delay_sim=Gaussian(16/c))
-agent = DummyAgent("agent",          rate=c*45/1e3, delay_sim=Gaussian(5/c, 1/c), advance=True)
+agent = DummyAgent("root",          rate=c*45/1e3, delay_sim=Gaussian(5/c, 1/c), advance=True)
 actuator = DummyNode("actuator",     rate=c*80/1e3, delay_sim=Gaussian(0.5*(c/45)/c, 5/c), advance=False, stateful=False)
 nodes = [world, sensor, observer, agent, actuator]
 
@@ -62,86 +62,82 @@ world.connect(actuator,      blocking=False, delay_sim=Gaussian(4/c), skip=True,
 # Warmup nodes (pre-compile jitted functions)
 [n.warmup() for n in nodes]
 
-# Get PRNG
-seed = rnd.PRNGKey(0)
-rngs = rnd.split(seed, num=len(nodes))
-
 # Start episode
 num_steps = 200
-while True:
-    # Sleep
-    for i in range(72000):
+for i in range(5):
+    # Get PRNG
+    seed = rnd.PRNGKey(i)
+    rngs = rnd.split(seed, num=len(nodes))
+    if not i == 0:
+        # Stop all nodes
+        fs = [n._stop() for n in nodes]
 
-        if not i == 0:
-            # Stop all nodes
-            fs = [n._stop() for n in nodes]
+        # Wait for nodes to have stopped
+        [f.result() for f in fs]
 
-            # Wait for nodes to have stopped
-            [f.result() for f in fs]
+        # Gather record
+        record = log_pb2.EpisodeRecord()
+        [record.node.append(node.record()) for node in nodes]
+        d = {n.info.name: n for n in record.node}
 
-            # Gather record
-            record = log_pb2.EpisodeRecord()
-            [record.node.append(node.record()) for node in nodes]
-            d = {n.info.name: n for n in record.node}
+        print(f"agent_steps={num_steps} | node_steps={[n._i for n in nodes]} | t={(tend - tstart): 2.4f} sec | fps={num_steps / (tend - tstart): 2.4f}")
 
-            print(f"agent_steps={num_steps} | node_steps={[n._i for n in nodes]} | t={(tend - tstart): 2.4f} sec | fps={num_steps / (tend - tstart): 2.4f}")
+        # Trace
+        trace_record = trace(record, "root", -1)
 
-            # Trace
-            trace_record = trace(record, "agent", -1)
+        # Write record to file
+        # with open(f"/home/r2ci/rex/scripts/trace_record_{i}.pb", "wb") as f:
+        #     f.write(trace_record.SerializeToString())
+        with open(f"/home/r2ci/rex/scripts/eps_record_{i}.pb", "wb") as f:
+            f.write(record.SerializeToString())
 
-            # Write record to file
-            with open(f"/home/r2ci/rex/scripts/trace_record_{i}.pb", "wb") as f:
-                f.write(trace_record.SerializeToString())
-            with open(f"/home/r2ci/rex/scripts/eps_record_{i}.pb", "wb") as f:
-                f.write(record.SerializeToString())
+        # Plot progress
+        # plot_graph(trace_record)
+        # plot_delay(d)
+        # plot_grouped(d)
+        # plot_threads(d)
 
-            # Plot progress
-            plot_graph(trace_record)
-            plot_delay(d)
-            plot_grouped(d)
-            plot_threads(d)
+    # Set the run modes
+    real_time_factor, scheduling, clock, sync = FAST_AS_POSSIBLE, PHASE, SIMULATED, SYNC
 
-        # Set the run modes
-        real_time_factor, scheduling, clock, sync = FAST_AS_POSSIBLE, PHASE, SIMULATED, SYNC
+    # Show effect real-time factor
+    real_time_factor, scheduling, clock, sync = FAST_AS_POSSIBLE, PHASE, SIMULATED, SYNC
+    # real_time_factor, scheduling, clock, sync = 20, PHASE, WALL_CLOCK, ASYNC
 
-        # Show effect real-time factor
-        real_time_factor, scheduling, clock, sync = FAST_AS_POSSIBLE, PHASE, SIMULATED, SYNC
-        # real_time_factor, scheduling, clock, sync = 20, PHASE, WALL_CLOCK, ASYNC
+    # Get graph state
+    def reset_node(node, rng):
+        rng_params, rng_state, rng_inputs, rng_step, rng_reset = jumpy.random.split(rng, num=5)
+        params = node.default_params(rng_params)
+        state = node.default_state(rng_state)
+        inputs = node.default_inputs(rng_inputs)
+        node.reset(rng_reset)
+        return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
-        # Get graph state
-        def reset_node(node, rng):
-            rng_params, rng_state, rng_inputs, rng_step, rng_reset = jumpy.random.split(rng, num=5)
-            params = node.default_params(rng_params)
-            state = node.default_state(rng_state)
-            inputs = node.default_inputs(rng_inputs)
-            node.reset(rng_reset)
-            return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
+    node_ss = {n.name: reset_node(n, rng) for n, rng in zip(nodes, rngs)}
+    graph_state = GraphState(step=0, nodes=node_ss)
 
-        node_ss = {n.name: reset_node(n, rng) for n, rng in zip(nodes, rngs)}
-        graph_state = GraphState(step=0, nodes=node_ss)
+    # Reset nodes (Allows setting the run mode)
+    [n._reset(graph_state, real_time_factor=real_time_factor, clock=clock) for rng, n in zip(rngs, nodes)]
 
-        # Reset nodes (Allows setting the run mode)
-        [n._reset(graph_state, real_time_factor=real_time_factor, clock=clock) for rng, n in zip(rngs, nodes)]
+    # An additional reset is required when running async (futures, etc..)
+    agent._agent_reset()
 
-        # An additional reset is required when running async (futures, etc..)
-        agent._agent_reset()
+    # Check that all nodes have the same episode counter
+    assert len({n.eps for n in nodes}) == 1, "All nodes must have the same episode counter"
+    print(f"READY | eps={i}")
 
-        # Check that all nodes have the same episode counter
-        assert len({n.eps for n in nodes}) == 1, "All nodes must have the same episode counter"
-        print(f"READY | eps={i}")
+    # Start nodes (provide same starting timestamp to every node)
+    start = time.time()
+    [n._start(start=start) for n in nodes]
 
-        # Start nodes (provide same starting timestamp to every node)
-        start = time.time()
-        [n._start(start=start) for n in nodes]
+    # Simulate
+    tstart = time.time()
+    step_state = agent.observation.popleft().result()  # Retrieve first obs
+    for _ in range(num_steps+i):
+        action = agent.default_output(seed)  # NOTE! Re-using the seed here.
+        agent.action[-1].set_result((step_state, action))  # The set result must be the action of the root.
+        step_state = agent.observation.popleft().result()  # Retrieve observation
+    tend = time.time()
 
-        # Simulate
-        tstart = time.time()
-        step_state = agent.observation.popleft().result()  # Retrieve first obs
-        for _ in range(num_steps):
-            action = agent.default_output(seed)  # NOTE! Re-using the seed here.
-            agent.action[-1].set_result((step_state, action))  # The set result must be the action of the agent.
-            step_state = agent.observation.popleft().result()  # Retrieve observation
-        tend = time.time()
-
-        # Initiate reset
-        agent.action[-1].cancel()  # Cancel to stop the actions being sent by the agent node.
+    # Initiate reset
+    agent.action[-1].cancel()  # Cancel to stop the actions being sent by the root node.

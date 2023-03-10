@@ -95,7 +95,7 @@ def make_chunk(nodes: Dict[str, "Node"], steptrace: log_pb2.TracedStep, steps: L
         # Update to next chunk index
         new_graph_state = graph_state.replace(step=jp.int32(chunk_index))  # Increment here?
 
-        # Return new graph state, timestamp and step state of the node that was used to split the trace (usually the agent's)
+        # Return new graph state, timestamp and step state of the node that was used to split the trace (usually the root's)
         return new_graph_state, ts_step, new_graph_state.nodes[name]
 
     return _chunk
@@ -160,9 +160,9 @@ def make_graph_step(chunks: Dict[int, SplitOutput], start_index: int, end_index:
 
 
 class SequentialGraph(BaseGraph):
-    def __init__(self, nodes: Dict[str, "Node"],  trace: log_pb2.TraceRecord, agent: Agent, max_steps: int):
+    def __init__(self, nodes: Dict[str, "Node"], trace: log_pb2.TraceRecord, root: Agent, max_steps: int):
         # Split trace into chunks
-        splitter = make_splitter(nodes, trace, agent.name)
+        splitter = make_splitter(nodes, trace, root.name)
         self.chunks = {i: d for i, d in enumerate(splitter)}
         self.trace = trace
         self.max_steps = max_steps if max_steps is not None else len(self.chunks)-1
@@ -174,7 +174,7 @@ class SequentialGraph(BaseGraph):
         # Compile step
         self.__step = make_graph_step(self.chunks, 0, self.max_steps)
 
-        super().__init__(agent=agent)
+        super().__init__(root=root)
 
     def reset(self, graph_state: GraphState) -> Tuple[GraphState, jp.float32, Any]:
         next_graph_state, next_ts_step, next_step_state = self.__reset(graph_state)

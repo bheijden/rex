@@ -31,14 +31,14 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
             graph_state, obs = env_reset(jumpy.random.PRNGKey(seed))
             gs_lst.append(graph_state)
             obs_lst.append(obs)
-            ss_lst.append(graph_state.nodes["agent"])
+            ss_lst.append(graph_state.nodes["root"])
 
         # Initial step (warmup)
         with timer(f"{name} | jit step", log_level=WARN):
             graph_state, obs, reward, done, info = env_step(graph_state, None)
             obs_lst.append(obs)
             gs_lst.append(graph_state)
-            ss_lst.append(graph_state.nodes["agent"])
+            ss_lst.append(graph_state.nodes["root"])
 
         # Run environment
         tstart = time.time()
@@ -48,7 +48,7 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
             graph_state, obs, reward, done, info = env_step(graph_state, None)
             obs_lst.append(obs)
             gs_lst.append(graph_state)
-            ss_lst.append(graph_state.nodes["agent"])
+            ss_lst.append(graph_state.nodes["root"])
             eps_steps += 1
             if done:
                 # Time env stopping
@@ -67,7 +67,7 @@ if __name__ == "__main__":
     world = DummyNode("world", rate=20, delay_sim=Gaussian(0/1e3))
     sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(7/1e3))
     observer = DummyNode("observer", rate=30, delay_sim=Gaussian(16/1e3))
-    agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(5/1e3, 1/1e3), advance=True)
+    agent = DummyAgent("root", rate=45, delay_sim=Gaussian(5/1e3, 1/1e3), advance=True)
     actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1/45), advance=False, stateful=False)
     nodes = [world, sensor, observer, agent, actuator]
     nodes = {n.name: n for n in nodes}
@@ -85,7 +85,7 @@ if __name__ == "__main__":
 
     # Create environment
     max_steps = 200
-    env = DummyEnv(nodes, agent=agent, max_steps=max_steps, sync=SYNC, clock=SIMULATED, scheduling=PHASE,
+    env = DummyEnv(nodes, root=agent, max_steps=max_steps, sync=SYNC, clock=SIMULATED, scheduling=PHASE,
                    real_time_factor=FAST_AS_POSSIBLE)
 
     # Evaluate async env
@@ -97,8 +97,8 @@ if __name__ == "__main__":
     r = {n.info.name: n for n in record.node}
 
     # Trace
-    trace_all = trace(record, "agent", -1)
-    trace_opt = trace(record, "agent", -1)
+    trace_all = trace(record, "root", -1)
+    trace_opt = trace(record, "root", -1)
 
     # Write record to file
     # with open(f"/home/r2ci/rex/scripts/record_{i}.pb", "wb") as f:
@@ -113,8 +113,8 @@ if __name__ == "__main__":
         plot_threads(r)
 
     # Compile environments
-    env_all = DummyEnv(nodes, agent=agent, max_steps=max_steps, trace=trace_opt)
-    env_opt = DummyEnv(nodes, agent=agent, max_steps=max_steps, trace=trace_opt)
+    env_all = DummyEnv(nodes, root=agent, max_steps=max_steps, trace=trace_opt)
+    env_opt = DummyEnv(nodes, root=agent, max_steps=max_steps, trace=trace_opt)
 
     # Evaluate compiled envs
     gs_all, obs_all, ss_all = evaluate(env_all, name="all", backend="numpy", use_jit=False, seed=0)
@@ -145,7 +145,7 @@ if __name__ == "__main__":
     gs = jax.tree_map(lambda *args: args, gs_async, gs_opt, gs_all)
     ss = jax.tree_map(lambda *args: args, ss_async, ss_opt, ss_all)
 
-    # Compare observations and agent step states
+    # Compare observations and root step states
     jax.tree_map(compare, obs_async, obs_opt, obs_all)
     jax.tree_map(compare, ss_all, ss_opt, ss_all)
     print("finished")

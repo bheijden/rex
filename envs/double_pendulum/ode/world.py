@@ -171,11 +171,11 @@ class World(Node):
 
 	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
 		"""Default params of the node."""
-		if graph_state is None or graph_state.nodes.get("agent", None) is None:
+		if graph_state is None or graph_state.nodes.get("root", None) is None:
 			max_torque, max_speed, max_speed2 = jp.float32(8.0), jp.float32(50.0), jp.float32(50.0)
 			length, length2 = jp.float32(0.1), jp.float32(0.1)
 		else:
-			agent_params = graph_state.nodes["agent"].params
+			agent_params = graph_state.nodes["root"].params
 			max_torque = agent_params.max_torque
 			max_speed, max_speed2 = agent_params.max_speed, agent_params.max_speed2
 			length, length2 = agent_params.length, agent_params.length2

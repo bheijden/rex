@@ -27,6 +27,7 @@ import time
 import rex
 from rex.proto import log_pb2
 from rex.env import BaseEnv
+from rex.tracer_new import get_network_record
 from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, SEQUENTIAL, WARN, REAL_TIME, \
 	ASYNC, WALL_CLOCK, SCHEDULING_MODES, JITTER_MODES, CLOCK_MODES, GRAPH_MODES, VECTORIZED
 from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
@@ -133,15 +134,14 @@ if __name__ == "__main__":
 	# record_world = [n for n in record.node if n.info.name == "world"][0]
 
 	# Trace
-	from rex.tracer import trace
-	record_trace = trace(record, "estimator", excludes_inputs=excludes_inputs, sort="depth")  # todo: "topological" --> results in topological order assertion error. Probably harmless
+	record_trace, MCS, G, G_subgraphs = get_network_record(record, "estimator", split_mode="generational", excludes_inputs=excludes_inputs)
 
 	# Only show
 	if SHOW_PLOTS:
 		# Plot
-		fig_cg, _ = exp.show_computation_graph(record_trace, plot_type="computation", xmax=2.0)
-		fig_dp, _ = exp.show_computation_graph(record_trace, plot_type="depth", xmax=2.0)
-		fig_tp, _ = exp.show_computation_graph(record_trace, plot_type="topological", xmax=2.0)
+		fig_cg, _ = exp.show_computation_graph(record, MCS, excludes_inputs=excludes_inputs, plot_type="computation", xmax=2.0)
+		fig_dp, _ = exp.show_computation_graph(record, MCS, excludes_inputs=excludes_inputs, plot_type="depth", xmax=2.0)
+		fig_tp, _ = exp.show_computation_graph(record, MCS, excludes_inputs=excludes_inputs, plot_type="topological", xmax=2.0)
 		# fig_com, _ = exp.show_communication(record_eps)
 		# fig_grp, _ = exp.show_grouped(record_eps.node[-1], "state")
 		plt.show()

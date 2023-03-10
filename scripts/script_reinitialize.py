@@ -252,14 +252,14 @@ if __name__ == "__main__":
 			print(f"Saved distributions to {log_dir}/{name}-gmms-{num_components}comps.pkl")
 
 	if SHOW_PLOTS:
-		t = trace(exp_record.episode[0], "agent")
+		t = trace(exp_record.episode[0], "root")
 
 		data = RecordHelper(exp_record, t)
 
 		# Plot delays
 		from rex.open_colors import cscheme_fn
 
-		cscheme = {"agent": "blue", "sensor": "grape", "world": "green", "render": "orange", "actuator": "yellow"}
+		cscheme = {"root": "blue", "sensor": "grape", "world": "green", "render": "orange", "actuator": "yellow"}
 		ecolor, fcolor = cscheme_fn(cscheme)
 
 		fig, axes = plt.subplots(nrows=3, ncols=2)
@@ -281,7 +281,7 @@ if __name__ == "__main__":
 		fig, axes = plt.subplots(6)
 		if is_state_dict:
 			for e in range(data._data_stacked["sensor"]["outputs"]["cos_th"].shape[0]):
-				axes[0].plot(data._data_stacked["agent"]["outputs"].action[e])
+				axes[0].plot(data._data_stacked["root"]["outputs"].action[e])
 				# axes[0].plot(data._data_stacked["actuator"]["step_states"].inputs["action"].data.action[e, :, 0, 0], color="red")
 				axes[1].plot(data._data_stacked["sensor"]["outputs"]["cos_th"][e])
 				# axes[1].plot(data._data_stacked["sensor"]["outputs"]["th_enc"][e])
@@ -291,7 +291,7 @@ if __name__ == "__main__":
 				axes[2].plot(data._data_stacked["sensor"]["outputs"]["thdot"][e])
 		else:
 			for e in range(data._data_stacked["sensor"]["outputs"].cos_th.shape[0]):
-				action = data._data_stacked["agent"]["outputs"].action[e]
+				action = data._data_stacked["root"]["outputs"].action[e]
 				cos_th = data._data_stacked["sensor"]["outputs"].cos_th[e]
 				sin_th = data._data_stacked["sensor"]["outputs"].sin_th[e]
 				th = onp.arctan2(sin_th, cos_th)

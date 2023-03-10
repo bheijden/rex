@@ -58,7 +58,7 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
 			graph_state, obs = env_reset(rng)
 			gs_lst.append(graph_state)
 			obs_lst.append(obs)
-			ss_lst.append(graph_state.nodes["agent"])
+			ss_lst.append(graph_state.nodes["root"])
 
 			tstart = time.time()
 			eps_steps = 0
@@ -66,7 +66,7 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
 				graph_state, obs, reward, done, info = env_step(graph_state, action)
 				obs_lst.append(obs)
 				gs_lst.append(graph_state)
-				ss_lst.append(graph_state.nodes["agent"])
+				ss_lst.append(graph_state.nodes["root"])
 				eps_steps += 1
 				# done = done[0] if vmap > 1 else done
 				if done[0]:
@@ -88,7 +88,7 @@ if __name__ == "__main__":
 
 	# Define nodes
 	world = World("world", rate=20)
-	agent = Agent("agent", rate=20)
+	agent = Agent("root", rate=20)
 	nodes = {n.name: n for n in [world, agent]}
 
 	# Connect
@@ -100,9 +100,9 @@ if __name__ == "__main__":
 
 	# Create trace environment
 	trace_steps = 100
-	trace_env = PendulumEnv(nodes, agent=agent, max_steps=trace_steps, clock=SIMULATED, real_time_factor=FAST_AS_POSSIBLE)
+	trace_env = PendulumEnv(nodes, root=agent, max_steps=trace_steps, clock=SIMULATED, real_time_factor=FAST_AS_POSSIBLE)
 	# trace_env, nodes = build_dummy_env()
-	# agent = nodes["agent"]
+	# root = nodes["root"]
 
 	# Evaluate async env
 	gs_trace, obs_trace, ss_trace = evaluate(trace_env, name="trace_env", backend="numpy", use_jit=False, seed=0)
@@ -113,7 +113,7 @@ if __name__ == "__main__":
 	r = {n.info.name: n for n in record.node}
 
 	# Trace
-	trace_record = trace(record, "agent")
+	trace_record = trace(record, "root")
 
 	# Settings
 	use_jit = True
@@ -134,8 +134,8 @@ if __name__ == "__main__":
 
 	# Create compiled environment
 	max_steps = trace_steps
-	env = PendulumEnv(nodes, agent=agent, max_steps=max_steps, trace=trace_record, graph=graph_type)
-	# env = DummyEnv(nodes, agent=agent, max_steps=max_steps, trace=trace_record, graph=graph_type)
+	env = PendulumEnv(nodes, root=agent, max_steps=max_steps, trace=trace_record, graph=graph_type)
+	# env = DummyEnv(nodes, root=root, max_steps=max_steps, trace=trace_record, graph=graph_type)
 
 	# Evaluate async env
 	gs, obs, ss = evaluate(env, name=name, backend=backend, use_jit=use_jit, seed=0, vmap=vmap, device=device, num_eps=30)
@@ -169,7 +169,7 @@ if __name__ == "__main__":
 		# else:
 	plt.show()
 
-	# Compare observations and agent step states
+	# Compare observations and root step states
 	# jax.tree_map(compare, obs_trace, obs)
 	# jax.tree_map(compare, ss_trace, ss)
 

@@ -209,7 +209,7 @@ class ExperimentManager:
             env.close()
             return None
         else:
-            # Train an agent from scratch
+            # Train an root from scratch
             model = ALGOS[self.algo](
                 env=env,
                 tensorboard_log=self.tensorboard_log,
@@ -269,7 +269,7 @@ class ExperimentManager:
             model.save_replay_buffer(os.path.join(self.save_path, "replay_buffer.pkl"))
 
         if self.normalize:
-            # Important: save the running average, for testing the agent we need that normalization
+            # Important: save the running average, for testing the root we need that normalization
             model.get_vec_normalize_env().save(os.path.join(self.params_path, "vecnormalize.pkl"))
 
     def _save_config(self, saved_hyperparams: Dict[str, Any]) -> None:
@@ -677,7 +677,7 @@ class ExperimentManager:
 
     def _load_pretrained_agent(self, hyperparams: Dict[str, Any], env: VecEnv) -> BaseAlgorithm:
         # Continue training
-        print("Loading pretrained agent")
+        print("Loading pretrained root")
         # Policy should not be changed
         del hyperparams["policy"]
 

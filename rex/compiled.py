@@ -410,8 +410,8 @@ def make_graph_reset(nodes: Dict[str, "Node"], trace: log_pb2.TraceRecord, name:
     batch_nodes = {node_name: node for node_name, node in nodes.items() if (node_name not in trace.pruned)}
     batch_outputs = {name: {i.input_name: i.output.name for i in n.inputs if i.output.name not in trace.pruned} for name, n in batch_nodes.items()}
 
-    # Prepare inputs update function isolated node (e.g. agent).
-    max_step = isolate["agent"]["tick"].shape[0]
+    # Prepare inputs update function isolated node (e.g. root).
+    max_step = isolate[name]["tick"].shape[0]
     isolate_outputs = dict()
     for node_info in trace.node:
         if node_info.name != name:
@@ -431,7 +431,7 @@ def make_graph_reset(nodes: Dict[str, "Node"], trace: log_pb2.TraceRecord, name:
                 max_window = nodes[node_name].output.max_window
 
                 # Sample rngs for outputs, and replace node rng.
-                new_rng, *rngs_out = jumpy.random.split(graph_state.nodes[name].rng, num=1 + max_window)
+                new_rng, *rngs_out = jumpy.random.split(graph_state.nodes[node_name].rng, num=1 + max_window)
                 new_nodes[node_name] = graph_state.nodes[node_name].replace(rng=new_rng)
 
                 # Overwrite outputs from [-max_win, ..., -1] with default. (This is usually the case for training)
@@ -473,7 +473,7 @@ def make_graph_reset(nodes: Dict[str, "Node"], trace: log_pb2.TraceRecord, name:
 
 
 def make_graph_step(trace: log_pb2.TraceRecord, name: str, isolate: Timings, run_chunk: Callable):
-    max_step = isolate["agent"]["tick"].shape[0]
+    max_step = isolate[name]["tick"].shape[0]
 
     # Infer stateful nodes
     stateful = None
@@ -517,20 +517,20 @@ def make_graph_step(trace: log_pb2.TraceRecord, name: str, isolate: Timings, run
 
 
 class CompiledGraph(BaseGraph):
-    def __init__(self, nodes: Dict[str, "Node"],  trace: log_pb2.TraceRecord, agent: Agent, graph_type: int = SEQUENTIAL):
-        super().__init__(agent=agent, nodes=nodes)
+    def __init__(self, nodes: Dict[str, "Node"], trace: log_pb2.TraceRecord, root: Agent, graph_type: int = SEQUENTIAL):
+        super().__init__(root=root, nodes=nodes)
 
         # Split trace into chunks
         depths = make_depth_grouping(trace, graph=graph_type)
-        timings = make_timings(self.nodes_and_agent, trace, depths)
-        default_outputs = make_default_outputs(self.nodes_and_agent, timings)
+        timings = make_timings(self.nodes_and_root, trace, depths)
+        default_outputs = make_default_outputs(self.nodes_and_root, timings)
         chunks, substeps, isolate = make_splitter(trace, timings, depths)
 
         # Make chunk runner
-        run_chunk = make_run_chunk(self.nodes_and_agent, trace, timings, chunks, substeps, graph=graph_type)
+        run_chunk = make_run_chunk(self.nodes_and_root, trace, timings, chunks, substeps, graph=graph_type)
 
         # Make compiled reset function
-        self.__reset = make_graph_reset(self.nodes_and_agent, trace, trace.name, default_outputs, isolate, run_chunk)
+        self.__reset = make_graph_reset(self.nodes_and_root, trace, trace.name, default_outputs, isolate, run_chunk)
 
         # make compiled step function
         self.__step = make_graph_step(trace, trace.name, isolate, run_chunk)
@@ -548,7 +548,7 @@ class CompiledGraph(BaseGraph):
 
     def __getstate__(self):
         trace_str = self.trace.SerializeToString()
-        args, kwargs = (), dict(nodes=self.nodes, trace_str=trace_str, agent=self.agent)
+        args, kwargs = (), dict(nodes=self.nodes, trace_str=trace_str, agent=self.root)
         return args, kwargs
 
     def __setstate__(self, state):

@@ -133,6 +133,28 @@ def dynamic_slice(
         return operand[slices]
 
 
+def dynamic_update_slice(
+        operand: X, update: X, start_indices: Sequence[int], copy: bool = True,
+) -> X:
+    """Dynamic update of ``operand`` with ``update`` at per-dimension ``start_indices``.
+
+    The operand must have the same shape as update and the length of start_indices must be
+    the same as the rank of operand.
+
+    Has the semantics of the following Python::
+    """
+    if jumpy.core.is_jitted() or jumpy.core.which_np(operand, update, start_indices) is jnp:
+        return jax.lax.dynamic_update_slice(operand, update, jnp.array(start_indices, dtype=jp.int32))
+    else:
+        if copy:
+            operand = onp.copy(operand)
+        slices = tuple(
+            slice(start, start + size) for start, size in zip(start_indices, update.shape)
+        )
+        operand[slices] = update
+        return operand
+
+
 def index_update(x: jp.ndarray, idx: jp.ndarray, y: jp.ndarray, copy: bool = True) -> jp.ndarray:
     """Pure equivalent of x[idx] = y."""
     if jumpy.core.which_np(x, idx, y) is jnp:

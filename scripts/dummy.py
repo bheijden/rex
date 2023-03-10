@@ -1,18 +1,23 @@
 from typing import Any, Dict, Tuple, Union
+
+import networkx as nx
+
 import jumpy
 import jumpy.numpy as jp
 from flax import struct
 from flax.core import FrozenDict
 
-from rex.tracer import trace
 from rex.distributions import Gaussian
 from rex.proto import log_pb2
-from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, INTERPRETED, LATEST, BUFFER, SEQUENTIAL
+from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, LATEST, BUFFER
 from rex.base import InputState, StepState, GraphState
 from rex.env import BaseEnv
 from rex.node import Node
 from rex.agent import Agent
 from rex.spaces import Box
+from rex.graph import BaseGraph, Graph
+from rex.compiled_new import CompiledGraph
+from rex.tracer_new import get_network_record, get_timings_from_network_record
 
 
 def build_dummy_compiled_env() -> Tuple["DummyEnv", "DummyEnv", Dict[str, Node]]:
@@ -29,24 +34,31 @@ def build_dummy_compiled_env() -> Tuple["DummyEnv", "DummyEnv", Dict[str, Node]]
 			graph_state, obs, reward, done, info = env.step(graph_state, action)
 	env.stop()
 
-	# Trace record
-	record = log_pb2.EpisodeRecord()
-	[record.node.append(node.record()) for node in nodes.values()]
-	trace_record = trace(record, "agent")
+	# Get episode record with timings
+	record = env.graph.get_episode_record()
+
+	# Trace computation graph
+	trace_mcs, MCS, G, G_subgraphs = get_network_record(record, "agent", -1)
+	timings = get_timings_from_network_record(trace_mcs, G, G_subgraphs)
+
+	# Define compiled graph
+	graph = CompiledGraph(nodes=nodes, root=nodes["agent"], MCS=MCS, default_timings=timings)
 
 	# Create traced environment
-	env_traced = DummyEnv(nodes, agent=env.agent, max_steps=env.max_steps, trace=trace_record, graph=SEQUENTIAL)
-	return env_traced, env, nodes
+	env_mcs = DummyEnv(graph=graph, max_steps=env.max_steps, name="dummy_env_mcs")
+	return env_mcs, env, nodes
 
 
-def build_dummy_env() -> Tuple["DummyEnv", Dict[str, Node]]:
+def build_dummy_env() -> Tuple["DummyEnv", Dict[str, Union[Agent, Node]]]:
 	nodes = build_dummy_graph()
 	agent: DummyAgent = nodes["agent"]  # type: ignore
-	env = DummyEnv(nodes, agent=agent, max_steps=100, clock=SIMULATED, real_time_factor=FAST_AS_POSSIBLE)
+	graph = Graph(nodes, root=agent, clock=SIMULATED, real_time_factor=FAST_AS_POSSIBLE)
+	env = DummyEnv(graph=graph, max_steps=100, name="dummy_env")
 	return env, nodes
 
 
 def build_dummy_graph() -> Dict[str, Node]:
+	# todo: set agent (and, optionally, actuator) rate to 5, and we deadlock.
 	# Create nodes
 	world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000))
 	sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007))
@@ -105,14 +117,6 @@ class DummyNode(Node):
 		seqs_sum = jp.int32(0)
 		return DummyOutput(seqs_sum=seqs_sum, dummy_1=jp.array([0.0, 1.0], dtype=jp.float32))
 
-	# def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-	# 	"""Reset the node."""
-	# 	rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
-	# 	params = self.default_params(rng_params, graph_state)
-	# 	state = self.default_state(rng_state, graph_state)
-	# 	inputs = self.default_inputs(rng_inputs, graph_state)
-	# 	return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
-
 	def step(self, step_state: StepState) -> Tuple[StepState, DummyOutput]:
 		"""Step the node."""
 		# Unpack StepState
@@ -158,7 +162,7 @@ class DummyNode(Node):
 class DummyAgent(Agent):
 
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyOutput:
-		"""Default output of the agent."""
+		"""Default output of the root."""
 		# if graph_state is not None:
 		# 	seqs_sum = graph_state.nodes[self.name].state.seqs_sum
 		# else:
@@ -167,25 +171,11 @@ class DummyAgent(Agent):
 
 
 class DummyEnv(BaseEnv):
-	def __init__(
-			self,
-			nodes: Dict[str, "Node"],
-			agent: DummyAgent,
-			max_steps: int = 100,
-			trace: log_pb2.TraceRecord = None,
-			clock: int = SIMULATED,
-			real_time_factor: Union[int, float] = FAST_AS_POSSIBLE,
-			graph: int = INTERPRETED,
-			name: str = "DummyEnv",
-	):
-		# Exclude the node for which this environment is a drop-in replacement (i.e. the agent)
-		nodes = {node.name: node for _, node in nodes.items() if node.name != agent.name}
-
-		# Required for step and reset functions
-		self.agent = agent
-		self.nodes = nodes
-		super().__init__(nodes, agent, max_steps, clock, real_time_factor, graph, trace, name=name)
-		self.nodes_and_agent = self.graph.nodes_and_agent
+	def __init__(self, graph: BaseGraph, max_steps: int = 100, name: str = "DummyEnv"):
+		super().__init__(graph=graph, max_steps=max_steps, name=name)
+		self.agent = self.graph.root
+		self.nodes = self.graph.nodes
+		self.nodes_and_root = self.graph.nodes_and_root
 
 	def _is_terminal(self, graph_state: GraphState) -> bool:
 		return graph_state.step >= self.max_steps
@@ -204,7 +194,7 @@ class DummyEnv(BaseEnv):
 		new_nodes = dict()
 
 		# ***DO SOMETHING WITH graph_state TO RESET ALL NODES***
-		# Reset agent node (for which this environment is a drop-in replacement)
+		# Reset root node (for which this environment is a drop-in replacement)
 		rng, rng_agent = jumpy.random.split(rng, num=2)
 
 		# Get new step_state
@@ -215,7 +205,7 @@ class DummyEnv(BaseEnv):
 			state = node.default_state(rng_state, _graph_state)
 			return StepState(rng=rng_step, params=params, state=state, inputs=None)
 
-		# Get agent step state first
+		# Get root step state first
 		new_nodes[self.agent.name] = get_step_state(self.agent, rng_agent, graph_state)
 
 		# Get new step_state for other nodes in arbitrary order
@@ -225,8 +215,8 @@ class DummyEnv(BaseEnv):
 			new_nodes[name] = get_step_state(n, rng_n, graph_state)
 
 		# Reset nodes
-		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_and_agent) + 1)
-		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_and_agent.values(), rngs)]
+		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_and_root) + 1)
+		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_and_root.values(), rngs)]
 		# ***DO SOMETHING WITH graph_state TO RESET ALL NODES***
 		return GraphState(step=jp.int32(0), nodes=FrozenDict(new_nodes))
 

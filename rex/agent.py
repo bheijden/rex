@@ -17,7 +17,7 @@ class Agent(Node):
         super().__init__(*args, **kwargs)
 
     def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
-        """Default output of the agent."""
+        """Default output of the root."""
         raise NotImplementedError
 
     # def default_inputs(self, rng: jp.ndarray, graph_state: GraphState = None) -> Dict[str, InputState]:
@@ -25,7 +25,7 @@ class Agent(Node):
     #     return super().default_inputs(rng, graph_state)
 
     def get_step_state(self, graph_state: GraphState) -> StepState:
-        """Get the step state of the agent."""
+        """Get the step state of the root."""
         return graph_state.nodes[self.name]
 
     @property

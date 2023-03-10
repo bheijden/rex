@@ -27,8 +27,8 @@ if __name__ == "__main__":
 	ax.set(facecolor=oc.ccolor("gray"),yticks=[], xticks=[])
 
 	# Draw graph
-	pos = {"world": (0, 0), "sensor": (1.5, 0), "observer": (3, 0), "agent": (4.5, 0)}
-	cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
+	pos = {"world": (0, 0), "sensor": (1.5, 0), "observer": (3, 0), "root": (4.5, 0)}
+	cscheme = {"sensor": "grape", "observer": "pink", "root": "teal", "actuator": "indigo"}
 	plot_graph(ax, record, cscheme=cscheme, pos=pos)
 
 	# Plot legend

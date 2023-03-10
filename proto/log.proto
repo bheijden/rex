@@ -173,3 +173,13 @@ message Serialization {
     bytes target = 1; // Template object (pickled) with state-dict registrations that matches the structure being deserialized from `encoded_bytes`.
     repeated bytes encoded_bytes = 2; // Encoded bytes (each element in the list can be reconstructed to target).
 }
+
+message NetworkRecord{
+    repeated EpisodeRecord episode = 1;
+    string root = 2; // Root node
+    uint32 seq = 3; // Sequence number
+    string split_mode = 4; // Split mode (e.g. `topological_generation`)
+    bytes motifs = 5; // Motifs (pickled dict[root_seq, networkx.DiGraph])
+    bytes MCS = 6; // Minimum common (monomorphic) supergraph incl. root in last generation (pickled networkx.DiGraph)
+//    bytes MCS_root = 7; // Minimum common (monomorphic) supergraph incl. root in last generation (pickled networkx.DiGraph)
+}

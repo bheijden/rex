@@ -27,7 +27,7 @@ def _plot(new_record):
     fig.set_size_inches(12, 5)
     ax.set(facecolor=oc.ccolor("gray"), xlabel="Depth order", yticks=[], xlim=[-1, 10])
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-    cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
+    cscheme = {"sensor": "grape", "observer": "pink", "root": "teal", "actuator": "indigo"}
 
     plot_depth_order(ax, new_record, xmax=0.6, cscheme=cscheme, node_labeltype="tick", draw_excess=True)
 
@@ -54,7 +54,7 @@ if __name__ == "__main__":
     world = DummyNode.from_info(d["world"].info)
     sensor = DummyNode.from_info(d["sensor"].info)
     observer = DummyNode.from_info(d["observer"].info)
-    agent = DummyAgent.from_info(d["agent"].info)
+    agent = DummyAgent.from_info(d["root"].info)
     actuator = DummyNode.from_info(d["actuator"].info)
     nodes = [world, sensor, observer, agent, actuator]
     nodes = {n.name: n for n in nodes}
@@ -62,21 +62,21 @@ if __name__ == "__main__":
     # Re-initialize connections
     sensor.connect_from_info(inputs["sensor"]["world"].info, world)
     observer.connect_from_info(inputs["observer"]["sensor"].info, sensor)
-    observer.connect_from_info(inputs["observer"]["agent"].info, agent)
-    agent.connect_from_info(inputs["agent"]["observer"].info, observer)
-    actuator.connect_from_info(inputs["actuator"]["agent"].info, agent)
+    observer.connect_from_info(inputs["observer"]["root"].info, agent)
+    agent.connect_from_info(inputs["root"]["observer"].info, observer)
+    actuator.connect_from_info(inputs["actuator"]["root"].info, agent)
     world.connect_from_info(inputs["world"]["actuator"].info, actuator)
 
     # Split trace into chunks
     eps_record = record.episode
-    new_record = trace(record.episode, "agent", -1, isolate=True)
+    new_record = trace(record.episode, "root", -1, isolate=True)
 
     # Plot
     # _plot(new_record)
 
     # Create environment
-    # env = DummyEnv(nodes, agent=agent, max_steps=200, sync=SYNC, clock=SIMULATED, scheduling=PHASE, real_time_factor=FAST_AS_POSSIBLE)
-    # env = DummyEnv(nodes, agent=agent, max_steps=1000, trace=new_record, graph=SEQUENTIAL)
+    # env = DummyEnv(nodes, root=root, max_steps=200, sync=SYNC, clock=SIMULATED, scheduling=PHASE, real_time_factor=FAST_AS_POSSIBLE)
+    # env = DummyEnv(nodes, root=root, max_steps=1000, trace=new_record, graph=SEQUENTIAL)
     env = DummyEnv(nodes, agent=agent, max_steps=1000, trace=new_record, graph=VECTORIZED)
 
     # Warmup

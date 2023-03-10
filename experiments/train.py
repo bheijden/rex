@@ -44,7 +44,7 @@ def train() -> None:
 	parser.add_argument("--vec-env", help="VecEnv type", type=str, default="dummy", choices=["dummy", "subproc", "rex"])
 	parser.add_argument("--eval-vec-env", help="VecEnv type", type=str, default=None, choices=["dummy", "subproc", "rex"])
 	parser.add_argument("-tb", "--tensorboard-log", help="Tensorboard log dir", default="", type=str)
-	parser.add_argument("-i", "--trained-agent", help="Path to a pretrained agent to continue training", default="", type=str)
+	parser.add_argument("-i", "--trained-root", help="Path to a pretrained root to continue training", default="", type=str)
 	parser.add_argument(
 		"--truncate-last-trajectory",
 		help="When using HER with online sampling the last trajectory "
@@ -57,7 +57,7 @@ def train() -> None:
 	parser.add_argument("--log-interval", help="Override log interval (default: -1, no change)", default=-1, type=int)
 	parser.add_argument(
 		"--eval-freq",
-		help="Evaluate the agent every n steps (if negative, no evaluation). "
+		help="Evaluate the root every n steps (if negative, no evaluation). "
 		     "During hyperparameter optimization n-evaluations is used instead",
 		default=25000,
 		type=int,

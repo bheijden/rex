@@ -97,7 +97,7 @@ class timer:
     def __exit__(self, type, value, traceback):
         self.duration = time() - self.tstart
         if self.log_level >= LOG_LEVEL:
-            print(f"[{self.name}] Elapsed: {self.duration}")
+            log(name="tracer", color="white", log_level=self.log_level, id=f"{self.name}", msg=f"Elapsed: {self.duration}")
 
 
 # def analyse_deadlock(nodes: List["Node"], log_level: int = INFO):

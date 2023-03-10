@@ -9,10 +9,10 @@ import numpy as onp
 import tempfile
 
 from rex.utils import set_log_level
-from rex.tracer import trace
 from rex.wrappers import GymWrapper, VecGymWrapper
 from rex.constants import WARN, ERROR, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, DEBUG
 from rex.proto import log_pb2
+from rex.graph import Graph
 from scripts.dummy import build_dummy_env, DummyEnv
 
 
@@ -85,7 +85,7 @@ def test_reinitialize_nodes_from_recording():
 	env.unwrapped.save(tmp.name)
 	env = env.unwrapped.load(tmp.name)
 	env = GymWrapper(env)
-	nodes = env.graph.nodes_and_agent
+	nodes = env.graph.nodes_and_root
 
 	# Seed the environment
 	env.seed(0)
@@ -113,7 +113,8 @@ def test_reinitialize_nodes_from_recording():
 	data = process_record(exp_record)
 	nodes_copy = {name: n["obj"] for name, n in data[0].items()}
 	agent_copy = nodes_copy["agent"]  # type: ignore
-	env_copy = DummyEnv(nodes_copy, agent=agent_copy, max_steps=100, clock=SIMULATED, real_time_factor=FAST_AS_POSSIBLE)
+	graph = Graph(nodes_copy, agent_copy, clock=SIMULATED, real_time_factor=FAST_AS_POSSIBLE)
+	env_copy = DummyEnv(graph=graph, max_steps=100, name="env_copy")
 
 	# Apply wrapper
 	env_copy = GymWrapper(env_copy)  # Wrap into gym wrapper
