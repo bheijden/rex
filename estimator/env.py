@@ -6,7 +6,8 @@ import jumpy.numpy as jp
 from flax import struct
 from flax.core import FrozenDict
 
-from rex.constants import WARN, LATEST, PHASE, FAST_AS_POSSIBLE, SIMULATED, VECTORIZED, INTERPRETED
+from rex.graph import BaseGraph
+from rex.constants import WARN, LATEST, PHASE, FAST_AS_POSSIBLE, SIMULATED
 from rex.base import StepState, GraphState, Empty
 from rex.node import Node
 from rex.agent import Agent as BaseAgent
@@ -57,7 +58,9 @@ class Replay:
 
 	def step(self, step_state: StepState) -> Tuple[StepState, Any]:
 		seq = step_state.seq
-		output = rjp.tree_take(self._outputs, seq, axis=0)
+		eps = step_state.eps
+		output = jax.tree_map(lambda x: rjp.dynamic_slice(x, [eps, seq] + [0*s for s in x.shape[2:]], [1, 1] + list(x.shape[2:]))[0, 0],
+		                         self._outputs)
 		return step_state, output
 
 	@property
@@ -113,7 +116,8 @@ class ReconstructionLoss:
 
 		# Calculate squared loss of
 		seq = step_state.seq
-		target = rjp.tree_take(self._outputs, seq, axis=0)
+		eps = step_state.eps
+		target =jax.tree_map(lambda x: rjp.dynamic_slice(x, [eps, seq] + [0 * s for s in x.shape[2:]], [1, 1] + list(x.shape[2:]))[0, 0], self._outputs)
 
 		# Calculate loss
 		cum_loss = step_state.state.cum_loss
@@ -153,45 +157,36 @@ class Estimator(BaseAgent):
 
 
 class EstimatorEnv(BaseEnv):
-	agent_cls = Estimator
+	root_cls = Estimator
 
 	def __init__(
 			self,
-			nodes: Dict[str, "Node"],
-			root: Estimator,
-			trace: log_pb2.TraceRecord,
+			graph: BaseGraph,
 			loss_fn: Callable[[GraphState], Any],
 			max_steps: int = 1,
-			graph_type: int = VECTORIZED,
 			name: str = "estimator-v0",
-
 	):
-		assert graph_type not in [INTERPRETED]
-
-		# Exclude the node for which this environment is a drop-in replacement (i.e. the root)
-		nodes = {node.name: node for _, node in nodes.items() if node.name != root.name}
-		super().__init__(nodes, root, max_steps, SIMULATED, FAST_AS_POSSIBLE, graph_type, trace, name=name)
+		super().__init__(graph, max_steps=max_steps, name=name)
 
 		# Required for step and reset functions
-		assert "world" in nodes, "Double-pendulum environment requires a world node."
+		assert "world" in self.graph.nodes, "Double-pendulum environment requires a world node."
 		self.loss_fn = loss_fn
-		self.world = nodes["world"]
-		self.agent = root
-		self.estimator = root
-		self.nodes = {node.name: node for _, node in nodes.items() if node.name != self.world.name}
-		self.nodes_world_and_agent = self.graph.nodes_and_root
-
-	# def sample_starting_step(self, rng: jp.ndarray):
-	# 	return jumpy.random.randint(rng, shape=(), low=0, high=self._max_starting_step + 1)  # High is never selected.
+		self.world = self.graph.nodes["world"]
+		self.estimator: Estimator = self.graph.root
+		self.nodes = {node.name: node for _, node in self.graph.nodes.items() if node.name != self.world.name}
+		self.nodes_world_and_estimator = self.graph.nodes_and_root
 
 	def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState) -> GraphState:
 		"""Get the graph state."""
 		# Prepare new graph state
 		assert graph_state.step is not None, "Graph state must have a step index."
+		assert graph_state.eps is not None, "Graph state must have an episode index."
 		assert graph_state.nodes.get("estimator", None) is not None, "Graph state must have an estimator node."
 		prev_graph_state = graph_state
 		starting_step = prev_graph_state.step
+		eps = prev_graph_state.eps
 		outputs = prev_graph_state.outputs
+		timings = prev_graph_state.timings
 		new_nodes = prev_graph_state.nodes.unfreeze()
 
 		# For every node, prepare the initial stepstate
@@ -210,29 +205,30 @@ class EstimatorEnv(BaseEnv):
 			return StepState(rng=rng_step, params=params, state=state)
 
 		# Define new graph state
-		graph_state = GraphState(nodes=new_nodes, step=starting_step, outputs=outputs)
+		graph_state = GraphState(nodes=new_nodes, step=starting_step, eps=eps, outputs=outputs, timings=timings)
 
 		# Step_state root & world (root must be reset before world, as the world may copy some params from the root)
-		new_nodes["root"] = get_step_state(self.nodes["root"], rng_agent, graph_state)
+		new_nodes["agent"] = get_step_state(self.nodes["agent"], rng_agent, graph_state)
 		new_nodes[self.world.name] = get_step_state(self.world, rng_world, graph_state)
 		new_nodes[self.estimator.name] = get_step_state(self.estimator, rng_estimator, graph_state)  # NOTE: isinstance(self.root, Estimator)
 
 		# Get new step_state for other nodes in arbitrary order
 		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes) + 1)
 		for (name, n), rng_n in zip(self.nodes.items(), rngs):
-			if name == "root" or name == self.estimator.name or name == self.world.name:
+			if name == "agent" or name == self.estimator.name or name == self.world.name:
 				continue
 			# Replace step state in graph state
 			new_nodes[name] = get_step_state(n, rng_n, graph_state)
 
 		# Set initial state of world
-		new_state = rjp.tree_take(new_nodes["estimator"].params.world_states, starting_step)
+		new_state = jax.tree_map(lambda x: rjp.dynamic_slice(x, [eps, starting_step] + [0*s for s in x.shape[2:]], [1, 1] + list(x.shape[2:]))[0, 0],
+		                         new_nodes["estimator"].params.world_states)
 		new_nodes["world"] = new_nodes["world"].replace(state=new_state)
 
 		# Reset nodes
-		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_world_and_agent) + 1)
-		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_world_and_agent.values(), rngs)]
-		return GraphState(nodes=FrozenDict(new_nodes), step=starting_step, outputs=outputs)
+		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_world_and_estimator) + 1)
+		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_world_and_estimator.values(), rngs)]
+		return GraphState(nodes=FrozenDict(new_nodes), step=starting_step, eps=eps, outputs=outputs, timings=timings)
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
 		"""Reset environment."""
@@ -248,7 +244,7 @@ class EstimatorEnv(BaseEnv):
 	def step(self, graph_state: GraphState, action: Any) -> Tuple[GraphState, Any, float, bool, Dict]:
 		"""Perform step transition in environment."""
 		# Update step_state (if necessary)
-		new_step_state = self.agent.get_step_state(graph_state)
+		new_step_state = self.estimator.get_step_state(graph_state)
 
 		# Apply step and receive next step_state
 		graph_state, step_state = self.graph.step(graph_state, new_step_state, Empty())
@@ -257,7 +253,7 @@ class EstimatorEnv(BaseEnv):
 		loss = self.loss_fn(graph_state)
 
 		# Termination condition
-		done = graph_state.step >= self._cgraph.max_steps
+		done = graph_state.step >= self.graph.max_steps(graph_state)
 		info = {"TimeLimit.truncated": done}
 
 		return graph_state, loss, 0., done, info

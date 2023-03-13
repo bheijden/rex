@@ -5,7 +5,8 @@ from flax import struct
 from flax.core import FrozenDict
 
 from rex.proto import log_pb2
-from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, INTERPRETED, WARN
+from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, WARN
+from rex.graph import BaseGraph
 from rex.base import StepState, GraphState
 from rex.env import BaseEnv
 from rex.node import Node
@@ -58,33 +59,28 @@ class Agent(BaseAgent):
 
 
 class PendulumEnv(BaseEnv):
-	agent_cls = Agent
+	root_cls = Agent
 
 	def __init__(
 			self,
-			nodes: Dict[str, "Node"],
-			root: Agent,
+			graph: BaseGraph,
 			max_steps: int = 100,
-			trace: log_pb2.TraceRecord = None,
-			clock: int = SIMULATED,
-			real_time_factor: Union[int, float] = FAST_AS_POSSIBLE,
-			graph: int = INTERPRETED,
 			name: str = "disc-pendulum-v0"
 	):
-		# Exclude the node for which this environment is a drop-in replacement (i.e. the root)
-		nodes = {node.name: node for _, node in nodes.items() if node.name != root.name}
-		super().__init__(nodes, root, max_steps, clock, real_time_factor, graph, trace, name=name)
+		super().__init__(graph, max_steps, name=name)
 
 		# Required for step and reset functions
-		assert "world" in nodes, "Pendulum environment requires a world node."
-		self.world = nodes["world"]
-		self.agent = root
-		self.nodes = {node.name: node for _, node in nodes.items() if node.name != self.world.name}
+		assert "world" in self.graph.nodes, "Pendulum environment requires a world node."
+		self.world = self.graph.nodes["world"]
+		self.agent = self.graph.root
+		self.nodes = {node.name: node for _, node in self.graph.nodes.items() if node.name != self.world.name}
 		self.nodes_world_and_agent = self.graph.nodes_and_root
 
 	def observation_space(self, params: Params = None):
 		"""Observation space of the environment."""
-		assert params is None, "Current implementation does not support custom parametrized observation spaces."
+		if params is not None:
+			self.log("reloading", "Current implementation does not support custom parametrized observation spaces.")
+		# assert params is None, "Current implementation does not support custom parametrized observation spaces."
 		params = self.agent.default_params(jumpy.random.PRNGKey(0))
 		inputs = {u.input_name: u for u in self.agent.inputs}
 
@@ -97,7 +93,8 @@ class PendulumEnv(BaseEnv):
 
 	def action_space(self, params: Params = None):
 		"""Action space of the environment."""
-		assert params is None, "Current implementation does not support custom parametrized action spaces."
+		if params is not None:
+			self.log("reloading", "Current implementation does not support custom parametrized action spaces.")
 		params = self.agent.default_params(jumpy.random.PRNGKey(0))
 		return Box(low=-params.max_torque, high=params.max_torque, shape=(1,), dtype=jp.float32)
 

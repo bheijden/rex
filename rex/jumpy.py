@@ -169,8 +169,8 @@ def index_update(x: jp.ndarray, idx: jp.ndarray, y: jp.ndarray, copy: bool = Tru
 def tree_take(tree: Any, i: Union[jp.ndarray, Sequence[int], int], axis: int = 0, mode: str = None) -> Any:
     """Returns tree sliced by i."""
     np = jumpy.core.which_np(*([i]+jax.tree_util.tree_flatten(tree)[0]))
-    if isinstance(i, (list, tuple)):
-        i = np.array(i, dtype=int)
+    # if isinstance(i, (list, tuple)):
+    #     i = np.array(i, dtype=int)
     if np is jnp:
         mode = mode or "fill"
         return jax.tree_util.tree_map(lambda x: jnp.take(x, i, axis=axis, mode=mode), tree)

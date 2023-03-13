@@ -8,11 +8,10 @@ import numpy as onp
 import rex.jumpy as rjp
 from rex.proto import log_pb2
 from rex.jumpy import use
-from rex.tracer import trace
 from rex.utils import timer
 from rex.distributions import Gaussian
 from rex.constants import LATEST, WARN, FAST_AS_POSSIBLE, SIMULATED, \
-	SYNC, PHASE, SEQUENTIAL, VECTORIZED, GRAPH_MODES
+	SYNC, PHASE
 
 from envs.pendulum.ode.world import World
 from envs.pendulum.env import PendulumEnv, Agent
@@ -120,7 +119,6 @@ if __name__ == "__main__":
 	vmap = 2000
 	backend = "jax"
 	jit = "jit" if (use_jit and backend == "jax") else "nojit"
-	graph_type = VECTORIZED
 	device = "gpu"
 
 	# Define name
@@ -128,7 +126,6 @@ if __name__ == "__main__":
 	name.append(f"{vmap}")
 	name.append(f"{backend}")
 	name.append("jit" if (use_jit and backend == "jax") else "nojit")
-	name.append(GRAPH_MODES[graph_type])
 	name.append(device)
 	name = "-".join(name)
 

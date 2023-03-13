@@ -8,9 +8,8 @@ from flax import struct
 
 from rex.jumpy import use
 from rex.utils import timer
-from rex.constants import WARN, SYNC, FAST_AS_POSSIBLE, PHASE, SIMULATED, VECTORIZED, SEQUENTIAL, INTERPRETED
+from rex.constants import WARN, SYNC, FAST_AS_POSSIBLE, PHASE, SIMULATED
 from rex.proto import log_pb2
-from rex.tracer import trace
 from rex.plot import plot_depth_order
 
 from dummy import DummyNode, DummyEnv, DummyAgent

@@ -10,7 +10,8 @@ import rex.jumpy as rjp
 Output = TypeVar('Output')
 State = TypeVar('State')
 Params = TypeVar('Params')
-Timings = List[Dict[str, Dict[str, Union[jp.ndarray, Dict[str, Dict[str, jp.ndarray]]]]]]
+NodeTimings = Dict[str, Dict[str, Union[jp.ndarray, Dict[str, Dict[str, jp.ndarray]]]]]
+Timings = List[NodeTimings]
 
 
 @struct.dataclass

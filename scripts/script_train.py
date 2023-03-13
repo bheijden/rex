@@ -4,10 +4,9 @@ from stable_baselines3.common.vec_env import VecMonitor
 from sbx import SAC
 
 import rex.utils as utils
-from rex.tracer import trace
 from rex.proto import log_pb2
 from rex.distributions import Gaussian
-from rex.constants import LATEST, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, SEQUENTIAL, WARN
+from rex.constants import LATEST, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, WARN
 
 from envs.pendulum.env import PendulumEnv, Agent
 from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper

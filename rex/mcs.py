@@ -468,102 +468,102 @@ def uniform_node_interestingness(motif: nx.Graph) -> dict:
     return {n: 1 for n in motif.nodes}
 
 
-def find_motifs_iter(
-    motif: nx.Graph,
-    host: nx.Graph,
-    interestingness: dict = None,
-    directed: bool = None,
-    queue_=SimpleQueue,
-    isomorphisms_only: bool = False,
-    hints: List[Dict[Hashable, Hashable]] = None,
-    is_node_structural_match=_is_node_structural_match,
-    is_node_attr_match=_is_node_attr_match,
-    is_edge_attr_match=_is_edge_attr_match,
-) -> Generator[dict, None, None]:
-    """
-    Yield mappings from motif node IDs to host graph IDs.
-
-    Results are of the form:
-
-    ```
-    {motif_id: host_id, ...}
-    ```
-
-    Arguments:
-        motif (nx.DiGraph): The motif graph (needle) to search for
-        host (nx.DiGraph): The host graph (haystack) to search within
-        interestingness (dict: None): A map of each node in `motif` to a float
-            number that indicates an ordinality in which to address each node
-        directed (bool: None): Whether direction should be considered during
-            search. If omitted, this will be based upon the motif directedness.
-        queue_ (queue.SimpleQueue): What kind of queue to use.
-        hints (dict): A dictionary of initial starting mappings. By default,
-            searches for all instances. You can constrain a node by passing a
-            list with a single dict item: `[{motifId: hostId}]`.
-        isomorphisms_only (bool: False): Whether to return isomorphisms (the
-            default is monomorphisms).
-
-    Returns:
-        Generator[dict, None, None]
-
-    """
-    # Prepare uniform interestingness if none is provided.
-    interestingness = interestingness or uniform_node_interestingness(motif)
-
-    # Make sure all nodes are included in the interestingness dict
-    interestingness = {n: interestingness.get(n, 0.) for n in motif.nodes}
-
-    # Sort the interestingness dict by value:
-    # todo: prepare possible structural matches beforehand.
-    interestingness = {k: v for k, v in sorted(interestingness.items(), reverse=True, key=lambda item: item[1])}
-
-    if directed is None:
-        # guess directedness from motif
-        if isinstance(motif, nx.DiGraph):
-            # This will be a directed query.
-            directed = True
-        else:
-            directed = False
-
-    q = queue_() if isclass(queue_) else queue_
-
-    # Kick off the queue with an empty candidate:
-    if hints is None or hints == []:
-        q.put({})
-    else:
-        for hint in hints:
-            q.put(hint)
-
-    while not q.empty():
-        # NOTE! new_backbone: dict --> previous (failed) candidate
-        new_backbone = q.get()
-        # NOTE! next_candidate_backbones: List[dict]
-        next_candidate_backbones = get_next_backbone_candidates(
-            new_backbone,
-            motif,
-            host,
-            interestingness,
-            directed=directed,
-            isomorphisms_only=isomorphisms_only,
-            is_node_structural_match=is_node_structural_match,
-            is_node_attr_match=is_node_attr_match,
-            is_edge_attr_match=is_edge_attr_match,
-        )
-
-        for candidate in next_candidate_backbones:
-            # NOTE! Cache len(candidate)?
-            # NOTE! Per disconnected graph in motif, we need to find the largest connected component & try to merge them.
-            # NOTE! Viewing the merged graph as the largest monomorphic ignores pruning nodes and rechecking.
-            # NOTE! Test if this algorithm works for disconnected graphs.
-            # NOTE! Can we pre-process motif graph,
-            #       to encode dependency chain when an intermediate node is removed?
-            if len(candidate) == len(motif):
-                yield candidate
-            else:
-                # print(candidate)
-                # NOTE! If candidate is not monomorphic, don't yield, but try with a new candidate
-                # NOTE! If candidates are empty, try a new backbone.
-                q.put(candidate)
+# def find_motifs_iter(
+#     motif: nx.Graph,
+#     host: nx.Graph,
+#     interestingness: dict = None,
+#     directed: bool = None,
+#     queue_=SimpleQueue,
+#     isomorphisms_only: bool = False,
+#     hints: List[Dict[Hashable, Hashable]] = None,
+#     is_node_structural_match=_is_node_structural_match,
+#     is_node_attr_match=_is_node_attr_match,
+#     is_edge_attr_match=_is_edge_attr_match,
+# ) -> Generator[dict, None, None]:
+#     """
+#     Yield mappings from motif node IDs to host graph IDs.
+#
+#     Results are of the form:
+#
+#     ```
+#     {motif_id: host_id, ...}
+#     ```
+#
+#     Arguments:
+#         motif (nx.DiGraph): The motif graph (needle) to search for
+#         host (nx.DiGraph): The host graph (haystack) to search within
+#         interestingness (dict: None): A map of each node in `motif` to a float
+#             number that indicates an ordinality in which to address each node
+#         directed (bool: None): Whether direction should be considered during
+#             search. If omitted, this will be based upon the motif directedness.
+#         queue_ (queue.SimpleQueue): What kind of queue to use.
+#         hints (dict): A dictionary of initial starting mappings. By default,
+#             searches for all instances. You can constrain a node by passing a
+#             list with a single dict item: `[{motifId: hostId}]`.
+#         isomorphisms_only (bool: False): Whether to return isomorphisms (the
+#             default is monomorphisms).
+#
+#     Returns:
+#         Generator[dict, None, None]
+#
+#     """
+#     # Prepare uniform interestingness if none is provided.
+#     interestingness = interestingness or uniform_node_interestingness(motif)
+#
+#     # Make sure all nodes are included in the interestingness dict
+#     interestingness = {n: interestingness.get(n, 0.) for n in motif.nodes}
+#
+#     # Sort the interestingness dict by value:
+#     # todo: prepare possible structural matches beforehand.
+#     interestingness = {k: v for k, v in sorted(interestingness.items(), reverse=True, key=lambda item: item[1])}
+#
+#     if directed is None:
+#         # guess directedness from motif
+#         if isinstance(motif, nx.DiGraph):
+#             # This will be a directed query.
+#             directed = True
+#         else:
+#             directed = False
+#
+#     q = queue_() if isclass(queue_) else queue_
+#
+#     # Kick off the queue with an empty candidate:
+#     if hints is None or hints == []:
+#         q.put({})
+#     else:
+#         for hint in hints:
+#             q.put(hint)
+#
+#     while not q.empty():
+#         # NOTE! new_backbone: dict --> previous (failed) candidate
+#         new_backbone = q.get()
+#         # NOTE! next_candidate_backbones: List[dict]
+#         next_candidate_backbones = get_next_backbone_candidates(
+#             new_backbone,
+#             motif,
+#             host,
+#             interestingness,
+#             directed=directed,
+#             isomorphisms_only=isomorphisms_only,
+#             is_node_structural_match=is_node_structural_match,
+#             is_node_attr_match=is_node_attr_match,
+#             is_edge_attr_match=is_edge_attr_match,
+#         )
+#
+#         for candidate in next_candidate_backbones:
+#             # NOTE! Cache len(candidate)?
+#             # NOTE! Per disconnected graph in motif, we need to find the largest connected component & try to merge them.
+#             # NOTE! Viewing the merged graph as the largest monomorphic ignores pruning nodes and rechecking.
+#             # NOTE! Test if this algorithm works for disconnected graphs.
+#             # NOTE! Can we pre-process motif graph,
+#             #       to encode dependency chain when an intermediate node is removed?
+#             if len(candidate) == len(motif):
+#                 yield candidate
+#             else:
+#                 # print(candidate)
+#                 # NOTE! If candidate is not monomorphic, don't yield, but try with a new candidate
+#                 # NOTE! If candidates are empty, try a new backbone.
+#                 q.put(candidate)
 
 
 def find_largest_motifs(
@@ -679,67 +679,67 @@ def find_largest_motifs(
     return num_evals, False, largest_candidates
 
 
-def find_motifs(
-    motif: nx.Graph,
-    host: nx.Graph,
-    *args,
-    count_only: bool = False,
-    limit: int = None,
-    is_node_attr_match=_is_node_attr_match,
-    is_node_structural_match=_is_node_structural_match,
-    is_edge_attr_match=_is_edge_attr_match,
-    **kwargs,
-) -> Union[int, List[dict]]:
-    """
-    Get a list of mappings from motif node IDs to host graph IDs.
-
-    Results are of the form:
-
-    ```
-    [{motif_id: host_id, ...}]
-    ```
-
-    See grandiso#find_motifs_iter for full argument list.
-
-    Arguments:
-        count_only (bool: False): If True, return only an integer count of the
-            number of motifs, rather than a list of mappings.
-        limit (int: None): A limit to place on the number of returned mappings.
-            The search will terminate once the limit is reached.
-
-
-    Returns:
-        int: If `count_only` is True, return the length of the List.
-        List[dict]: A list of mappings from motif node IDs to host graph IDs
-
-    """
-    results = []
-    results_count = 0
-    for qresult in find_motifs_iter(
-        motif,
-        host,
-        *args,
-        is_node_attr_match=is_node_attr_match,
-        is_node_structural_match=is_node_structural_match,
-        is_edge_attr_match=is_edge_attr_match,
-        **kwargs,
-    ):
-
-        result = qresult
-
-        results_count += 1
-        if limit and results_count >= limit:
-            if count_only:
-                return results_count
-            else:
-                # Subtract 1 from results_count because we have not yet
-                # added the new result to the results list, but we HAVE
-                # already added +1 to the count.
-                if limit and (results_count - 1) >= limit:
-                    return results
-        if not count_only:
-            results.append(result)
-
-    if count_only:
-        return results_count
-    return results
+# def find_motifs(
+#     motif: nx.Graph,
+#     host: nx.Graph,
+#     *args,
+#     count_only: bool = False,
+#     limit: int = None,
+#     is_node_attr_match=_is_node_attr_match,
+#     is_node_structural_match=_is_node_structural_match,
+#     is_edge_attr_match=_is_edge_attr_match,
+#     **kwargs,
+# ) -> Union[int, List[dict]]:
+#     """
+#     Get a list of mappings from motif node IDs to host graph IDs.
+#
+#     Results are of the form:
+#
+#     ```
+#     [{motif_id: host_id, ...}]
+#     ```
+#
+#     See grandiso#find_motifs_iter for full argument list.
+#
+#     Arguments:
+#         count_only (bool: False): If True, return only an integer count of the
+#             number of motifs, rather than a list of mappings.
+#         limit (int: None): A limit to place on the number of returned mappings.
+#             The search will terminate once the limit is reached.
+#
+#
+#     Returns:
+#         int: If `count_only` is True, return the length of the List.
+#         List[dict]: A list of mappings from motif node IDs to host graph IDs
+#
+#     """
+#     results = []
+#     results_count = 0
+#     for qresult in find_motifs_iter(
+#         motif,
+#         host,
+#         *args,
+#         is_node_attr_match=is_node_attr_match,
+#         is_node_structural_match=is_node_structural_match,
+#         is_edge_attr_match=is_edge_attr_match,
+#         **kwargs,
+#     ):
+#
+#         result = qresult
+#
+#         results_count += 1
+#         if limit and results_count >= limit:
+#             if count_only:
+#                 return results_count
+#             else:
+#                 # Subtract 1 from results_count because we have not yet
+#                 # added the new result to the results list, but we HAVE
+#                 # already added +1 to the count.
+#                 if limit and (results_count - 1) >= limit:
+#                     return results
+#         if not count_only:
+#             results.append(result)
+#
+#     if count_only:
+#         return results_count
+#     return results

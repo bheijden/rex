@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 import rex.utils as utils
 from rex.constants import SILENT, DEBUG, INFO, WARN, SIMULATED, WALL_CLOCK
-from rex.tracer_new import get_network_record
+from rex.tracer import get_network_record
 from scripts.dummy import build_dummy_env
 
 utils.set_log_level(WARN)
@@ -127,6 +127,7 @@ def test_plot():
     order = ["world", "sensor", "observer", "agent", "actuator"]
     cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
     record_network, MCS, lst_full, lst_subgraphs = get_network_record(record, root, -1)
+    G = lst_full[0]
 
     from rex.plot import plot_computation_graph, plot_topological_order, plot_depth_order
     from matplotlib.ticker import MaxNLocator
@@ -138,9 +139,9 @@ def test_plot():
     axes[1].set(facecolor=oc.ccolor("gray"), xlabel="time (s)", yticks=[], xlim=[-0.01, 0.3])
 
     # Plot graph
-    plot_computation_graph(axes[0], record, root=root, order=order, cscheme=cscheme, xmax=0.6, node_size=200, draw_pruned=True,
+    plot_computation_graph(axes[0], G, root=root, order=order, cscheme=cscheme, xmax=0.6, node_size=200, draw_pruned=True,
                            draw_nodelabels=True, node_labeltype="seq")
-    plot_computation_graph(axes[1], record, order=order, cscheme=cscheme, xmax=0.6, node_size=200, draw_pruned=False,
+    plot_computation_graph(axes[1], G, order=order, cscheme=cscheme, xmax=0.6, node_size=200, draw_pruned=False,
                            draw_nodelabels=True, node_labeltype="ts")
 
     # Plot legend
@@ -159,8 +160,8 @@ def test_plot():
     axes[1].xaxis.set_major_locator(MaxNLocator(integer=True))
     cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
 
-    plot_depth_order(axes[0], record, root=root, MCS=MCS, xmax=0.6, cscheme=cscheme, node_labeltype="seq", draw_excess=True)
-    plot_depth_order(axes[1], record, root=root, MCS=MCS, xmax=0.6, cscheme=cscheme, node_labeltype="ts", draw_excess=False)
+    plot_depth_order(axes[0], G, root=root, MCS=MCS, xmax=0.6, cscheme=cscheme, node_labeltype="seq", draw_excess=True)
+    plot_depth_order(axes[1], G, root=root, MCS=MCS, xmax=0.6, cscheme=cscheme, node_labeltype="ts", draw_excess=False)
 
     # Plot legend
     handles, labels = axes[0].get_legend_handles_labels()
@@ -177,8 +178,8 @@ def test_plot():
     axes[0].xaxis.set_major_locator(MaxNLocator(integer=True))
     axes[1].xaxis.set_major_locator(MaxNLocator(integer=True))
 
-    plot_topological_order(axes[0], record, root=root, xmax=0.6, cscheme=cscheme, node_labeltype="seq", draw_excess=True, draw_root_excess=False)
-    plot_topological_order(axes[1], record, root=root, xmax=0.6, cscheme=cscheme, node_labeltype="ts", draw_excess=False)
+    plot_topological_order(axes[0], G, root=root, xmax=0.6, cscheme=cscheme, node_labeltype="seq", draw_excess=True, draw_root_excess=False)
+    plot_topological_order(axes[1], G, root=root, xmax=0.6, cscheme=cscheme, node_labeltype="ts", draw_excess=False)
 
     # Plot legend
     handles, labels = axes[0].get_legend_handles_labels()

@@ -3,7 +3,7 @@ import numpy as onp
 import networkx as nx
 import jax
 
-import rex.tracer_new as tracer
+import rex.tracer as tracer
 from rex.utils import AttrDict
 from rex.constants import SIMULATED
 from rex.distributions import GMM, Gaussian
@@ -430,10 +430,9 @@ def plot_step_timing(ax: "matplotlib.Axes",
 
 
 def plot_computation_graph(ax: "matplotlib.Axes",
-                           record: log_pb2.EpisodeRecord,
+                           G: nx.DiGraph,
                            root: str = None,
                            seq: int = -1,
-                           excludes_inputs: List[str] = None,
                            xmax: float = None,
                            order: List[str] = None,
                            cscheme: Dict[str, str] = None,
@@ -450,7 +449,7 @@ def plot_computation_graph(ax: "matplotlib.Axes",
     """
 
     :param ax:
-    :param record:
+    :param G: Computation graph.
     :param root: Root node to trace in the computation graph.
     :param seq: Sequence number of the traced root step.
     :param xmax: Maximum time to plot the computation graph for.
@@ -468,17 +467,18 @@ def plot_computation_graph(ax: "matplotlib.Axes",
     :param draw_pruned: Draw pruned nodes (=True) or not (=False).
     :return:
     """
+    # Make a copy of the graph
+    G = G.copy(as_view=False)
+
     # Set cscheme & order
     order = order or []
     cscheme = cscheme or {}
     assert all([v != "red" for v in cscheme.values()]), "Color red is reserved for excluded nodes."
 
-    # Define graph
-    G = tracer.create_graph(record, excludes_inputs=excludes_inputs)
-
     # Set edge and node properties
     tracer.set_node_order(G, order)
     tracer.set_node_colors(G, cscheme)
+    y = tracer.get_node_y_position(G)
     cscheme = tracer.get_node_colors(G)
 
     # Generate node color scheme
@@ -538,7 +538,6 @@ def plot_computation_graph(ax: "matplotlib.Axes",
         ax.scatter([], [], edgecolor=oc.ecolor.pruned, facecolor=oc.fcolor.pruned, alpha=0.5, label="pruned step")
 
     # Set ticks
-    y = tracer.get_node_y_position(G)
     yticks = list(y.values())
     ylabels = list(y.keys())
     ax.set_yticks(yticks, labels=ylabels)
@@ -547,11 +546,11 @@ def plot_computation_graph(ax: "matplotlib.Axes",
 
 def plot_topological_order(
         ax: "matplotlib.Axes",
-        record: log_pb2.EpisodeRecord,
+        G: nx.DiGraph,
         root: str,
         seq: int = -1,
-        excludes_inputs: List[str] = None,
         xmax: float = None,
+        order: List[str] = None,
         cscheme: Dict[str, str] = None,
         node_labeltype: str = "seq",
         node_size: int = 250,
@@ -569,10 +568,11 @@ def plot_topological_order(
 
     Args:
     :param ax: Matplotlib axes.
-    :param record: Trace record.
+    :param G: Computation graph.
     :param root: Root node to trace in the computation graph.
     :param seq: Sequence number of the traced root step.
     :param xmax: Maximum x position of the graph.
+    :param order: Node order.
     :param cscheme: Color scheme.
     :param node_labeltype: Node label type. Can be "seq" or "ts".
     :param node_size: Node size.
@@ -586,15 +586,18 @@ def plot_topological_order(
     :param draw_excess: Draw excess step calls (=True) or not (=False).
     :param draw_root_excess: Draw excess step calls for root (=True) or not (=False).
     """
+    # Make a copy of the graph
+    G = G.copy(as_view=False)
+
     # Set cscheme
+    order = order or []
     cscheme = cscheme or {}
     assert all([v != "red" for v in cscheme.values()]), "Color red is reserved for excluded nodes."
 
-    # Define graph
-    G = tracer.create_graph(record, excludes_inputs=excludes_inputs)
-
     # Set edge and node properties
     tracer.set_node_colors(G, cscheme)
+    tracer.set_node_order(G, order)
+    y = tracer.get_node_y_position(G)
     cscheme = tracer.get_node_colors(G)
 
     # Generate node color scheme
@@ -606,7 +609,6 @@ def plot_topological_order(
 
     # Get node data
     node_data = tracer.get_node_data(G)
-    y = tracer.get_node_y_position(G)
 
     # Topological sort
     topo = list(nx.topological_sort(G))
@@ -677,7 +679,6 @@ def plot_topological_order(
         ax.scatter([], [], edgecolor=oc.ecolor.excluded, facecolor=oc.fcolor.excluded, alpha=0.5, label="excess step")
 
     # Set ticks
-    y = tracer.get_node_y_position(G)
     yticks = list(y.values())
     ylabels = list(y.keys())
     ax.set_yticks(yticks, labels=ylabels)
@@ -685,12 +686,11 @@ def plot_topological_order(
 
 
 def plot_depth_order(ax: "matplotlib.Axes",
-                     record: log_pb2.TraceRecord,
+                     G: nx.DiGraph,
                      root: str,
                      MCS: nx.DiGraph,
                      seq: int = -1,
                      split_mode: str = "generational",
-                     excludes_inputs: List[str] = None,
                      xmax: float = None,
                      order: List[str] = None,
                      cscheme: Dict[str, str] = None,
@@ -706,7 +706,7 @@ def plot_depth_order(ax: "matplotlib.Axes",
                      draw_excess=True):
     """
     :param ax:
-    :param record:
+    :param G: Computation graph.
     :param root: Root node to trace in the computation graph.
     :param MCS: minimum common supergraph.
     :param seq: Sequence number of the traced root step.
@@ -726,6 +726,10 @@ def plot_depth_order(ax: "matplotlib.Axes",
     :param draw_excess: Draw excess step calls (=True) or not (=False).
     :return:
     """
+    # Create copy of graphs
+    G = G.copy(as_view=False)
+    MCS = MCS.copy(as_view=False)
+
     # Set cscheme & order
     order = order or []
     cscheme = cscheme or {}
@@ -736,9 +740,6 @@ def plot_depth_order(ax: "matplotlib.Axes",
     num_gens = len(generations)
     root_slot = generations[-1][0]
     assert MCS.nodes[root_slot]["name"] == root, f"Root node {root} not found in last generation of MCS."
-
-    # Define graph
-    G = tracer.create_graph(record, excludes_inputs=excludes_inputs)
 
     # Set edge and node properties
     tracer.set_node_order(G, order)
@@ -784,13 +785,11 @@ def plot_depth_order(ax: "matplotlib.Axes",
                 y = MCS.nodes[node]["position"][1]
                 position = (x, y)
                 if node in mapping:
-                    # print(f"Adding node {node} at {position}.")
                     G.nodes[mapping[node]].update({"position": position})
                 elif draw_excess:
                     excess = {"pruned": False, "position": position, "ts_step": G.nodes[root_seq]["ts_step"]}
                     excess.update(node_data[MCS.nodes[node]["name"]])
                     excess.update(data_excess)
-                    # print(f"Adding excess node {node}_excess_{x} at {position}.")
                     G.add_node(f"{node}_excess_{x}", **excess)
 
     # Only plot nodes up to xmax
@@ -840,9 +839,9 @@ def plot_depth_order(ax: "matplotlib.Axes",
 
     # Set ticks
     yticks = list(range(max([len(gen) for gen in generations])))
-    ax.set_yticks(yticks)
-    # ylabels = order
-    # ax.set_yticks(yticks, labels=ylabels)
+    ylabels = ["" for _ in yticks]
+    ax.set_yticks(yticks, labels=ylabels)
+    # ax.set_yticks(yticks)
     ax.tick_params(left=False, bottom=True, labelleft=True, labelbottom=True)
 
 

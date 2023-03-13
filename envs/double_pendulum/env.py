@@ -6,7 +6,7 @@ from flax.core import FrozenDict
 
 from rex.graph import BaseGraph
 from rex.proto import log_pb2
-from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, INTERPRETED, WARN
+from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, WARN
 from rex.base import StepState, GraphState
 from rex.env import BaseEnv
 from rex.node import Node
@@ -99,10 +99,9 @@ class DoublePendulumEnv(BaseEnv):
 	def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> GraphState:
 		"""Get the graph state."""
 		# Prepare new graph state
-		max_starting_step = self.graph.max_starting_step(graph_state, self.max_steps)
-		starting_step = jumpy.random.randint(rng, shape=(), low=0, high=max_starting_step + 1)  # High is never selected.
+		starting_step = jp.int32(0)
 		new_nodes = dict()
-		graph_state = GraphState(step=starting_step, nodes=new_nodes)
+		graph_state = GraphState(step=jp.int32(0), nodes=new_nodes)
 
 		# For every node, prepare the initial stepstate
 		rng, rng_agent, rng_world = jumpy.random.split(rng, num=3)
@@ -128,11 +127,7 @@ class DoublePendulumEnv(BaseEnv):
 		# Reset nodes
 		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_world_and_agent)+1)
 		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_world_and_agent.values(), rngs)]
-
-		# Randomly start at random step
-		ss_agent = new_nodes[self.agent.name]
-		new_nodes[self.agent.name] = ss_agent.replace(state=ss_agent.state.replace(starting_step=starting_step))
-		return GraphState(step=starting_step, nodes=FrozenDict(new_nodes))
+		return GraphState(step=jp.int32(0), nodes=FrozenDict(new_nodes))
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
 		"""Reset environment."""

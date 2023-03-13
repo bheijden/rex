@@ -24,8 +24,9 @@ import sbx
 import stable_baselines3 as sb3
 import time
 import rex
-from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, SEQUENTIAL, WARN, REAL_TIME, \
-	ASYNC, WALL_CLOCK, SCHEDULING_MODES, JITTER_MODES, CLOCK_MODES, GRAPH_MODES, VECTORIZED
+import rex.tracer as tracer
+from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, WARN, REAL_TIME, \
+	ASYNC, WALL_CLOCK, SCHEDULING_MODES, JITTER_MODES, CLOCK_MODES
 from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 import experiments as exp
 import envs.pendulum as pend
@@ -50,7 +51,7 @@ HYPERPARAMS = {
 }
 
 
-RECORD_SETTINGS = {"root": dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True),
+RECORD_SETTINGS = {"agent": dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True),
                    "world": dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True),
                    "actuator": dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True),
                    "sensor": dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True),
@@ -88,7 +89,7 @@ if __name__ == "__main__":
 	ENV_FN = dpend.ode.build_double_pendulum  #  dpend.ode.build_double_pendulum  # pend.ode.build_pendulum
 	ENV_CLS = dpend.env.DoublePendulumEnv  # dpend.env.DoublePendulumEnv  # pend.env.PendulumEnv
 	CLOCK = SIMULATED
-	RTF = WALL_CLOCK
+	RTF = FAST_AS_POSSIBLE
 	RATES = dict(world=150, agent=80, actuator=80, sensor=80, render=20)
 	USE_DELAYS = True
 	DELAY_FN = lambda d: d.quantile(0.99)*int(USE_DELAYS)  # todo: this is slow (takes 3 seconds).
@@ -97,7 +98,7 @@ if __name__ == "__main__":
 	NAME = f"sysid_{ENV}"
 	LOG_DIR = os.path.dirname(rex.__file__) + f"/../logs/{NAME}_{datetime.datetime.today().strftime('%Y-%m-%d-%H%M')}"
 	MUST_LOG = False
-	SHOW_PLOTS = False
+	SHOW_PLOTS = True
 
 	# Load models
 	MODEL_CLS = sbx.SAC  # sbx.SAC  sb3.SAC
@@ -161,7 +162,7 @@ if __name__ == "__main__":
 	# Load model
 	model: sbx.SAC = exp.load_model(MODEL_PRELOAD, MODEL_CLS, env=gym_env, seed=SEED, module=MODEL_MODULE)
 
-	sys_model = exp.SysIdPolicy(rate=RATES["root"], duration=5.0, min=-1.0, max=1.0, seed=0, model=model, use_ros=False)
+	sys_model = exp.SysIdPolicy(rate=RATES["agent"], duration=5.0, min=-1.0, max=1.0, seed=0, model=model, use_ros=False)
 	policy = exp.make_policy(sys_model)
 	# policy = exp.make_policy(model)
 
@@ -181,10 +182,11 @@ if __name__ == "__main__":
 	# exit()
 
 	# Compile env
-	cenv = exp.make_compiled_env(env, record_pre.episode[-1], max_steps=MAX_STEPS, eval_env=False, graph_type=VECTORIZED)
+	cenv = exp.make_compiled_env(env, record_pre.episode[-1], max_steps=MAX_STEPS, eval_env=False)
 
 	# Plot
-	fig_cg, _ = exp.show_computation_graph(cenv.graph.trace)
+	G = tracer.create_graph(record_pre.episode[-1])
+	fig_cg, _ = exp.show_computation_graph(G, cenv.graph.MCS, root="agent", plot_type="computation")
 	fig_com, _ = exp.show_communication(record_pre.episode[-1])
 	fig_grp, _ = exp.show_grouped(record_pre.episode[-1].node[-1], "state")
 
@@ -211,8 +213,6 @@ if __name__ == "__main__":
 	else:
 		LOG_DIR = None
 		checkpoint_callback = None
-
-	exit()
 
 	# Wrap model
 	cenv = AutoResetWrapper(cenv)  # Wrap into auto reset wrapper

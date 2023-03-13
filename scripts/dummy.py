@@ -16,8 +16,8 @@ from rex.node import Node
 from rex.agent import Agent
 from rex.spaces import Box
 from rex.graph import BaseGraph, Graph
-from rex.compiled_new import CompiledGraph
-from rex.tracer_new import get_network_record, get_timings_from_network_record
+from rex.compiled import CompiledGraph
+from rex.tracer import get_network_record, get_timings_from_network_record
 
 
 def build_dummy_compiled_env() -> Tuple["DummyEnv", "DummyEnv", Dict[str, Node]]:
@@ -190,6 +190,9 @@ class DummyEnv(BaseEnv):
 
 	def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> GraphState:
 		"""Get the graph state."""
+		# Prepare graph_state
+		graph_state = graph_state or GraphState(step=jp.int32(0), eps=jp.int32(0), nodes=dict(), timings=None, outputs=FrozenDict({}))
+
 		# For every node, prepare the initial stepstate
 		new_nodes = dict()
 
@@ -218,7 +221,7 @@ class DummyEnv(BaseEnv):
 		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_and_root) + 1)
 		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_and_root.values(), rngs)]
 		# ***DO SOMETHING WITH graph_state TO RESET ALL NODES***
-		return GraphState(step=jp.int32(0), nodes=FrozenDict(new_nodes))
+		return graph_state.replace(nodes=FrozenDict(new_nodes))
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
 		"""Reset environment."""

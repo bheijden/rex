@@ -11,10 +11,12 @@ from sbx import SAC
 # from stable_baselines3.sac import SAC
 
 import rex.utils as utils
-from rex.tracer import trace
+import rex.tracer as tracer
+from rex.compiled import CompiledGraph
+from rex.graph import Graph
 from rex.proto import log_pb2
 from rex.distributions import Gaussian, Distribution
-from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, SEQUENTIAL, WARN, REAL_TIME, ASYNC, WALL_CLOCK
+from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, WARN, REAL_TIME, ASYNC, WALL_CLOCK
 
 import envs.pendulum.dists
 from envs.pendulum.env import PendulumEnv, Agent
@@ -51,7 +53,7 @@ if __name__ == "__main__":
 	new_model_name = "sbx_sac_pendulum"
 	name_env = "disc-pendulum-real"
 	dist_file = f"21eps_pretrained_sbx_sac_gmms_2comps.pkl"
-	num_init_eps = 21
+	num_init_eps = 2
 	scheduling = PHASE
 	jitter = BUFFER
 	clock = WALL_CLOCK  # WALL_CLOCK, SIMULATED
@@ -59,26 +61,27 @@ if __name__ == "__main__":
 	max_steps = 100
 	win_action = 1
 	win_state = 2
+	advance = False
 
 	# Load distributions
 	delays_sim = load_distributions(dist_file)
 	delays_sim["step"]["world"] = Gaussian(0.)
 	delays_sim["inputs"]["world"]["actuator"] = Gaussian(0.)
 	delays_sim["inputs"]["sensor"]["world"] = Gaussian(0.)
-	delays = jax.tree_map(lambda d: d.high, delays_sim)
-	rates = dict(world=20, agent=20, actuator=20, sensor=20, render=20)
+	delays = jax.tree_map(lambda d: 0.7*d.high, delays_sim)
+	rates = dict(world=60, agent=20, actuator=20, sensor=20, render=20)
 
 	# Make real environment
-	import envs.pendulum.real as real
-	nodes_real = real.build_pendulum(rates, delays_sim, delays, scheduling=scheduling, advance=False)
-	# import envs.pendulum.ode as ode
-	# nodes_real = ode.build_pendulum(rates, delays_sim, delays, scheduling=scheduling, advance=False)
+	# import envs.pendulum.real as real
+	# nodes_real = real.build_pendulum(rates, delays_sim, delays, scheduling=scheduling, advance=False)
+	import envs.pendulum.ode as ode
+	nodes_real = ode.build_pendulum(rates, delays_sim, delays, scheduling=scheduling, advance=advance)
 
 	# todo: add dist to root, and connections.
 	# todo: advance actuator, root?
 	world_real, actuator_real, sensor_real = nodes_real["world"], nodes_real["actuator"], nodes_real["sensor"]
-	agent_real = Agent("root", rate=rates["root"], delay_sim=delays_sim["step"]["root"], delay=delays["step"]["root"])
-	nodes_real["root"] = agent_real
+	agent_real = Agent("agent", rate=rates["agent"], delay_sim=delays_sim["step"]["agent"], delay=delays["step"]["agent"])
+	nodes_real["agent"] = agent_real
 
 	# Turn on evaluation
 	assert hasattr(world_real, "eval_env"), "World node must have an eval_env attribute"
@@ -86,14 +89,15 @@ if __name__ == "__main__":
 
 	# Connect
 	agent_real.connect(agent_real, name="last_action", window=win_action, blocking=True, jitter=LATEST, skip=True)
-	agent_real.connect(sensor_real, name="state",  window=win_state, blocking=True, jitter=jitter, delay_sim=delays_sim["inputs"]["root"]["state"], delay=delays["inputs"]["root"]["state"])
+	agent_real.connect(sensor_real, name="state",  window=win_state, blocking=True, jitter=jitter, delay_sim=delays_sim["inputs"]["agent"]["state"], delay=delays["inputs"]["agent"]["state"])
 	actuator_real.connect(agent_real, name="action", window=1, blocking=True, jitter=jitter, delay_sim=delays_sim["inputs"]["actuator"]["action"], delay=delays["inputs"]["actuator"]["action"])
 
 	# Warmup nodes_real (pre-compile jitted functions)
 	[n.warmup() for n in nodes_real.values()]
 
 	# Create environment
-	env_real = PendulumEnv(nodes_real, root=agent_real, max_steps=max_steps, clock=clock, real_time_factor=real_time_factor)
+	graph = Graph(nodes_real, root=agent_real, clock=clock, real_time_factor=real_time_factor)
+	env_real = PendulumEnv(graph=graph, max_steps=max_steps)
 	env_real = GymWrapper(env_real)  # Wrap into gym wrapper
 
 	# Initialize model
@@ -135,15 +139,14 @@ if __name__ == "__main__":
 		node_records = [node.record(**_kwargs) if name != "render" else node.record(node=True) for name, node in nodes_real.items()]
 		exp_record.episode.append(log_pb2.EpisodeRecord(node=node_records))
 
-	exit()
-
 	# Save experiment record
-	with open(f"/home/r2ci/rex/logs/{name_env}/{num_init_eps}eps-{name_proto}.pb", "wb") as f:
-		f.write(exp_record.SerializeToString())
-	exit()
+	# with open(f"/home/r2ci/rex/logs/{name_env}/{num_init_eps}eps-{name_proto}.pb", "wb") as f:
+	# 	f.write(exp_record.SerializeToString())
+	# exit()
 
 	# Trace record
-	trace_record = trace(exp_record.episode[0], "root")
+	record_network, MCS, G, G_subgraphs = tracer.get_network_record(exp_record.episode, "agent", split_mode="generational")
+	timings = tracer.get_timings_from_network_record(record_network, G, G_subgraphs)
 
 	# Visualize trace
 	must_plot = True
@@ -160,10 +163,10 @@ if __name__ == "__main__":
 		fig, ax = plt.subplots()
 		fig.set_size_inches(12, 5)
 		ax.set(facecolor=oc.ccolor("gray"), xlabel="time (s)", yticks=[], xlim=[-0.01, 0.3])
-		order = ["world", "sensor", "root", "actuator"]
-		cscheme = {"world": "gray", "sensor": "grape",  "root": "teal", "actuator": "indigo"}
-		plot_computation_graph(ax, trace_record, order=order, cscheme=cscheme, xmax=1.0, node_size=200, draw_excluded=True,
-		                       draw_stateless=False, draw_nodelabels=True, node_labeltype="tick", connectionstyle="arc3,rad=0.1")
+		order = ["world", "sensor", "agent", "actuator"]
+		cscheme = {"world": "gray", "sensor": "grape",  "agent": "teal", "render": "yellow",  "actuator": "indigo"}
+		plot_computation_graph(ax, G[0], root="agent", order=order, cscheme=cscheme, xmax=1.0, node_size=200,
+		                       draw_pruned=True, draw_nodelabels=True, node_labeltype="seq", connectionstyle="arc3,rad=0.1")
 		# Plot legend
 		handles, labels = ax.get_legend_handles_labels()
 		by_label = dict(zip(labels, handles))
@@ -174,22 +177,23 @@ if __name__ == "__main__":
 
 	# Make ode environment
 	import envs.pendulum.ode as ode
-	nodes_ode = ode.build_pendulum(rate=dict(world=world_rate, actuator=rate, sensor=rate, render=rate))
+	nodes_ode = ode.build_pendulum(rates, delays_sim, delays, scheduling=scheduling, advance=advance)
 
 	world_ode, actuator_ode, sensor_ode = nodes_ode["world"], nodes_ode["actuator"], nodes_ode["sensor"]
-	agent_ode = Agent("root", rate=rate, delay_sim=Gaussian(process["root"]), delay=process["root"])
-	nodes_ode["root"] = agent_ode
+	agent_ode = Agent("agent", rate=rates["agent"], delay_sim=delays_sim["step"]["agent"], delay=delays["step"]["agent"])
+	nodes_ode["agent"] = agent_ode
 
 	# Connect
-	agent_ode.connect(agent_ode, name="last_action", window=win_action, blocking=True, skip=True, delay_sim=Gaussian(0.), delay=0., jitter=LATEST)
-	agent_ode.connect(sensor_ode, name="state",  window=win_state, blocking=True, delay_sim=Gaussian(trans["sensor"]), delay=trans["sensor"], jitter=LATEST)
-	actuator_ode.connect(agent_ode, name="action", window=1, blocking=True, delay_sim=Gaussian(trans["actuator"]), delay=trans["actuator"], jitter=LATEST)
+	agent_ode.connect(agent_ode, name="last_action", window=win_action, blocking=True, jitter=LATEST, skip=True)
+	agent_ode.connect(sensor_ode, name="state",  window=win_state, blocking=True, jitter=jitter, delay_sim=delays_sim["inputs"]["agent"]["state"], delay=delays["inputs"]["agent"]["state"])
+	actuator_ode.connect(agent_ode, name="action", window=1, blocking=True, jitter=jitter, delay_sim=delays_sim["inputs"]["actuator"]["action"], delay=delays["inputs"]["actuator"]["action"])
 
 	# Create trace environment
-	env_ode = PendulumEnv(nodes_ode, root=agent_ode, max_steps=max_steps, trace=trace_record, graph=SEQUENTIAL)
+	graph = CompiledGraph(nodes_ode, root=agent_ode, MCS=MCS, default_timings=timings)
+	env_ode = PendulumEnv(graph, max_steps=max_steps)
 	# env_ode = GymWrapper(env_ode)  # Wrap into gym wrapper
 	env_ode = AutoResetWrapper(env_ode)  # Wrap into auto reset wrapper
-	env_ode = VecGymWrapper(env_ode, num_envs=10)  # Wrap into vectorized environment
+	env_ode = VecGymWrapper(env_ode, num_envs=8)  # Wrap into vectorized environment
 	env_ode = VecMonitor(env_ode)  # Wrap into vectorized monitor
 
 	# Jit
@@ -197,7 +201,7 @@ if __name__ == "__main__":
 
 	# Initialize model
 	model_ode = SAC("MlpPolicy", env_ode, verbose=1)
-	model_ode.learn(total_timesteps=80_000, progress_bar=True)
+	model_ode.learn(total_timesteps=150_000, progress_bar=True)
 	model_ode.save(f"{log_dir}/{new_model_name}")
 
 	# Reload real model

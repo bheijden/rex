@@ -5,13 +5,14 @@ import jax.numpy as jnp
 import numpy as onp
 import jumpy.numpy as jp
 import jax
+from flax.core import FrozenDict
 
 import rex.jumpy as rjp
-from rex.multiprocessing import new_process
+from rex.base import GraphState
 from rex.utils import timer
 from rex.constants import SILENT, DEBUG, INFO, WARN
-from rex.tracer_new import get_network_record, get_timings_from_network_record
-from rex.compiled_new import CompiledGraph
+from rex.tracer import get_network_record, get_timings_from_network_record, get_chronological_timings, get_output_buffers_from_timings
+from rex.compiled import CompiledGraph
 
 from scripts.dummy import DummyEnv, build_dummy_env
 
@@ -80,6 +81,7 @@ def test_compiler():
 
     # Place observer step in separate process
     # TODO: TURN ON AGAIN!
+    # from rex.multiprocessing import new_process
     # nodes["observer"].step = new_process(nodes["observer"].step, max_workers=2)
 
     # Evaluate async env
@@ -90,13 +92,32 @@ def test_compiler():
 
     # Trace
     trace_mcs, MCS, G, G_subgraphs = get_network_record(record, "agent", -1)
-    timings = get_timings_from_network_record(trace_mcs, G, G_subgraphs)
 
-    # Define graph
+    # Test timings
+    timings = get_timings_from_network_record(trace_mcs)
+    outputs = get_output_buffers_from_timings(MCS, timings, nodes)
+    timings_chron = get_chronological_timings(MCS, timings, eps=0)
+
+    # Initialize graph state
+    init_gs = GraphState(nodes=None, step=jp.int32(0), eps=jp.int32(0), timings=timings, outputs=FrozenDict(outputs))
+
+    # Test graph
+    _ = env.graph.max_eps()
+    _ = env.graph.max_starting_step(max_steps=10)
+
+    # Test compiled graph
     graph = CompiledGraph(nodes=nodes, root=nodes["agent"], MCS=MCS, default_timings=timings)
+    _ = graph.max_starting_step(max_steps=10, graph_state=init_gs)
+    _ = graph.max_starting_step(max_steps=10, graph_state=None)
+    _ = graph.max_eps(graph_state=None)
+    _ = graph.max_eps(graph_state=init_gs)
 
     # Define env
     env_mcs = DummyEnv(graph=graph, max_steps=env.max_steps, name="env_mcs")
+
+    # Test graph with timings & output buffers already set
+    _, obs = env_mcs.reset(rng=jumpy.random.PRNGKey(0), graph_state=init_gs)
+    _, obs = env_mcs.reset(rng=jumpy.random.PRNGKey(0))
 
     # Plot progress
     must_plot = False

@@ -11,7 +11,6 @@ from scripts.dummy import DummyNode, DummyAgent
 from rex.distributions import Distribution, Gaussian, GMM
 from rex.constants import LATEST, BUFFER, WARN, DEBUG, ERROR
 import rex.utils as utils
-from rex.tracer import trace
 from rex.proto import log_pb2
 from rex.node import Node
 from rex.agent import Agent

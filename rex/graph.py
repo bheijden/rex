@@ -25,8 +25,9 @@ class BaseGraph:
         self.nodes_and_root: Dict[str, Node] = {**nodes, root.name: root}
 
     def __getstate__(self):
-        args, kwargs = (), dict(root=self.root, nodes=self.nodes)
-        return args, kwargs
+        raise NotImplementedError
+        # args, kwargs = (), dict(root=self.root, nodes=self.nodes)
+        # return args, kwargs
 
     def __setstate__(self, state):
         args, kwargs = state
@@ -50,7 +51,13 @@ class BaseGraph:
     def get_episode_record(self) -> log_pb2.EpisodeRecord:
         raise NotImplementedError
 
-    def max_starting_step(self, graph_state: GraphState, max_steps: int) -> int:
+    def max_eps(self, graph_state: GraphState = None):
+        raise NotImplementedError
+
+    def max_steps(self, graph_state: GraphState = None) -> int:
+        raise NotImplementedError
+
+    def max_starting_step(self, max_steps: int, graph_state: GraphState = None) -> int:
         raise NotImplementedError
 
     def stop(self, timeout: float = None):
@@ -157,8 +164,12 @@ class Graph(BaseGraph):
         [record.node.append(node.record()) for node in self.nodes_and_root.values()]
         return record
 
-    # def max_steps(self, graph_state: GraphState) -> int:
+    def max_eps(self, graph_state: GraphState = None):
+        return 0
 
-    def max_starting_step(self, graph_state: GraphState, max_steps: int) -> int:
+    def max_steps(self, graph_state: GraphState = None) -> int:
+        return jp.inf
+
+    def max_starting_step(self, max_steps: int, graph_state: GraphState = None) -> int:
         return 0
 

@@ -11,7 +11,6 @@ try:
 except ImportError:
     print("Seaborn not installed, plots will not be as pretty.")
 from rex.proto import log_pb2
-from rex.tracer import trace
 from rex.plot import plot_computation_graph, plot_topological_order
 
 with open("/home/r2ci/rex/scripts/record_1.pb", "rb") as f:

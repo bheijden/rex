@@ -27,9 +27,10 @@ import time
 import rex
 from rex.proto import log_pb2
 from rex.env import BaseEnv
-from rex.tracer_new import get_network_record
-from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, SEQUENTIAL, WARN, REAL_TIME, \
-	ASYNC, WALL_CLOCK, SCHEDULING_MODES, JITTER_MODES, CLOCK_MODES, GRAPH_MODES, VECTORIZED
+from rex.tracer import get_network_record, get_timings_from_network_record
+from rex.compiled import CompiledGraph
+from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, WARN, REAL_TIME, \
+	ASYNC, WALL_CLOCK, SCHEDULING_MODES, JITTER_MODES, CLOCK_MODES
 from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 import experiments as exp
 import envs.double_pendulum as dpend
@@ -65,7 +66,7 @@ if __name__ == "__main__":
 	# DIST_FILE = f"real_pendulum_2023-01-27-1806_phase_blocking_120s_record_sysid-gmms-2comps.pkl"
 	JITTER = BUFFER
 	SCHEDULING = PHASE
-	MAX_STEPS = int(5*80)
+	MAX_STEPS = int(1*80)
 	START_STEPS = 0*MAX_STEPS
 	WIN_ACTION = 2
 	WIN_OBS = 3
@@ -75,6 +76,7 @@ if __name__ == "__main__":
 	ENV_CLS = dpend.env.DoublePendulumEnv  # dpend.env.DoublePendulumEnv  # pend.env.PendulumEnv
 	CLOCK = SIMULATED
 	RTF = FAST_AS_POSSIBLE
+	RATE_ESTIMATOR = 40
 	RATES = dict(world=150, agent=80, actuator=80, sensor=80, render=20)
 	USE_DELAYS = True
 	# DELAY_FN = lambda d: d.quantile(0.99)*int(USE_DELAYS)
@@ -100,7 +102,7 @@ if __name__ == "__main__":
 	NUM_ENVS = 10
 	SAVE_FREQ = 40_000
 	NSTEPS = 200_000
-	NUM_EVAL_PRE = 1
+	NUM_EVAL_PRE = 2
 	NUM_EVAL_POST = 20
 
 	# Load distributions
@@ -124,24 +126,22 @@ if __name__ == "__main__":
 	record_pre = exp.eval_env(gym_env, policy, n_eval_episodes=NUM_EVAL_PRE, verbose=True, seed=SEED,
 	                          record_settings=RECORD_SETTINGS)
 
+	# Prepare data
+	data = exp.RecordHelper(record_pre)
+
 	# Build estimator
 	from estimator import build_estimator
-	RATE_ESTIMATOR = 40
-	record, nodes, excludes_inputs = build_estimator(record_pre.episode[-1], rate=RATE_ESTIMATOR)
-	# record_est = [n for n in record.node if n.info.name == "estimator"][0]
-	# record_sensor = [n for n in record.node if n.info.name == "sensor"][0]
-	# record_actuator = [n for n in record.node if n.info.name == "actuator"][0]
-	# record_world = [n for n in record.node if n.info.name == "world"][0]
-
+	record, nodes, excludes_inputs = build_estimator(record_pre, rate=RATE_ESTIMATOR, data=data)
+ 
 	# Trace
-	record_trace, MCS, G, G_subgraphs = get_network_record(record, "estimator", split_mode="generational", excludes_inputs=excludes_inputs)
+	record_network, MCS, G, G_subgraphs = get_network_record(record.episode, "estimator", split_mode="generational", excludes_inputs=excludes_inputs)
 
 	# Only show
 	if SHOW_PLOTS:
 		# Plot
-		fig_cg, _ = exp.show_computation_graph(record, MCS, excludes_inputs=excludes_inputs, plot_type="computation", xmax=2.0)
-		fig_dp, _ = exp.show_computation_graph(record, MCS, excludes_inputs=excludes_inputs, plot_type="depth", xmax=2.0)
-		fig_tp, _ = exp.show_computation_graph(record, MCS, excludes_inputs=excludes_inputs, plot_type="topological", xmax=2.0)
+		fig_cg, _ = exp.show_computation_graph(G[0], MCS, "estimator", plot_type="computation", xmax=2.0)
+		fig_dp, _ = exp.show_computation_graph(G[0], MCS, "estimator", plot_type="depth", xmax=2.0)
+		fig_tp, _ = exp.show_computation_graph(G[0], MCS, "estimator", plot_type="topological", xmax=2.0)
 		# fig_com, _ = exp.show_communication(record_eps)
 		# fig_grp, _ = exp.show_grouped(record_eps.node[-1], "state")
 		plt.show()
@@ -179,11 +179,13 @@ if __name__ == "__main__":
 
 	# Compile env
 	from estimator import EstimatorEnv
-	cenv = EstimatorEnv(nodes, nodes["estimator"], record_trace, loss_fn=loss_fn, graph_type=VECTORIZED)  # todo: SEQUENTIAL --> not reverse-mode differentiable
+	graph = CompiledGraph(nodes, nodes["estimator"], MCS)
+	cenv = EstimatorEnv(graph, loss_fn=loss_fn)
 
-	from estimator import _init
+	# Prepare initial graph_state
+	from estimator import init_graph_state
 	plt.ion()
-	init_gs = _init(cenv, nodes)
+	init_gs = init_graph_state(cenv, nodes, record_network, MCS, G, G_subgraphs, data)
 
 	# Define initial params
 	p_tree = jax.tree_util.tree_map(lambda x: None, nodes["world"].default_params(jumpy.random.PRNGKey(0)))

@@ -5,7 +5,6 @@ import numpy as onp
 import jax
 
 from rex.jumpy import use
-from rex.tracer import trace
 from rex.utils import timer
 from rex.constants import LATEST, BUFFER, SILENT, DEBUG, INFO, WARN, REAL_TIME, FAST_AS_POSSIBLE, SIMULATED, \
     WALL_CLOCK, SYNC, ASYNC, FREQUENCY, PHASE

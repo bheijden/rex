@@ -9,7 +9,7 @@ import jumpy.numpy as jp
 from rex.proto import log_pb2
 from rex.open_colors import ecolor, fcolor
 from rex.distributions import GMM
-from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, SEQUENTIAL, WARN, REAL_TIME, \
+from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, WARN, REAL_TIME, \
 	ASYNC, WALL_CLOCK
 
 from rex.gmm_estimator import GMMEstimator

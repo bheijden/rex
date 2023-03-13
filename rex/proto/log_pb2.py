@@ -19,7 +19,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   syntax='proto3',
   serialized_options=None,
   create_key=_descriptor._internal_create_key,
-  serialized_pb=b'\n\x0fproto/log.proto\x12\x07logging\"P\n\x10\x45xperimentRecord\x12\'\n\x07\x65pisode\x18\x01 \x03(\x0b\x32\x16.logging.EpisodeRecord\x12\x13\n\x0b\x65nvironment\x18\x02 \x01(\x0c\"2\n\rEpisodeRecord\x12!\n\x04node\x18\x01 \x03(\x0b\x32\x13.logging.NodeRecord\"\x99\x03\n\nNodeRecord\x12\x1f\n\x04info\x18\x01 \x01(\x0b\x32\x11.logging.NodeInfo\x12\x0c\n\x04sync\x18\x02 \x01(\r\x12\r\n\x05\x63lock\x18\x03 \x01(\r\x12\x18\n\x10real_time_factor\x18\x04 \x01(\x02\x12\x10\n\x08ts_start\x18\x05 \x01(\x02\x12\x0b\n\x03rng\x18\x06 \x03(\r\x12$\n\x06inputs\x18\x07 \x03(\x0b\x32\x14.logging.InputRecord\x12\"\n\x05steps\x18\x08 \x03(\x0b\x32\x13.logging.StepRecord\x12\'\n\x07outputs\x18\t \x01(\x0b\x32\x16.logging.Serialization\x12$\n\x04rngs\x18\n \x01(\x0b\x32\x16.logging.Serialization\x12&\n\x06states\x18\x0b \x01(\x0b\x32\x16.logging.Serialization\x12&\n\x06params\x18\x0c \x01(\x0b\x32\x16.logging.Serialization\x12+\n\x0bstep_states\x18\r \x01(\x0b\x32\x16.logging.Serialization\"\x9f\x02\n\nStepRecord\x12\x0c\n\x04tick\x18\x01 \x01(\r\x12\x14\n\x0cts_scheduled\x18\x02 \x01(\x01\x12\x0e\n\x06ts_max\x18\x03 \x01(\x01\x12\x16\n\x0ets_output_prev\x18\x04 \x01(\x01\x12\x0f\n\x07ts_step\x18\x05 \x01(\x01\x12\x11\n\tts_output\x18\x06 \x01(\x01\x12\r\n\x05phase\x18\x07 \x01(\x01\x12\x17\n\x0fphase_scheduled\x18\x08 \x01(\x01\x12\x14\n\x0cphase_inputs\x18\t \x01(\x01\x12\x12\n\nphase_last\x18\n \x01(\x01\x12\x1d\n\x04sent\x18\x0b \x01(\x0b\x32\x0f.logging.Header\x12\r\n\x05\x64\x65lay\x18\x0c \x01(\x01\x12!\n\ncomp_delay\x18\r \x01(\x0b\x32\r.logging.Time\"e\n\x0bInputRecord\x12 \n\x04info\x18\x01 \x01(\x0b\x32\x12.logging.InputInfo\x12\x0b\n\x03rng\x18\x02 \x03(\r\x12\'\n\x07grouped\x18\x03 \x03(\x0b\x32\x16.logging.GroupedRecord\"K\n\rGroupedRecord\x12\x10\n\x08num_msgs\x18\x01 \x01(\r\x12(\n\x08messages\x18\x02 \x03(\x0b\x32\x16.logging.MessageRecord\"\x83\x01\n\rMessageRecord\x12\x1d\n\x04sent\x18\x01 \x01(\x0b\x32\x0f.logging.Header\x12!\n\x08received\x18\x02 \x01(\x0b\x32\x0f.logging.Header\x12\r\n\x05\x64\x65lay\x18\x03 \x01(\x01\x12!\n\ncomm_delay\x18\x04 \x01(\x0b\x32\r.logging.Time\"=\n\x06Header\x12\x0b\n\x03\x65ps\x18\x01 \x01(\r\x12\x0b\n\x03seq\x18\x02 \x01(\r\x12\x19\n\x02ts\x18\x03 \x01(\x0b\x32\r.logging.Time\"\x1e\n\x04Time\x12\n\n\x02sc\x18\x01 \x01(\x01\x12\n\n\x02wc\x18\x02 \x01(\x01\"-\n\tGraphInfo\x12 \n\x05nodes\x18\x01 \x03(\x0b\x32\x11.logging.NodeInfo\"\xdc\x01\n\x08NodeInfo\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0b\n\x03\x63ls\x18\x02 \x01(\t\x12\r\n\x05state\x18\x03 \x01(\x0c\x12\x0c\n\x04rate\x18\x04 \x01(\x02\x12\x10\n\x08stateful\x18\x05 \x01(\x08\x12\x0f\n\x07\x61\x64vance\x18\x06 \x01(\x08\x12\x12\n\nscheduling\x18\x07 \x01(\r\x12\r\n\x05phase\x18\x08 \x01(\x02\x12\x1f\n\tdelay_sim\x18\t \x01(\x0b\x32\x0c.logging.GMM\x12\r\n\x05\x64\x65lay\x18\n \x01(\x02\x12\"\n\x06inputs\x18\x0b \x03(\x0b\x32\x12.logging.InputInfo\"\xd8\x01\n\tInputInfo\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0e\n\x06output\x18\x02 \x01(\t\x12\x0c\n\x04rate\x18\x03 \x01(\x02\x12\x0e\n\x06window\x18\x04 \x01(\r\x12\x10\n\x08\x62locking\x18\x05 \x01(\x08\x12\x0c\n\x04skip\x18\x06 \x01(\x08\x12\x0e\n\x06jitter\x18\x07 \x01(\r\x12\r\n\x05phase\x18\x08 \x01(\x02\x12 \n\nphase_dist\x18\t \x01(\x0b\x32\x0c.logging.GMM\x12\x1f\n\tdelay_sim\x18\n \x01(\x0b\x32\x0c.logging.GMM\x12\r\n\x05\x64\x65lay\x18\x0b \x01(\x02\"+\n\x03GMM\x12$\n\tgaussians\x18\x01 \x03(\x0b\x32\x11.logging.Gaussian\"d\n\x08Gaussian\x12\x0e\n\x06weight\x18\x01 \x01(\x02\x12\x0c\n\x04mean\x18\x02 \x01(\x02\x12\x0b\n\x03std\x18\x03 \x01(\x02\x12\x12\n\npercentile\x18\x04 \x01(\x02\x12\x0b\n\x03low\x18\x05 \x01(\x02\x12\x0c\n\x04high\x18\x06 \x01(\x02\"\xa0\x02\n\x0bTraceRecord\x12\'\n\x07\x65pisode\x18\x01 \x01(\x0b\x32\x16.logging.EpisodeRecord\x12\x1f\n\x04node\x18\x02 \x03(\x0b\x32\x11.logging.NodeInfo\x12\x0e\n\x06pruned\x18\x06 \x03(\t\x12\"\n\x05trace\x18\x03 \x01(\x0b\x32\x13.logging.StepRecord\x12!\n\x04used\x18\x04 \x03(\x0b\x32\x13.logging.TracedStep\x12%\n\x08\x65xcluded\x18\x05 \x03(\x0b\x32\x13.logging.TracedStep\x12\x0f\n\x07isolate\x18\x07 \x01(\x08\x12\x17\n\x0fmax_consecutive\x18\x08 \x01(\r\x12\x11\n\tmax_depth\x18\t \x01(\r\x12\x0c\n\x04name\x18\n \x01(\t\"\xf1\x01\n\nTracedStep\x12\x0c\n\x04used\x18\x01 \x01(\x08\x12\r\n\x05index\x18\x02 \x01(\r\x12\r\n\x05\x64\x65pth\x18\x03 \x01(\r\x12\x10\n\x08stateful\x18\x04 \x01(\x08\x12\x0f\n\x07isolate\x18\x0b \x01(\x08\x12\x17\n\x0f\x65xcludes_inputs\x18\x0c \x01(\x08\x12\x0c\n\x04name\x18\x06 \x01(\t\x12\x0c\n\x04tick\x18\x07 \x01(\r\x12\x0f\n\x07ts_step\x18\x08 \x01(\x01\x12%\n\x08upstream\x18\t \x03(\x0b\x32\x13.logging.Dependency\x12\'\n\ndownstream\x18\n \x03(\x0b\x32\x13.logging.Dependency\"\\\n\nDependency\x12\x0c\n\x04used\x18\x01 \x01(\x08\x12\x1f\n\x06source\x18\x02 \x01(\x0b\x32\x0f.logging.Source\x12\x1f\n\x06target\x18\x03 \x01(\x0b\x32\x0f.logging.Target\"0\n\x06Source\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0c\n\x04tick\x18\x02 \x01(\r\x12\n\n\x02ts\x18\x03 \x01(\x01\"g\n\x06Target\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x12\n\ninput_name\x18\x02 \x01(\t\x12\x0c\n\x04tick\x18\x03 \x01(\r\x12\n\n\x02ts\x18\x04 \x01(\x01\x12!\n\x08rerouted\x18\x05 \x01(\x0b\x32\x0f.logging.Target\"6\n\rSerialization\x12\x0e\n\x06target\x18\x01 \x01(\x0c\x12\x15\n\rencoded_bytes\x18\x02 \x03(\x0c\"\x96\x01\n\rNetworkRecord\x12\'\n\x07\x65pisode\x18\x01 \x03(\x0b\x32\x16.logging.EpisodeRecord\x12\x0c\n\x04root\x18\x02 \x01(\t\x12\x0b\n\x03seq\x18\x03 \x01(\r\x12\x12\n\nsplit_mode\x18\x04 \x01(\t\x12\x0e\n\x06motifs\x18\x05 \x01(\x0c\x12\x0b\n\x03MCS\x18\x06 \x01(\x0c\x12\x10\n\x08MCS_root\x18\x07 \x01(\x0c\x62\x06proto3'
+  serialized_pb=b'\n\x0fproto/log.proto\x12\x07logging\"P\n\x10\x45xperimentRecord\x12\'\n\x07\x65pisode\x18\x01 \x03(\x0b\x32\x16.logging.EpisodeRecord\x12\x13\n\x0b\x65nvironment\x18\x02 \x01(\x0c\"2\n\rEpisodeRecord\x12!\n\x04node\x18\x01 \x03(\x0b\x32\x13.logging.NodeRecord\"\x99\x03\n\nNodeRecord\x12\x1f\n\x04info\x18\x01 \x01(\x0b\x32\x11.logging.NodeInfo\x12\x0c\n\x04sync\x18\x02 \x01(\r\x12\r\n\x05\x63lock\x18\x03 \x01(\r\x12\x18\n\x10real_time_factor\x18\x04 \x01(\x02\x12\x10\n\x08ts_start\x18\x05 \x01(\x02\x12\x0b\n\x03rng\x18\x06 \x03(\r\x12$\n\x06inputs\x18\x07 \x03(\x0b\x32\x14.logging.InputRecord\x12\"\n\x05steps\x18\x08 \x03(\x0b\x32\x13.logging.StepRecord\x12\'\n\x07outputs\x18\t \x01(\x0b\x32\x16.logging.Serialization\x12$\n\x04rngs\x18\n \x01(\x0b\x32\x16.logging.Serialization\x12&\n\x06states\x18\x0b \x01(\x0b\x32\x16.logging.Serialization\x12&\n\x06params\x18\x0c \x01(\x0b\x32\x16.logging.Serialization\x12+\n\x0bstep_states\x18\r \x01(\x0b\x32\x16.logging.Serialization\"\x9f\x02\n\nStepRecord\x12\x0c\n\x04tick\x18\x01 \x01(\r\x12\x14\n\x0cts_scheduled\x18\x02 \x01(\x01\x12\x0e\n\x06ts_max\x18\x03 \x01(\x01\x12\x16\n\x0ets_output_prev\x18\x04 \x01(\x01\x12\x0f\n\x07ts_step\x18\x05 \x01(\x01\x12\x11\n\tts_output\x18\x06 \x01(\x01\x12\r\n\x05phase\x18\x07 \x01(\x01\x12\x17\n\x0fphase_scheduled\x18\x08 \x01(\x01\x12\x14\n\x0cphase_inputs\x18\t \x01(\x01\x12\x12\n\nphase_last\x18\n \x01(\x01\x12\x1d\n\x04sent\x18\x0b \x01(\x0b\x32\x0f.logging.Header\x12\r\n\x05\x64\x65lay\x18\x0c \x01(\x01\x12!\n\ncomp_delay\x18\r \x01(\x0b\x32\r.logging.Time\"e\n\x0bInputRecord\x12 \n\x04info\x18\x01 \x01(\x0b\x32\x12.logging.InputInfo\x12\x0b\n\x03rng\x18\x02 \x03(\r\x12\'\n\x07grouped\x18\x03 \x03(\x0b\x32\x16.logging.GroupedRecord\"K\n\rGroupedRecord\x12\x10\n\x08num_msgs\x18\x01 \x01(\r\x12(\n\x08messages\x18\x02 \x03(\x0b\x32\x16.logging.MessageRecord\"\x83\x01\n\rMessageRecord\x12\x1d\n\x04sent\x18\x01 \x01(\x0b\x32\x0f.logging.Header\x12!\n\x08received\x18\x02 \x01(\x0b\x32\x0f.logging.Header\x12\r\n\x05\x64\x65lay\x18\x03 \x01(\x01\x12!\n\ncomm_delay\x18\x04 \x01(\x0b\x32\r.logging.Time\"=\n\x06Header\x12\x0b\n\x03\x65ps\x18\x01 \x01(\r\x12\x0b\n\x03seq\x18\x02 \x01(\r\x12\x19\n\x02ts\x18\x03 \x01(\x0b\x32\r.logging.Time\"\x1e\n\x04Time\x12\n\n\x02sc\x18\x01 \x01(\x01\x12\n\n\x02wc\x18\x02 \x01(\x01\"-\n\tGraphInfo\x12 \n\x05nodes\x18\x01 \x03(\x0b\x32\x11.logging.NodeInfo\"\xdc\x01\n\x08NodeInfo\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0b\n\x03\x63ls\x18\x02 \x01(\t\x12\r\n\x05state\x18\x03 \x01(\x0c\x12\x0c\n\x04rate\x18\x04 \x01(\x02\x12\x10\n\x08stateful\x18\x05 \x01(\x08\x12\x0f\n\x07\x61\x64vance\x18\x06 \x01(\x08\x12\x12\n\nscheduling\x18\x07 \x01(\r\x12\r\n\x05phase\x18\x08 \x01(\x02\x12\x1f\n\tdelay_sim\x18\t \x01(\x0b\x32\x0c.logging.GMM\x12\r\n\x05\x64\x65lay\x18\n \x01(\x02\x12\"\n\x06inputs\x18\x0b \x03(\x0b\x32\x12.logging.InputInfo\"\xd8\x01\n\tInputInfo\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0e\n\x06output\x18\x02 \x01(\t\x12\x0c\n\x04rate\x18\x03 \x01(\x02\x12\x0e\n\x06window\x18\x04 \x01(\r\x12\x10\n\x08\x62locking\x18\x05 \x01(\x08\x12\x0c\n\x04skip\x18\x06 \x01(\x08\x12\x0e\n\x06jitter\x18\x07 \x01(\r\x12\r\n\x05phase\x18\x08 \x01(\x02\x12 \n\nphase_dist\x18\t \x01(\x0b\x32\x0c.logging.GMM\x12\x1f\n\tdelay_sim\x18\n \x01(\x0b\x32\x0c.logging.GMM\x12\r\n\x05\x64\x65lay\x18\x0b \x01(\x02\"+\n\x03GMM\x12$\n\tgaussians\x18\x01 \x03(\x0b\x32\x11.logging.Gaussian\"d\n\x08Gaussian\x12\x0e\n\x06weight\x18\x01 \x01(\x02\x12\x0c\n\x04mean\x18\x02 \x01(\x02\x12\x0b\n\x03std\x18\x03 \x01(\x02\x12\x12\n\npercentile\x18\x04 \x01(\x02\x12\x0b\n\x03low\x18\x05 \x01(\x02\x12\x0c\n\x04high\x18\x06 \x01(\x02\"6\n\rSerialization\x12\x0e\n\x06target\x18\x01 \x01(\x0c\x12\x15\n\rencoded_bytes\x18\x02 \x03(\x0c\"\x9d\x01\n\rNetworkRecord\x12\'\n\x07\x65pisode\x18\x01 \x03(\x0b\x32\x16.logging.EpisodeRecord\x12\x0c\n\x04root\x18\x02 \x01(\t\x12\x0b\n\x03seq\x18\x03 \x01(\r\x12\x12\n\nsplit_mode\x18\x04 \x01(\t\x12\x17\n\x0f\x65xcludes_inputs\x18\x05 \x03(\t\x12\x0e\n\x06motifs\x18\x06 \x01(\x0c\x12\x0b\n\x03MCS\x18\x07 \x01(\x0c\x62\x06proto3'
 )
 
 
@@ -886,355 +886,6 @@ _GAUSSIAN = _descriptor.Descriptor(
 )
 
 
-_TRACERECORD = _descriptor.Descriptor(
-  name='TraceRecord',
-  full_name='logging.TraceRecord',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  create_key=_descriptor._internal_create_key,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='episode', full_name='logging.TraceRecord.episode', index=0,
-      number=1, type=11, cpp_type=10, label=1,
-      has_default_value=False, default_value=None,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='node', full_name='logging.TraceRecord.node', index=1,
-      number=2, type=11, cpp_type=10, label=3,
-      has_default_value=False, default_value=[],
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='pruned', full_name='logging.TraceRecord.pruned', index=2,
-      number=6, type=9, cpp_type=9, label=3,
-      has_default_value=False, default_value=[],
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='trace', full_name='logging.TraceRecord.trace', index=3,
-      number=3, type=11, cpp_type=10, label=1,
-      has_default_value=False, default_value=None,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='used', full_name='logging.TraceRecord.used', index=4,
-      number=4, type=11, cpp_type=10, label=3,
-      has_default_value=False, default_value=[],
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='excluded', full_name='logging.TraceRecord.excluded', index=5,
-      number=5, type=11, cpp_type=10, label=3,
-      has_default_value=False, default_value=[],
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='isolate', full_name='logging.TraceRecord.isolate', index=6,
-      number=7, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='max_consecutive', full_name='logging.TraceRecord.max_consecutive', index=7,
-      number=8, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='max_depth', full_name='logging.TraceRecord.max_depth', index=8,
-      number=9, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='name', full_name='logging.TraceRecord.name', index=9,
-      number=10, type=9, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"".decode('utf-8'),
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1910,
-  serialized_end=2198,
-)
-
-
-_TRACEDSTEP = _descriptor.Descriptor(
-  name='TracedStep',
-  full_name='logging.TracedStep',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  create_key=_descriptor._internal_create_key,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='used', full_name='logging.TracedStep.used', index=0,
-      number=1, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='index', full_name='logging.TracedStep.index', index=1,
-      number=2, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='depth', full_name='logging.TracedStep.depth', index=2,
-      number=3, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='stateful', full_name='logging.TracedStep.stateful', index=3,
-      number=4, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='isolate', full_name='logging.TracedStep.isolate', index=4,
-      number=11, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='excludes_inputs', full_name='logging.TracedStep.excludes_inputs', index=5,
-      number=12, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='name', full_name='logging.TracedStep.name', index=6,
-      number=6, type=9, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"".decode('utf-8'),
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='tick', full_name='logging.TracedStep.tick', index=7,
-      number=7, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='ts_step', full_name='logging.TracedStep.ts_step', index=8,
-      number=8, type=1, cpp_type=5, label=1,
-      has_default_value=False, default_value=float(0),
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='upstream', full_name='logging.TracedStep.upstream', index=9,
-      number=9, type=11, cpp_type=10, label=3,
-      has_default_value=False, default_value=[],
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='downstream', full_name='logging.TracedStep.downstream', index=10,
-      number=10, type=11, cpp_type=10, label=3,
-      has_default_value=False, default_value=[],
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=2201,
-  serialized_end=2442,
-)
-
-
-_DEPENDENCY = _descriptor.Descriptor(
-  name='Dependency',
-  full_name='logging.Dependency',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  create_key=_descriptor._internal_create_key,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='used', full_name='logging.Dependency.used', index=0,
-      number=1, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='source', full_name='logging.Dependency.source', index=1,
-      number=2, type=11, cpp_type=10, label=1,
-      has_default_value=False, default_value=None,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='target', full_name='logging.Dependency.target', index=2,
-      number=3, type=11, cpp_type=10, label=1,
-      has_default_value=False, default_value=None,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=2444,
-  serialized_end=2536,
-)
-
-
-_SOURCE = _descriptor.Descriptor(
-  name='Source',
-  full_name='logging.Source',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  create_key=_descriptor._internal_create_key,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='name', full_name='logging.Source.name', index=0,
-      number=1, type=9, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"".decode('utf-8'),
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='tick', full_name='logging.Source.tick', index=1,
-      number=2, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='ts', full_name='logging.Source.ts', index=2,
-      number=3, type=1, cpp_type=5, label=1,
-      has_default_value=False, default_value=float(0),
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=2538,
-  serialized_end=2586,
-)
-
-
-_TARGET = _descriptor.Descriptor(
-  name='Target',
-  full_name='logging.Target',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  create_key=_descriptor._internal_create_key,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='name', full_name='logging.Target.name', index=0,
-      number=1, type=9, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"".decode('utf-8'),
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='input_name', full_name='logging.Target.input_name', index=1,
-      number=2, type=9, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"".decode('utf-8'),
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='tick', full_name='logging.Target.tick', index=2,
-      number=3, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='ts', full_name='logging.Target.ts', index=3,
-      number=4, type=1, cpp_type=5, label=1,
-      has_default_value=False, default_value=float(0),
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='rerouted', full_name='logging.Target.rerouted', index=4,
-      number=5, type=11, cpp_type=10, label=1,
-      has_default_value=False, default_value=None,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=2588,
-  serialized_end=2691,
-)
-
-
 _SERIALIZATION = _descriptor.Descriptor(
   name='Serialization',
   full_name='logging.Serialization',
@@ -1269,8 +920,8 @@ _SERIALIZATION = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=2693,
-  serialized_end=2747,
+  serialized_start=1909,
+  serialized_end=1963,
 )
 
 
@@ -1311,21 +962,21 @@ _NETWORKRECORD = _descriptor.Descriptor(
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
     _descriptor.FieldDescriptor(
-      name='motifs', full_name='logging.NetworkRecord.motifs', index=4,
-      number=5, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"",
+      name='excludes_inputs', full_name='logging.NetworkRecord.excludes_inputs', index=4,
+      number=5, type=9, cpp_type=9, label=3,
+      has_default_value=False, default_value=[],
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
     _descriptor.FieldDescriptor(
-      name='MCS', full_name='logging.NetworkRecord.MCS', index=5,
+      name='motifs', full_name='logging.NetworkRecord.motifs', index=5,
       number=6, type=12, cpp_type=9, label=1,
       has_default_value=False, default_value=b"",
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
     _descriptor.FieldDescriptor(
-      name='MCS_root', full_name='logging.NetworkRecord.MCS_root', index=6,
+      name='MCS', full_name='logging.NetworkRecord.MCS', index=6,
       number=7, type=12, cpp_type=9, label=1,
       has_default_value=False, default_value=b"",
       message_type=None, enum_type=None, containing_type=None,
@@ -1343,8 +994,8 @@ _NETWORKRECORD = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=2750,
-  serialized_end=2900,
+  serialized_start=1966,
+  serialized_end=2123,
 )
 
 _EXPERIMENTRECORD.fields_by_name['episode'].message_type = _EPISODERECORD
@@ -1372,16 +1023,6 @@ _NODEINFO.fields_by_name['inputs'].message_type = _INPUTINFO
 _INPUTINFO.fields_by_name['phase_dist'].message_type = _GMM
 _INPUTINFO.fields_by_name['delay_sim'].message_type = _GMM
 _GMM.fields_by_name['gaussians'].message_type = _GAUSSIAN
-_TRACERECORD.fields_by_name['episode'].message_type = _EPISODERECORD
-_TRACERECORD.fields_by_name['node'].message_type = _NODEINFO
-_TRACERECORD.fields_by_name['trace'].message_type = _STEPRECORD
-_TRACERECORD.fields_by_name['used'].message_type = _TRACEDSTEP
-_TRACERECORD.fields_by_name['excluded'].message_type = _TRACEDSTEP
-_TRACEDSTEP.fields_by_name['upstream'].message_type = _DEPENDENCY
-_TRACEDSTEP.fields_by_name['downstream'].message_type = _DEPENDENCY
-_DEPENDENCY.fields_by_name['source'].message_type = _SOURCE
-_DEPENDENCY.fields_by_name['target'].message_type = _TARGET
-_TARGET.fields_by_name['rerouted'].message_type = _TARGET
 _NETWORKRECORD.fields_by_name['episode'].message_type = _EPISODERECORD
 DESCRIPTOR.message_types_by_name['ExperimentRecord'] = _EXPERIMENTRECORD
 DESCRIPTOR.message_types_by_name['EpisodeRecord'] = _EPISODERECORD
@@ -1397,11 +1038,6 @@ DESCRIPTOR.message_types_by_name['NodeInfo'] = _NODEINFO
 DESCRIPTOR.message_types_by_name['InputInfo'] = _INPUTINFO
 DESCRIPTOR.message_types_by_name['GMM'] = _GMM
 DESCRIPTOR.message_types_by_name['Gaussian'] = _GAUSSIAN
-DESCRIPTOR.message_types_by_name['TraceRecord'] = _TRACERECORD
-DESCRIPTOR.message_types_by_name['TracedStep'] = _TRACEDSTEP
-DESCRIPTOR.message_types_by_name['Dependency'] = _DEPENDENCY
-DESCRIPTOR.message_types_by_name['Source'] = _SOURCE
-DESCRIPTOR.message_types_by_name['Target'] = _TARGET
 DESCRIPTOR.message_types_by_name['Serialization'] = _SERIALIZATION
 DESCRIPTOR.message_types_by_name['NetworkRecord'] = _NETWORKRECORD
 _sym_db.RegisterFileDescriptor(DESCRIPTOR)
@@ -1503,41 +1139,6 @@ Gaussian = _reflection.GeneratedProtocolMessageType('Gaussian', (_message.Messag
   # @@protoc_insertion_point(class_scope:logging.Gaussian)
   })
 _sym_db.RegisterMessage(Gaussian)
-
-TraceRecord = _reflection.GeneratedProtocolMessageType('TraceRecord', (_message.Message,), {
-  'DESCRIPTOR' : _TRACERECORD,
-  '__module__' : 'proto.log_pb2'
-  # @@protoc_insertion_point(class_scope:logging.TraceRecord)
-  })
-_sym_db.RegisterMessage(TraceRecord)
-
-TracedStep = _reflection.GeneratedProtocolMessageType('TracedStep', (_message.Message,), {
-  'DESCRIPTOR' : _TRACEDSTEP,
-  '__module__' : 'proto.log_pb2'
-  # @@protoc_insertion_point(class_scope:logging.TracedStep)
-  })
-_sym_db.RegisterMessage(TracedStep)
-
-Dependency = _reflection.GeneratedProtocolMessageType('Dependency', (_message.Message,), {
-  'DESCRIPTOR' : _DEPENDENCY,
-  '__module__' : 'proto.log_pb2'
-  # @@protoc_insertion_point(class_scope:logging.Dependency)
-  })
-_sym_db.RegisterMessage(Dependency)
-
-Source = _reflection.GeneratedProtocolMessageType('Source', (_message.Message,), {
-  'DESCRIPTOR' : _SOURCE,
-  '__module__' : 'proto.log_pb2'
-  # @@protoc_insertion_point(class_scope:logging.Source)
-  })
-_sym_db.RegisterMessage(Source)
-
-Target = _reflection.GeneratedProtocolMessageType('Target', (_message.Message,), {
-  'DESCRIPTOR' : _TARGET,
-  '__module__' : 'proto.log_pb2'
-  # @@protoc_insertion_point(class_scope:logging.Target)
-  })
-_sym_db.RegisterMessage(Target)
 
 Serialization = _reflection.GeneratedProtocolMessageType('Serialization', (_message.Message,), {
   'DESCRIPTOR' : _SERIALIZATION,

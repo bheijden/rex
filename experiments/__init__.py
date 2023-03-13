@@ -26,19 +26,19 @@ from stable_baselines3.common.base_class import BaseAlgorithm
 
 import rex.utils as utils
 from rex.graph import Graph
-from rex.compiled_new import CompiledGraph
+from rex.compiled import CompiledGraph
+import rex.tracer as tracer
 
 from rex.plot import plot_graph, plot_computation_graph, plot_grouped, plot_input_thread, plot_event_thread, \
     plot_topological_order, plot_depth_order
 from rex.gmm_estimator import GMMEstimator
-from rex.tracer import trace
 from rex.env import BaseEnv
 from rex.node import Node
 from rex.agent import Agent
 from rex.proto import log_pb2
 from rex.distributions import Distribution, Gaussian
-from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, SEQUENTIAL, WARN, REAL_TIME, \
-    ASYNC, WALL_CLOCK, SCHEDULING_MODES, JITTER_MODES, CLOCK_MODES, GRAPH_MODES, INTERPRETED
+from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, WARN, REAL_TIME, \
+    ASYNC, WALL_CLOCK, SCHEDULING_MODES, JITTER_MODES, CLOCK_MODES
 import rex.open_colors as oc
 from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 
@@ -115,8 +115,7 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
 def make_compiled_env(env: PendulumEnv,
                       record: log_pb2.EpisodeRecord,
                       eval_env: bool = False,
-                      max_steps: int = 100,
-                      graph_type: int = SEQUENTIAL) -> PendulumEnv:
+                      max_steps: int = 100) -> PendulumEnv:
     # Re-initialize nodes
     nodes: Dict[str, Union[Node, Agent]] = {}
     for n in record.node:
@@ -132,11 +131,8 @@ def make_compiled_env(env: PendulumEnv,
     world.eval_env = eval_env
 
     # Trace record
-    record_trace = trace(record, "agent")
-
-    # Get run-time settings
-    clock = record.node[0].clock
-    rtf = record.node[0].real_time_factor
+    record_network, MCS, G, G_subgraphs = tracer.get_network_record(record, "agent", split_mode="generational")
+    timings = tracer.get_timings_from_network_record(record_network, G, G_subgraphs)
 
     # Create env
     _name = env.name
@@ -144,10 +140,10 @@ def make_compiled_env(env: PendulumEnv,
     _name = _name.replace("eval", "eval" if eval_env else "train")
     env_name = [_name]
     env_name.append("compiled")
-    env_name.append(f"{GRAPH_MODES[graph_type]}")
     env_name = "_".join(env_name)
-    env = env.__class__(nodes, agent, max_steps, record_trace, clock=clock, real_time_factor=rtf, graph=graph_type,
-                        name=env_name)
+
+    graph = CompiledGraph(nodes, agent, MCS, default_timings=timings)
+    env = env.__class__(graph, max_steps, name=env_name)
     return env
 
 
@@ -203,12 +199,10 @@ def show_communication(record: log_pb2.EpisodeRecord) -> Tuple[plt.Figure, plt.A
     return fig, ax
 
 
-def show_computation_graph(record: log_pb2.EpisodeRecord, MCS: nx.DiGraph, excludes_inputs: List[str] = None,
-                           plot_type: str = "computation", xmax: float = 0.6) -> Tuple[
+def show_computation_graph(G: nx.DiGraph, MCS: nx.DiGraph, root: str, plot_type: str = "computation", xmax: float = 0.6) -> Tuple[
     plt.Figure, plt.Axes]:
-    root = "estimator"
     order = ["world", "sensor", "agent", "actuator"]
-    cscheme = {"world": "gray", "sensor": "grape", "agent": "teal", "actuator": "indigo", "estimator": "orange"}
+    cscheme = {"world": "gray", "sensor": "grape", "agent": "teal", "actuator": "indigo", "render": "yellow", "estimator": "orange"}
 
     # Create new plot
     fig, ax = plt.subplots()
@@ -216,20 +210,17 @@ def show_computation_graph(record: log_pb2.EpisodeRecord, MCS: nx.DiGraph, exclu
 
     if plot_type == "computation":
         ax.set(facecolor=oc.ccolor("gray"), xlabel="time (s)", yticks=[], xlim=[-0.01, 0.3])
-        plot_computation_graph(ax, record, root=root, excludes_inputs=excludes_inputs,
-                               order=order, cscheme=cscheme, xmax=xmax, node_size=200,
+        plot_computation_graph(ax, G, root=root, order=order, cscheme=cscheme, xmax=xmax, node_size=200,
                                draw_pruned=True, draw_nodelabels=True, node_labeltype="seq", connectionstyle="arc3,rad=0.1")
     elif plot_type == "topological":
         # Create new plot
         ax.set(facecolor=oc.ccolor("gray"), xlabel="Topological order", yticks=[], xlim=[-1, 20])
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        plot_topological_order(ax, record, root=root, excludes_inputs=excludes_inputs,
-                               xmax=xmax, cscheme=cscheme, node_labeltype="seq", draw_excess=True, draw_root_excess=False)
+        plot_topological_order(ax, G, root=root, xmax=xmax, cscheme=cscheme, node_labeltype="seq", draw_excess=True, draw_root_excess=False)
     elif plot_type == "depth":
         ax.set(facecolor=oc.ccolor("gray"), xlabel="Depth order", yticks=[], xlim=[-1, 10])
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        plot_depth_order(ax, record, root=root, MCS=MCS, excludes_inputs=excludes_inputs,
-                         xmax=xmax, cscheme=cscheme, node_labeltype="seq", draw_excess=True)
+        plot_depth_order(ax, G, root=root, MCS=MCS, xmax=xmax, cscheme=cscheme, node_labeltype="seq", draw_excess=True)
 
     # Plot legend
     handles, labels = ax.get_legend_handles_labels()
@@ -568,6 +559,37 @@ class _HasValue:
         self.tree = tree
 
 
+def stack_padding(it):
+
+    def resize(row, size):
+        new = onp.array(row)
+        new.resize(size, refcheck=False)
+        return new
+
+    # find longest row length
+    row_length = max(it, key=len).shape
+    mat = onp.array([resize(row, row_length) for row in it])
+
+    return mat
+
+
+def _padded_stack(*data: jp.ndarray) -> Optional[jp.ndarray]:
+    empties = [isinstance(d, _NoValue) for d in data]
+    has_empty = any(empties)
+    if has_empty:
+        if all(empties):
+            return None
+        else:
+            raise ValueError("Cannot stack partially empty data")
+    elif all([isinstance(d, _HasValue) for d in data]):
+        return tree_map(_padded_stack, *[d.tree for d in data])
+    assert all([not isinstance(d, _HasValue) for d in data])
+
+    # Stack data
+    data_stacked = stack_padding(data)
+    return data_stacked
+
+
 def _truncated_stack(*data: jp.ndarray) -> Optional[jp.ndarray]:
     has_empty = any([isinstance(d, _NoValue) for d in data])
     if has_empty:
@@ -588,11 +610,8 @@ def _truncated_stack(*data: jp.ndarray) -> Optional[jp.ndarray]:
 
 
 class RecordHelper:
-    def __init__(self, record: Union[log_pb2.ExperimentRecord, log_pb2.EpisodeRecord], trace: log_pb2.TraceRecord = None,
-                 validate: bool = True, stack: bool = True):
-        # todo: graph_states can only be constructed from a trace
-        # todo: When rebuilding graph_states from trace: depth vs order?
-        self.trace = trace
+    def __init__(self, record: Union[log_pb2.ExperimentRecord, log_pb2.EpisodeRecord],
+                 validate: bool = True, stack: bool = True, method: str = "padded"):
         self.record = record
         self.validate = validate
         self.stack = stack
@@ -620,8 +639,9 @@ class RecordHelper:
 
         # Stack data
         if self.stack:
+            assert method in ["truncated", "padded"], "Stacking method must be either 'truncated' or 'padded'"
             assert self.validate, "Stacking requires validation. Set validate=True."
-            self._stack_data()
+            self._stack_data(method)
 
     def get_nodes(self, episode: int = -1) -> Dict[str, Union[Node, Agent]]:
         nodes = {}
@@ -683,10 +703,16 @@ class RecordHelper:
         # self._max_lengths = tree_map(lambda *l: max(l), *self._lengths
         pass
 
-    def _stack_data(self):
+    def _stack_data(self, method: str):
         # Stack data
-        self._data_stacked = tree_map(_truncated_stack, *self._data)
-        self._delays_stacked = tree_map(_truncated_stack, *self._delays)
+        if method == "truncated":
+            self._data_stacked = tree_map(_truncated_stack, *self._data)
+            self._delays_stacked = tree_map(_truncated_stack, *self._delays)
+        elif method == "padded":
+            self._data_stacked = tree_map(_padded_stack, *self._data)
+            self._delays_stacked = tree_map(_padded_stack, *self._delays)
+        else:
+            raise NotImplementedError
 
 
 class RolloutWrapper(object):
@@ -771,3 +797,9 @@ class RolloutWrapper(object):
         rng = jax.random.PRNGKey(0)
         obs, state = self.env.reset(rng, self.env_params)
         return obs.shape
+
+
+if __name__ == "__main__":
+    a = onp.zeros((80, 1))
+    b = onp.zeros((80, 1))
+    c = stack_padding((a, b))

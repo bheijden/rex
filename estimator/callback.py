@@ -11,6 +11,7 @@ import rex.jumpy as rjp
 import numpy as onp
 import time
 
+from rex.tracer import get_timings_after_root_split, get_chronological_timings
 from rex.plot import get_subplots
 from rex.open_colors import ewheel, fwheel
 from rex.base import Empty
@@ -173,7 +174,8 @@ class LogCallback(BaseCallback):
 
 
 class StateFitCallback(BaseCallback):
-	def __init__(self, visualize: bool = True, size: float = 3, fig_size: Tuple[float, float] = (12, 6)):
+	def __init__(self, visualize: bool = True, size: float = 3, fig_size: Tuple[float, float] = (12, 6), eps: int = 0):
+		self._eps = eps
 		self._visualize = visualize
 		self._frames = []
 		self._artists: Tuple[plt.Artist] = None
@@ -188,29 +190,27 @@ class StateFitCallback(BaseCallback):
 
 	def _init_plot(self):
 		# Get ts
-		record_sensor = [n for n in self._record.node if n.info.name == "sensor"][0]
-		record_actuator = [n for n in self._record.node if n.info.name == "actuator"][0]
-		ts_actuator = jp.array([s.ts_output for s in record_actuator.steps])
-		ts_sensor = jp.array([s.ts_step for s in record_sensor.steps])
+		num_sensor = self._ts_sensor.shape[0]
+		num_actuator = self._ts_actuator.shape[0]
 
 		# Create figure
 		self._fig, self._axes = plt.subplots(nrows=5, ncols=1, figsize=self._fig_size)
 		self._axes = self._axes.flatten()
 
 		# Plot targets
-		targets = jp.stack((ts_sensor, self._nodes["sensor"]._outputs.cos_th))
+		targets = jp.stack((self._ts_sensor, self._nodes["sensor"]._outputs.cos_th[self._eps, :num_sensor]))
 		_ = self._axes[0].scatter(*targets, color=ewheel["blue"], label=f"target", s=self._size)
 		art_cos_th = self._axes[0].scatter(*([], []), color=ewheel["orange"], label=f"cos(th)", s=self._size)
-		targets = jp.stack((ts_sensor, self._nodes["sensor"]._outputs.cos_th2))
+		targets = jp.stack((self._ts_sensor, self._nodes["sensor"]._outputs.cos_th2[self._eps, :num_sensor]))
 		_ = self._axes[1].scatter(*targets, color=ewheel["blue"], label=f"target", s=self._size)
 		art_cos_th2 = self._axes[1].scatter(*([], []), color=ewheel["orange"], label=f"cos(th2)", s=self._size)
-		targets = jp.stack((ts_sensor, self._nodes["sensor"]._outputs.thdot))
+		targets = jp.stack((self._ts_sensor, self._nodes["sensor"]._outputs.thdot[self._eps, :num_sensor]))
 		_ = self._axes[2].scatter(*targets, color=ewheel["blue"], label=f"target", s=self._size)
 		art_thdot = self._axes[2].scatter(*([], []), color=ewheel["orange"], label=f"thdot", s=self._size)
-		targets = jp.stack((ts_sensor, self._nodes["sensor"]._outputs.thdot2))
+		targets = jp.stack((self._ts_sensor, self._nodes["sensor"]._outputs.thdot2[self._eps, :num_sensor]))
 		_ = self._axes[3].scatter(*targets, color=ewheel["blue"], label=f"target", s=self._size)
 		art_thdot2 = self._axes[3].scatter(*([], []), color=ewheel["orange"], label=f"thdot2", s=self._size)
-		targets = jp.stack((ts_actuator, self._nodes["actuator"]._outputs.action[:, 0]))
+		targets = jp.stack((self._ts_actuator, self._nodes["actuator"]._outputs.action[self._eps, :num_actuator, 0]))
 
 		art_action = self._axes[4].scatter(*targets, color=ewheel["blue"], label=f"action", s=self._size)
 
@@ -227,20 +227,24 @@ class StateFitCallback(BaseCallback):
 		artists = self._art_dict
 		ws = frame
 		art_hidden = artists["cos_th"]
-		art_hidden.set_offsets(jp.stack((self._ts_world, jp.cos(ws.th)), axis=1))
+		art_hidden.set_offsets(jp.stack((self._ts_world, jp.cos(ws.th[self._eps])), axis=1))
 		art_hidden = artists["cos_th2"]
-		art_hidden.set_offsets(jp.stack((self._ts_world, jp.cos(ws.th2)), axis=1))
+		art_hidden.set_offsets(jp.stack((self._ts_world, jp.cos(ws.th2[self._eps])), axis=1))
 		art_hidden = artists["thdot"]
-		art_hidden.set_offsets(jp.stack((self._ts_world, ws.thdot), axis=1))
+		art_hidden.set_offsets(jp.stack((self._ts_world, ws.thdot[self._eps]), axis=1))
 		art_hidden = artists["thdot2"]
-		art_hidden.set_offsets(jp.stack((self._ts_world, ws.thdot2), axis=1))
+		art_hidden.set_offsets(jp.stack((self._ts_world, ws.thdot2[self._eps]), axis=1))
 		return (art for art in self._art_dict.values())
 
 	def on_training_start(self, config: Config) -> Metric:
-		self._record = config.env.unwrapped._cgraph.trace.episode
 		self._nodes = config.env.unwrapped.graph.nodes_and_root
 		# NOTE: we add [0] to indicate the initial state (before step [0]).
-		self._ts_world = onp.concatenate(([0], config.env.unwrapped._cgraph._isolate["world"]["ts_step"]))
+		timings = config.graph_state.timings
+		timings_root = get_timings_after_root_split(config.env.graph.MCS, timings)
+		self._ts_world = onp.concatenate(([0], timings_root["world"]["ts_step"][self._eps]))
+		timings_chron = get_chronological_timings(config.env.graph.MCS, timings, self._eps)
+		self._ts_actuator = timings_chron["actuator"]["ts_step"]
+		self._ts_sensor = timings_chron["sensor"]["ts_step"]
 
 		# prepare initial frame
 		params = config.params

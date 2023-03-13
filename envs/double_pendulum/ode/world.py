@@ -8,7 +8,7 @@ from flax import struct
 from flax.core import FrozenDict
 
 from rex.distributions import Distribution, Gaussian
-from rex.constants import WARN, LATEST, PHASE, FAST_AS_POSSIBLE, SIMULATED, VECTORIZED, INTERPRETED
+from rex.constants import WARN, LATEST, PHASE, FAST_AS_POSSIBLE, SIMULATED
 from rex.base import StepState, GraphState, Empty
 from rex.node import Node
 from rex.multiprocessing import new_process

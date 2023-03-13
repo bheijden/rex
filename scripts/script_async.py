@@ -34,8 +34,7 @@ import jumpy
 from rex.proto import log_pb2
 import rex.utils as utils
 from rex.constants import LATEST, BUFFER, SILENT, DEBUG, INFO, WARN, REAL_TIME, FAST_AS_POSSIBLE, SIMULATED, WALL_CLOCK, SYNC, ASYNC, FREQUENCY, PHASE
-from rex.distributions import Gaussian, GMM
-from rex.tracer import trace
+from rex.distributions import Gaussian, GMM\
 from rex.base import GraphState, StepState
 from dummy import DummyNode, DummyAgent
 from dummy_plot import plot_threads, plot_delay, plot_graph, plot_grouped

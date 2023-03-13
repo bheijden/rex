@@ -4,14 +4,18 @@ from functools import partial
 from math import ceil
 from typing import Tuple, Dict, Callable, Union, Any, Sequence, List, TypeVar, TYPE_CHECKING
 import flax.struct as struct
+from flax.core import FrozenDict
 import optax
 import jax
 import jumpy
 import jax.numpy as jnp
 import jumpy.numpy as jp
 
+import networkx as nx
+
+from rex.tracer import get_timings_from_network_record, get_output_buffers_from_timings
 from rex.proto import log_pb2
-from rex.base import GraphState, Empty
+from rex.base import GraphState, Empty, StepState
 from rex.env import BaseEnv
 import rex.utils as utils
 import rex.jumpy as rjp
@@ -20,7 +24,7 @@ if TYPE_CHECKING:
 	from estimator.callback import BaseCallback
 
 
-def single_loss(env: BaseEnv, params: optax.Params, graph_state: GraphState, rng: jp.array, starting_step: jp.int32, num_steps: jp.int32) -> Tuple[jp.float32, GraphState]:
+def single_loss(env: BaseEnv, params: optax.Params, graph_state: GraphState, rng: jp.array, starting_eps: jp.int32, starting_step: jp.int32, num_steps: jp.int32) -> Tuple[jp.float32, GraphState]:
 	# Overwrite params in graph state with optimizer params
 	new_nodes = {}
 	for node_name, params in params.items():
@@ -30,7 +34,7 @@ def single_loss(env: BaseEnv, params: optax.Params, graph_state: GraphState, rng
 		new_nodes[node_name] = graph_state.nodes[node_name].replace(params=new_params)
 
 	# Update graph state
-	gs = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes), step=starting_step)
+	gs = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes), eps=starting_eps, step=starting_step)
 
 	# Reset env
 	gs, loss_init = env.reset(rng, gs)
@@ -78,16 +82,20 @@ class Config:
 def fit(env: BaseEnv, params: optax.Params, optimizer: optax.GradientTransformation, graph_state: GraphState, num_batches: int = 20, num_steps: int = 3, num_training_steps: int = 1000,
         num_training_steps_per_epoch: int = 100, prior_fn: Callable[[optax.Params], Any] = lambda x: jp.float32(0),
         callbacks: Dict[str, "BaseCallback"] = None) -> optax.Params:
-	max_num_steps = env._cgraph.max_steps + 1  # todo: why + 1?
-	batch_loss = jax.vmap(partial(single_loss, env), in_axes=(None, None, 0, 0, None), out_axes=0)
+	max_eps, max_steps = graph_state.timings[-1]["estimator_s0"]["run"].shape
+	start_eps, start_steps = jp.meshgrid(jp.arange(0, max_eps), jp.arange(0, max_steps))
+	start_eps, start_steps = start_eps.flatten(), start_steps.flatten()
+	batch_loss = jax.vmap(partial(single_loss, env), in_axes=(None, None, 0, 0, 0, None), out_axes=0)
 
 	def loss(params: optax.Params, _gs, _rng: jp.ndarray) -> Tuple[jnp.ndarray, GraphState]:
 		_rngs = jax.random.split(_rng, num_batches+1)
 		_rng, _rngs = _rngs[0], _rngs[1:]
-		starting_steps = jax.random.choice(_rng, max_num_steps, shape=(num_batches,), replace=False)
+		choice = jax.random.choice(_rng, start_steps.shape[0], shape=(num_batches,), replace=False)
+		steps = jp.take(start_steps, choice)
+		eps = jp.take(start_eps, choice)
 
 		# Perform batch rollout
-		loss_batch, gs_batch = batch_loss(params, _gs, _rngs, starting_steps, jp.int32(num_steps))
+		loss_batch, gs_batch = batch_loss(params, _gs, _rngs, eps, steps, jp.int32(num_steps))
 
 		# Add prior loss
 		ploss = prior_fn(params)
@@ -162,14 +170,14 @@ import experiments as exp
 import matplotlib.pyplot as plt
 
 
-def build_estimator(record: log_pb2.EpisodeRecord, rate: float) -> Tuple[log_pb2.EpisodeRecord, Dict[str, Node], List[str]]:
+def build_estimator(record: log_pb2.ExperimentRecord, rate: float, data: exp.RecordHelper) -> Tuple[log_pb2.EpisodeRecord, Dict[str, Node], List[str]]:
 	# Copy episode record
 	# todo: does this truly deepcopy?
 	record.CopyFrom(record)
 
 	# Re-initialize nodes
 	nodes: Dict[str, Union[Node, Agent]] = {}
-	for n in record.node:
+	for n in record.episode[-1].node:
 		nodes[n.info.name] = pickle.loads(n.info.state)
 	[n.unpickle(nodes) for n in nodes.values()]
 
@@ -178,28 +186,25 @@ def build_estimator(record: log_pb2.EpisodeRecord, rate: float) -> Tuple[log_pb2
 	estimator.connect(nodes["sensor"], window=1, blocking=False, delay=0., skip=True)  # todo: skip to avoid phase shift.
 	nodes["estimator"] = estimator
 
-	# # Get data
-	record_exp = log_pb2.ExperimentRecord(episode=[record])
-	data = exp.RecordHelper(record_exp)
-
 	# Define nodes for which we have recorded outputs
 	excludes_inputs = ["actuator", "agent"]
 	for name in excludes_inputs:
-		outputs = data._data[0][name]["outputs"].tree
-		states = data._data[0][name]["states"].tree
-		params = data._data[0][name]["params"].tree
+		outputs = data._data_stacked[name]["outputs"]
+		states = data._data_stacked[name]["states"]
+		params = data._data_stacked[name]["params"]
 		nodes[name] = Replay(nodes[name], outputs, states, params)
 
 	# Wrap sensors to calculate reconstruction loss
-	outputs = data._data[0]["sensor"]["outputs"].tree
+	outputs = data._data_stacked["sensor"]["outputs"]
 	nodes["sensor"] = ReconstructionLoss(nodes["sensor"], outputs)
 
 	# Recreate estimator record
-	record_sensor = [n for n in record.node if n.info.name == "sensor"][0]
+	for record_eps in record.episode:
+		record_sensor = [n for n in record_eps.node if n.info.name == "sensor"][0]
 
-	# Add estimator record to episode record
-	record_est = get_estimator_record(estimator, [record_sensor])
-	record.node.extend([record_est])
+		# Add estimator record to episode record
+		record_est = get_estimator_record(estimator, [record_sensor])
+		record_eps.node.extend([record_est])
 	return record, nodes, excludes_inputs
 
 
@@ -294,34 +299,41 @@ def visualize(_world_states, nodes, ts_actuator, ts_sensor, ts_world):
 	return fig, axes, dict(cos_th=art_cos_th, cos_th2=art_cos_th2, thdot=art_thdot, thdot2=art_thdot2, actions=art_actions)
 
 
-def _init(env: BaseEnv, nodes: Dict[str, Node]):
-	# Get jit functions
-	jit_reset = env.reset
-	jit_step = env.step
+def init_graph_state(env: BaseEnv, nodes: Dict[str, Node], record: log_pb2.NetworkRecord, MCS: nx.DiGraph, G: List[nx.DiGraph], G_subgraphs: List[Dict[str, nx.DiGraph]], data: exp.RecordHelper):
+	# Get timings
+	timings = get_timings_from_network_record(record, G, G_subgraphs)
+	num_eps, num_steps = next(iter(timings[0].values()))["run"].shape
 
-	# Define initial params
-	from rex.base import StepState
+	def _update_buffer(_data: jp.ndarray, _buffer: jp.ndarray) -> jp.ndarray:
+		if len(_buffer.shape) != len(_data.shape):
+			raise ValueError(f"Warning: buffer shape {tuple(_buffer.shape)} does not match data shape {tuple(_data.shape)}")
+		if _buffer.shape[1] > _data.shape[1]:
+			_buffer[:, :_data.shape[1]] = _data
+		else:
+			_buffer[:] = _data[:, :_buffer.shape[1]]
+		return _buffer
 
-	# Define initial sensor params
+	# Fill output buffer with data
+	outputs = get_output_buffers_from_timings(MCS, timings, nodes, extra_padding=0)
+	output_data = {k: d["outputs"] for k, d in data._data_stacked.items() if k in outputs}
+	jax.tree_util.tree_map(_update_buffer, output_data, {k: v for k, v in outputs.items() if k in output_data})
+
+	# Define initial sensor params (no noise)
 	params = nodes["sensor"].default_params(jumpy.random.PRNGKey(0))
 	params = params.replace(th_std=jp.float32(0.), th2_std=jp.float32(0.), thdot_std=jp.float32(0.), thdot2_std=jp.float32(0.))
 	ss_sensor = StepState(rng=None, state=None, inputs=None, params=params)
 
 	# Define initial estimator params
-	# record_est = [n for n in env._cgraph.trace.episode.node if n.info.name == "estimator"][0]
-	max_num_steps = env._cgraph.max_steps + 1
+	# num_steps = env._cgraph.max_steps + 1
 	world_state = nodes["world"].default_state(jumpy.random.PRNGKey(0))
-	world_states = jax.tree_map(lambda *x: jp.stack(x), *([world_state] * (max_num_steps+1)))
+	world_states = jax.tree_map(lambda *x: jp.repeat(jp.stack(x)[None], num_eps, axis=0), *([world_state] * (num_steps+1)))
 	p_est = EstimatorParams(world_states=world_states)
 	ss_est = StepState(rng=None, state=None, inputs=None, params=p_est)
 
 	# Define initial graph state
-	from rex.base import GraphState
-	from flax.core import FrozenDict
 	ndict = dict(sensor=ss_sensor, estimator=ss_est)
-	default_outputs = env._cgraph._default_outputs
-	init_gs = GraphState(nodes=FrozenDict(ndict), step=jp.int32(0), outputs=FrozenDict(default_outputs))
-	init_gs, _ = jit_reset(jumpy.random.PRNGKey(0), init_gs)
+	init_gs = GraphState(nodes=FrozenDict(ndict), step=jp.int32(0), eps=jp.int32(0), outputs=FrozenDict(outputs), timings=timings)
+	init_gs, _ = env.reset(jumpy.random.PRNGKey(0), init_gs)
 
 	return init_gs
 

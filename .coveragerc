@@ -5,6 +5,8 @@ omit =
     examples/*
     scripts/*
     envs/*
+    estimator/*
+    experiments/*
 
 [report]
 exclude_lines =

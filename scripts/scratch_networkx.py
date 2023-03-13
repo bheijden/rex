@@ -9,7 +9,7 @@ sns.set()
 import networkx as nx
 
 from rex.utils import timer
-import rex.tracer_new as tracer
+import rex.tracer as tracer
 import rex.open_colors as oc
 from rex.proto import log_pb2
 
