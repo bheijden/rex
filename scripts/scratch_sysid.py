@@ -66,7 +66,7 @@ if __name__ == "__main__":
 	# DIST_FILE = f"real_pendulum_2023-01-27-1806_phase_blocking_120s_record_sysid-gmms-2comps.pkl"
 	JITTER = BUFFER
 	SCHEDULING = PHASE
-	MAX_STEPS = int(1*80)
+	MAX_STEPS = int(5*80)
 	START_STEPS = 0*MAX_STEPS
 	WIN_ACTION = 2
 	WIN_OBS = 3
