@@ -691,6 +691,7 @@ def plot_depth_order(ax: "matplotlib.Axes",
                      MCS: nx.DiGraph,
                      seq: int = -1,
                      split_mode: str = "generational",
+                     supergraph_mode: str = "MCS",
                      xmax: float = None,
                      order: List[str] = None,
                      cscheme: Dict[str, str] = None,
@@ -703,7 +704,8 @@ def plot_depth_order(ax: "matplotlib.Axes",
                      arrowstyle="->",
                      connectionstyle="arc3,rad=0.1",
                      draw_nodelabels=True,
-                     draw_excess=True):
+                     draw_excess=True,
+                     workers: int = None):
     """
     :param ax:
     :param G: Computation graph.
@@ -711,6 +713,7 @@ def plot_depth_order(ax: "matplotlib.Axes",
     :param MCS: minimum common supergraph.
     :param seq: Sequence number of the traced root step.
     :param split_mode: Split mode for the subgraphs graph.
+    :param supergraph_mode: The type of supergraph for the subgraphs graph.
     :param xmax: Maximum time to plot the computation graph for.
     :param order: Order in which the nodes are placed in y-direction.
     :param cscheme: Color scheme for the nodes.
@@ -724,6 +727,7 @@ def plot_depth_order(ax: "matplotlib.Axes",
     :param connectionstyle:
     :param draw_nodelabels: Draw node labels with ts/tick (=True) or not (=False).
     :param draw_excess: Draw excess step calls (=True) or not (=False).
+    :param workers: Number of workers to use for parallelization.
     :return:
     """
     # Create copy of graphs
@@ -758,13 +762,17 @@ def plot_depth_order(ax: "matplotlib.Axes",
     # Get subgraphs
     G_subgraphs = tracer.get_subgraphs(G, split_mode=split_mode)
 
+    # If supergraph_mode is "topological"
+    if supergraph_mode == "topological":
+        G_subgraphs = tracer.as_topological_subgraphs(G_subgraphs)
+
     # Set MCS properties
     tracer.set_node_order(MCS, order)
     tracer.set_node_colors(MCS, cscheme)
     MCS = tracer.as_MCS(MCS)
 
     # Get monomorphisms
-    monomorphisms = tracer.get_subgraph_monomorphisms(MCS, G_subgraphs)
+    monomorphisms = tracer.get_subgraph_monomorphisms(MCS, G_subgraphs, workers=workers)
 
     # Add root node to mapping (root is always the only node in the last generation)
     root_slot = f"{root}_s0"

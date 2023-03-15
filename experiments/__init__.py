@@ -7,6 +7,7 @@ from functools import partial
 from typing import Dict, List, Tuple, Union, Callable, Any, Type, Optional
 from types import ModuleType
 from pickle import UnpicklingError
+from google.protobuf.pyext._message import RepeatedCompositeContainer
 import dill as pickle
 import time
 import jax
@@ -38,7 +39,7 @@ from rex.agent import Agent
 from rex.proto import log_pb2
 from rex.distributions import Distribution, Gaussian
 from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, WARN, REAL_TIME, \
-    ASYNC, WALL_CLOCK, SCHEDULING_MODES, JITTER_MODES, CLOCK_MODES
+    ASYNC, WALL_CLOCK, SCHEDULING_MODES, JITTER_MODES, CLOCK_MODES, INFO
 import rex.open_colors as oc
 from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 
@@ -113,12 +114,18 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
 
 
 def make_compiled_env(env: PendulumEnv,
-                      record: log_pb2.EpisodeRecord,
+                      records: Union[log_pb2.EpisodeRecord, List[log_pb2.EpisodeRecord]],
                       eval_env: bool = False,
-                      max_steps: int = 100) -> PendulumEnv:
+                      max_steps: int = 100,
+                      split_mode: str = "generational",
+                      supergraph_mode: str = "MCS",
+                      log_level: int = INFO,
+                      ) -> PendulumEnv:
+    records = records if isinstance(records, (list, RepeatedCompositeContainer)) else [records]
+
     # Re-initialize nodes
     nodes: Dict[str, Union[Node, Agent]] = {}
-    for n in record.node:
+    for n in records[-1].node:
         nodes[n.info.name] = pickle.loads(n.info.state)
     [n.unpickle(nodes) for n in nodes.values()]
 
@@ -131,8 +138,8 @@ def make_compiled_env(env: PendulumEnv,
     world.eval_env = eval_env
 
     # Trace record
-    record_network, MCS, G, G_subgraphs = tracer.get_network_record(record, "agent", split_mode="generational")
-    timings = tracer.get_timings_from_network_record(record_network, G, G_subgraphs)
+    record_network, MCS, G, G_subgraphs = tracer.get_network_record(records, "agent", split_mode=split_mode, supergraph_mode=supergraph_mode, log_level=log_level)
+    timings = tracer.get_timings_from_network_record(record_network, G, G_subgraphs, log_level=log_level)
 
     # Create env
     _name = env.name

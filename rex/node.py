@@ -438,10 +438,19 @@ class BaseNode:
         # Set first last_output_ts equal to phase (as if we just finished our previous output).
         self.q_ts_output_prev.append(0.)
 
+        # NOTE: Deadlocks may occur when num_tokens is chosen too low for cyclical graphs, where a low rate node
+        #       depends (blocking) on a high rate node, while the high rate node depends (skipped, non-blocking)
+        #       on the low rate node. In that case, the num_token of the high-rate node must be at least
+        #       (probably more) the rate multiple + 1. May be larger if there are delays, etc...
         # Queue first two ticks (so that output_ts runs ahead of message)
         # The number of tokens > 1 determines "how far" into the future the
         # output timestamps are simulated when clock=simulated.
-        self.q_tick.extend((True, True))
+        num_tokens = 10  # todo: find non-heuristic solution. Add tokens adaptively based on requests from downstream nodes?
+        # if self.name in ["observer"]:
+        #     num_tokens = 4
+        # else:
+        #     num_tokens = 2
+        self.q_tick.extend((True,)*num_tokens)
 
         # Push scheduled ts
         _f = self._submit(self.push_scheduled_ts)
@@ -568,6 +577,9 @@ class BaseNode:
                 _, ts_output_wc = self.now()
                 header = log_pb2.Header(eps=self._eps, seq=tick, ts=log_pb2.Time(sc=ts_output, wc=ts_output_wc))
                 self.output.push_ts_output(ts_output, header)
+
+                # todo: Somehow, num_tokens can be lowered if we would sleep here (because push_ts_output runs before push_scheduled_ts).
+                #  time.sleep(1.0)
 
                 # Add previous output timestamp to queue
                 self.q_ts_output_prev.append(ts_output)

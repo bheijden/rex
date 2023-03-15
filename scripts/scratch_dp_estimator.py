@@ -19,6 +19,8 @@ import envs.double_pendulum as dpend
 # Environment
 ENV = "double_pendulum"
 DIST_FILE = f"21eps_pretrained_sbx_sac_gmms_2comps.pkl"
+SPLIT_MODE = "generational"
+SUPERGRAPH_MODE = "MCS"  # topo=15, 1.3M, MCS=5, 2M
 JITTER = BUFFER
 SCHEDULING = PHASE
 MAX_STEPS = 5*80
@@ -77,15 +79,21 @@ policy = exp.make_policy(model)
 record_pre = exp.eval_env(gym_env, policy, n_eval_episodes=NUM_EVAL_PRE, verbose=True, seed=SEED, record_settings=RECORD_SETTINGS)
 
 # Trace & compile environment
-cenv = exp.make_compiled_env(env, record_pre.episode[-1], max_steps=MAX_STEPS, eval_env=False)
+cenv = exp.make_compiled_env(env, record_pre.episode, max_steps=MAX_STEPS, eval_env=False, split_mode=SPLIT_MODE, supergraph_mode=SUPERGRAPH_MODE,log_level=50)
 
 # Rollouts
 rw = exp.RolloutWrapper(cenv)
 
+# Start tracing
+# import tensorflow
+# jax.profiler.start_trace("/tmp/tensorboard")
+
+# Rn rollouts
+
 nenvs = 7000
 seed = jumpy.random.PRNGKey(0)
 rng = jumpy.random.split(seed, num=nenvs)
-for i in range(5):
+for i in range(10):
     seed = jumpy.random.PRNGKey(i)
     rng = jumpy.random.split(seed, num=nenvs)
     timer = utils.timer(f"{i=}", log_level=0)
@@ -93,3 +101,5 @@ for i in range(5):
         res = rw.batch_rollout(rng)
     fps = env.max_steps * nenvs / timer.duration
     print(f"[{timer.name}] time={timer.duration} sec | fps={fps:.0f} steps/sec")
+
+# jax.profiler.stop_trace()

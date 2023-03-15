@@ -9,7 +9,7 @@ from flax.core import FrozenDict
 
 import rex.jumpy as rjp
 from rex.base import GraphState
-from rex.utils import timer
+import rex.utils as utils
 from rex.constants import SILENT, DEBUG, INFO, WARN
 from rex.tracer import get_network_record, get_timings_from_network_record, get_chronological_timings, get_output_buffers_from_timings
 from rex.compiled import CompiledGraph
@@ -36,7 +36,7 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
         env_step = jax.jit(env_step) if use_jit else env_step
 
         # Reset environment (warmup)
-        with timer(f"{name} | jit reset", log_level=WARN):
+        with utils.timer(f"{name} | jit reset", log_level=WARN):
             graph_state, obs = env_reset(rng)
             gs_lst.append(graph_state)
             obs_lst.append(obs)
@@ -44,7 +44,7 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
             ss_lst.append(ss_new)
 
         # Initial step (warmup)
-        with timer(f"{name} | jit step", log_level=WARN):
+        with utils.timer(f"{name} | jit step", log_level=WARN):
             graph_state, obs, reward, done, info = env_step(graph_state, None)
             obs_lst.append(obs)
             gs_lst.append(graph_state)

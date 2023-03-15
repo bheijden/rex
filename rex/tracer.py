@@ -1,3 +1,4 @@
+import multiprocessing
 import jax
 import jumpy
 import numpy as onp
@@ -17,6 +18,7 @@ from rex.proto import log_pb2
 from rex.mcs import Deque, QueuePolicy, find_largest_motifs
 from rex.utils import timer, log
 from rex.base import NodeTimings, Timings, Output
+from rex.multiprocessing import new_process
 
 
 def node_match(n1, n2):
@@ -257,10 +259,27 @@ def trace_root(G: nx.DiGraph, root: str, seq: int) -> nx.DiGraph:
     return G_traced
 
 
-def get_subgraphs(G: nx.DiGraph, split_mode: str = "generational") -> Dict[str, nx.DiGraph]:
+def _update_subgraph_data(G_sub: nx.DiGraph) -> nx.DiGraph:
+    G_sub = G_sub.copy(as_view=False)
+    sub_generations = list(nx.topological_generations(G_sub))
+    # Calculate longest path
+    for n in G_sub.nodes():
+        desc = nx.descendants(G_sub, n)
+        desc.add(n)
+        G_desc = G_sub.subgraph(desc).copy(as_view=True)
+        longest_path_length = nx.dag_longest_path_length(G_desc)
+        # longest_path = nx.dag_longest_path(G_desc)
+        G_sub.nodes[n].update({"sub_longest_path_length": longest_path_length})
+    # Calculate sub generations
+    for i_sub_gen, sub_gen in enumerate(sub_generations):
+        for n in sub_gen:
+            G_sub.nodes[n].update({"sub_generation": i_sub_gen})
+    return G_sub
+
+
+def split_generational(G: nx.DiGraph) -> Dict[str, nx.DiGraph]:
+    # Copy Graph
     G = G.copy(as_view=False)
-    if split_mode not in ["generational"]:
-        raise NotImplementedError(f"Split mode {split_mode} not supported.")
 
     # Define generations
     generations = list(nx.topological_generations(G))
@@ -295,22 +314,58 @@ def get_subgraphs(G: nx.DiGraph, split_mode: str = "generational") -> Dict[str, 
     G_subgraphs = dict()
     for i_root, (root, subgraph) in enumerate(bwd_subgraphs.items()):
         nodes = [n for gen in subgraph for n in gen]
-        G_sub = G.subgraph(nodes).copy(as_view=False)
-        sub_generations = list(nx.topological_generations(G_sub))
-        # Calculate longest path
-        for n in G_sub.nodes():
-            desc = nx.descendants(G_sub, n)
-            desc.add(n)
-            G_desc = G_sub.subgraph(desc).copy(as_view=True)
-            longest_path_length = nx.dag_longest_path_length(G_desc)
-            # longest_path = nx.dag_longest_path(G_desc)
-            G_sub.nodes[n].update({"sub_longest_path_length": longest_path_length})
-        # Calculate sub generations
-        for i_sub_gen, sub_gen in enumerate(sub_generations):
-            for n in sub_gen:
-                G_sub.nodes[n].update({"sub_generation": i_sub_gen})
-        G_subgraphs[root] = G_sub
+        G_sub = G.subgraph(nodes).copy(as_view=True)
+        G_subgraphs[root] = _update_subgraph_data(G_sub)
     return G_subgraphs
+
+
+def split_topological(G: nx.DiGraph) -> Dict[str, nx.DiGraph]:
+    # Copy Graph
+    G = G.copy(as_view=False)
+
+    # Get & sort root nodes
+    roots = {n: data for n, data in G.nodes(data=True) if data["root"]}
+    roots = {k: roots[k] for k in sorted(roots.keys(), key=lambda k: roots[k]["seq"])}
+
+    # Define subgraphs
+    G_subgraphs = {}
+    for i_root, (root, data) in enumerate(roots.items()):
+        data_root = {"root_index": i_root, "root": root}
+        G.nodes[root].update(data_root)
+        ancestors = nx.ancestors(G, root)
+        [G.nodes[n].update(data_root) for n in ancestors]
+        G_sub = G.subgraph(ancestors).copy(as_view=True)
+        G_subgraphs[root] = _update_subgraph_data(G_sub)
+        G.remove_nodes_from(list(ancestors) + [root])
+    return G_subgraphs
+
+
+def get_subgraphs(G: nx.DiGraph, split_mode: str = "generational") -> Dict[str, nx.DiGraph]:
+    if split_mode == "generational":
+        return split_generational(G)
+    elif split_mode == "topological":
+        return split_topological(G)
+    else:
+        raise NotImplementedError(f"Split mode {split_mode} not supported.")
+
+
+def as_topological_subgraphs(G_subgraphs: Dict[str, nx.DiGraph]) -> Dict[str, nx.DiGraph]:
+    edge_data = {"color": oc.ecolor.used, "linestyle": "-", "alpha": 1.}
+    G_subgraphs_topo = {}
+    for root, G_sub in G_subgraphs.items():
+        # Create new subgraph without edges
+        G_sub_topo = G_sub.copy(as_view=False)
+        G_sub_topo.remove_edges_from(list(G_sub_topo.edges()))
+
+        # Connect nodes with edges according to topological order
+        sort = list(nx.topological_sort(G_sub))
+        for i, n in enumerate(sort):
+            if i > 0:
+                G_sub_topo.add_edge(sort[i - 1], n, **edge_data)
+
+        # Update subgraph data
+        G_subgraphs_topo[root] = _update_subgraph_data(G_sub_topo)
+    return G_subgraphs_topo
 
 
 def determine_is_super(G1: nx.DiGraph, G2: nx.DiGraph) -> bool:
@@ -331,8 +386,9 @@ def determine_is_super(G1: nx.DiGraph, G2: nx.DiGraph) -> bool:
     return is_super
 
 
-def get_unique_motifs(G_subgraphs: Dict[str, nx.DiGraph], validate: bool = True) -> Dict[str, nx.DiGraph]:
+def get_unique_motifs(G_subgraphs: Dict[str, nx.DiGraph], validate: bool = True, workers: int = None) -> Dict[str, nx.DiGraph]:
     G_motifs = {}
+    G_as_MCS = {}
     for root_test, G_test in G_subgraphs.items():
         G_test: nx.DiGraph
         is_unique = True
@@ -342,20 +398,28 @@ def get_unique_motifs(G_subgraphs: Dict[str, nx.DiGraph], validate: bool = True)
             # Determine super vs motif graph
             is_super = determine_is_super(G_unique, G_test)
             root_super = root_unique if is_super else root_test
+            if root_super not in G_as_MCS:
+                G_as_MCS[root_super] = as_MCS(G_test.copy(as_view=False))
             G_super = G_unique if is_super else G_test
+            G_super_as_MCS = G_as_MCS[root_super]
             G_motif = G_unique if not is_super else G_test
 
             # Define matcher
-            matcher = isomorphism.DiGraphMatcher(G_super, G_motif, node_match=node_match, edge_match=edge_match)
+            matcher = isomorphism.DiGraphMatcher(G_super_as_MCS, G_motif, node_match=node_match, edge_match=edge_match)
 
             if matcher.subgraph_is_monomorphic():
+                # If the subgraph is monomorphic, add the supergraph as the unique motif (can either be root_test or root_unique)
                 G_motifs[root_super] = G_super
                 is_unique = False
             else:
+                # If the subgraph is not monomorphic, add the (prev. popped) unique motif back to the motifs dict
                 G_motifs[root_unique] = G_unique
 
         if is_unique:
+            # If the subgraph is not monomorphic with any motifs, add it to the motifs dict.
+            # At this point, it may have already been added to the motifs dict if it was the super graph, but that's fine.
             G_motifs[root_test] = G_test
+            G_as_MCS[root_test] = as_MCS(G_test.copy(as_view=False))
 
     if validate:
         # Verify that all unique subgraphs are not monomorphic with any other unique subgraph
@@ -364,16 +428,22 @@ def get_unique_motifs(G_subgraphs: Dict[str, nx.DiGraph], validate: bool = True)
                 if root_motif == root_motif_other:
                     continue
                 is_super = determine_is_super(G_motif, G_motif_other)
-                G_super = G_motif if is_super else G_motif_other
+                root_super = root_motif if is_super else root_motif_other
+                assert root_super in G_as_MCS, "Root motif not in G_as_MCS."
+                G_super_as_MCS = G_as_MCS[root_super]
+                # G_super = G_motif if is_super else G_motif_other
                 G_motif = G_motif if not is_super else G_motif_other
-                matcher = isomorphism.DiGraphMatcher(G_super, G_motif, node_match=node_match, edge_match=edge_match)
+                matcher = isomorphism.DiGraphMatcher(G_super_as_MCS, G_motif, node_match=node_match, edge_match=edge_match)
                 assert not matcher.subgraph_is_monomorphic(), "Identified unique subgraphs are monomorphic."
 
         # Verify that all subgraphs are monomorphic with one of the identified unique subgraphs
+        # todo: parallelize
         for root_test, G_test in G_subgraphs.items():
             is_unique = True
             for root_motif, G_motif in G_motifs.items():
-                matcher = isomorphism.DiGraphMatcher(G_motif, G_test, node_match=node_match, edge_match=edge_match)
+                assert root_super in G_as_MCS, "Root_motif not in G_as_MCS."
+                G_super_as_MCS = G_as_MCS[root_motif]
+                matcher = isomorphism.DiGraphMatcher(G_super_as_MCS, G_test, node_match=node_match, edge_match=edge_match)
                 if matcher.subgraph_is_monomorphic():
                     is_unique = False
                     break
@@ -473,7 +543,7 @@ def _get_MCS(G1, G2, max_evals: int = None):
     return num_evals, as_MCS(MCS)
 
 
-def get_minimum_common_supergraph(G_motifs: Dict[str, nx.DiGraph], max_evals_per_motif: int = None, max_total_evals: int = 100_000):
+def get_minimum_common_supergraph(G_motifs: Dict[str, nx.DiGraph], max_evals_per_motif: int = None, max_total_evals: int = 100_000) -> nx.DiGraph:
     """
     Find the minimum common (monomorphic) supergraph (MCS) of a list of graphs.
 
@@ -513,6 +583,45 @@ def get_minimum_common_supergraph(G_motifs: Dict[str, nx.DiGraph], max_evals_per
     return G_MCS
 
 
+def get_topological_supergraph(G_motifs: Dict[str, nx.DiGraph], **kwargs) -> nx.DiGraph:
+    """
+    Find the topological supergraph of a list of graphs.
+
+    Arguments:
+        G_motifs (List[nx.DiGraph]): The list of graphs
+
+    Returns:
+        nx.DiGraph: The topological supergraph
+    """
+    # Get node data
+    node_data = {}
+    [node_data.update(get_node_data(G)) for G in G_motifs.values()]
+
+    # Find the motif with the most nodes
+    G_motifs_max = G_motifs.get(max(G_motifs, key=lambda x: G_motifs[x].number_of_nodes()))
+
+    # Add len(G_motifs_max.number_of_nodes()) generations, where each generation has a slot for every node type.
+    num_nodes = G_motifs_max.number_of_nodes()
+    G_super = nx.DiGraph()
+    edge_data = {"color": oc.ecolor.used, "linestyle": "-", "alpha": 1.}
+    for i in range(num_nodes):
+        for name, data in node_data.items():
+            G_super.add_node(f"{name}_{i}", **data)
+            if i > 0:
+                G_super.add_edge(f"{name}_{i - 1}", f"{name}_{i}", **edge_data)
+    G_topo = as_MCS(G_super)
+    return G_topo
+
+
+def get_supergraph(G_motifs: Dict[str, nx.DiGraph], supergraph_mode: str = "MCS", **kwargs) -> nx.DiGraph:
+    if supergraph_mode == "MCS":
+        return get_minimum_common_supergraph(G_motifs, **kwargs)
+    elif supergraph_mode == "topological":
+        return get_topological_supergraph(G_motifs, **kwargs)
+    else:
+        raise ValueError(f"Unknown supergraph mode: {supergraph_mode}")
+
+
 def _add_root_to_supergraph(G_MCS: nx.DiGraph, root_data: Dict) -> nx.DiGraph:
     G_with_root = G_MCS.copy(as_view=False)
 
@@ -530,28 +639,57 @@ def _add_root_to_supergraph(G_MCS: nx.DiGraph, root_data: Dict) -> nx.DiGraph:
     return as_MCS(G_with_root)
 
 
-def validate_subgraphs(G_MCS: nx.DiGraph, G_subgraphs: Dict[str, nx.DiGraph]) -> Dict[str, bool]:
+def validate_subgraphs(G_MCS: nx.DiGraph, G_subgraphs: Dict[str, nx.DiGraph], workers: int = None) -> Dict[str, bool]:
+
+    def _validate_is_monomorphic(G_MCS, G_test) -> Dict[str, str]:
+        matcher = isomorphism.DiGraphMatcher(G_MCS, G_test, node_match=node_match, edge_match=edge_match)
+        return matcher.subgraph_is_monomorphic()
+
+    max_workers = workers or multiprocessing.cpu_count()
+    validate_is_monomorphic = new_process(_validate_is_monomorphic, max_workers=max_workers)
+
     # Test all subgraphs for monomorphism with the supergraph
     is_monomorphic = {}
     for root_test, G_test in G_subgraphs.items():
-        matcher = isomorphism.DiGraphMatcher(G_MCS, G_test, node_match=node_match, edge_match=edge_match)
-        is_monomorphic[root_test] = matcher.subgraph_is_monomorphic()
+        # matcher = isomorphism.DiGraphMatcher(G_MCS, G_test, node_match=node_match, edge_match=edge_match)
+        is_monomorphic[root_test] = validate_is_monomorphic.submit(G_MCS, G_test)
+
+    # Wait for all processes to finish
+    for root_test, future in is_monomorphic.items():
+        is_monomorphic[root_test] = future.result()
+
+    # Shutdown executor
+    validate_is_monomorphic.shutdown()
     return is_monomorphic
 
 
-def get_subgraph_monomorphisms(G_MCS: nx.DiGraph, G_subgraphs: Dict[str, nx.DiGraph]) -> Dict[str, bool]:
+def get_subgraph_monomorphisms(G_MCS: nx.DiGraph, G_subgraphs: Dict[str, nx.DiGraph], workers: int = None) -> Dict[str, Dict[str, str]]:
+
+    def _get_monomorphism(G_MCS, G_test) -> Dict[str, str]:
+        matcher = isomorphism.DiGraphMatcher(G_MCS, G_test, node_match=node_match, edge_match=edge_match)
+        return next(matcher.subgraph_monomorphisms_iter())
+
+    max_workers = workers or multiprocessing.cpu_count()
+    get_monomorphism = new_process(_get_monomorphism, max_workers=max_workers)
+
     # Get all subgraph monomorphisms with the supergraph
     monomorphisms = {}
     for root_test, G_test in G_subgraphs.items():
-        matcher = isomorphism.DiGraphMatcher(G_MCS, G_test, node_match=node_match, edge_match=edge_match)
-        mcs = next(matcher.subgraph_monomorphisms_iter())
-        monomorphisms[root_test] = mcs
+        monomorphisms[root_test] = get_monomorphism.submit(G_MCS, G_test)
+
+    # Wait for all processes to finish
+    for root_test, future in monomorphisms.items():
+        monomorphisms[root_test] = future.result()
+
+    # Shutdown executor
+    get_monomorphism.shutdown()
     return monomorphisms
 
 
 def get_network_record(records: Union[log_pb2.EpisodeRecord, List[log_pb2.EpisodeRecord]], root: str, seq: int = None, split_mode: str = "generational",
-                       cscheme: Dict[str, str] = None, order: List[str] = None, max_evals_per_motif: int = None, excludes_inputs: List[str] = None,
-                       max_total_evals: int = 100_000, log_level: int = INFO) -> Tuple[log_pb2.NetworkRecord, nx.DiGraph, List[nx.DiGraph], List[Dict[str, nx.DiGraph]]]:
+                       supergraph_mode: str = "MCS",
+                       cscheme: Dict[str, str] = None, order: List[str] = None, max_evals_per_motif: int = None, excludes_inputs: List[str] = None, workers: int = None,
+                       max_total_evals: int = 100_000, log_level: int = INFO, validate: bool = True) -> Tuple[log_pb2.NetworkRecord, nx.DiGraph, List[nx.DiGraph], List[Dict[str, nx.DiGraph]]]:
     excludes_inputs = excludes_inputs or []
 
     # Convert to list of records
@@ -581,12 +719,12 @@ def get_network_record(records: Union[log_pb2.EpisodeRecord, List[log_pb2.Episod
             G_full = create_graph(record, excludes_inputs=excludes_inputs)
             lst_G_full.append(G_full)
 
-            # Get node_data
-            node_data.update(get_node_data(G_full))
-
             # Set edge and node properties
             set_node_order(G_full, order)
             set_node_colors(G_full, cscheme)
+
+            # Get node_data
+            node_data.update(get_node_data(G_full))
 
             # Trace root node (not pruned yet)
             G_traced = trace_root(G_full, root=root, seq=seq)
@@ -606,17 +744,18 @@ def get_network_record(records: Union[log_pb2.EpisodeRecord, List[log_pb2.Episod
 
     # Determine unique motifs
     with timer("Determining motifs", log_level=log_level):
-        G_motifs = get_unique_motifs(G_subgraphs)
+        G_motifs = get_unique_motifs(G_subgraphs, validate=validate, workers=workers)
 
     # Determine minimum common supergraph
-    with timer("Determining MCS", log_level=log_level):
-        G_MCS = get_minimum_common_supergraph(G_motifs, max_total_evals=max_total_evals, max_evals_per_motif=max_evals_per_motif)
+    with timer(f"Determining {supergraph_mode}", log_level=log_level):
+        G_MCS = get_supergraph(G_motifs, supergraph_mode=supergraph_mode, max_total_evals=max_total_evals, max_evals_per_motif=max_evals_per_motif)
         G_MCS_root = _add_root_to_supergraph(G_MCS, node_data[root])
-    log(name="tracer", color="white", log_level=log_level, id="MCS", msg=f"num_nodes={G_MCS.number_of_nodes()} | num_edges={G_MCS.number_of_edges()}")
+    log(name="tracer", color="white", log_level=log_level, id="supergraph", msg=f"num_nodes={G_MCS.number_of_nodes()} | num_edges={G_MCS.number_of_edges()}")
 
     # Verify that all subgraphs are monomorphic with the supergraph
-    with timer("Check subgraph monomorphism", log_level=log_level):
-        assert all(validate_subgraphs(G_MCS, G_subgraphs).values()), "Not all subgraphs are monomorphic with the supergraph."
+    if validate:
+        with timer("Check subgraph monomorphism", log_level=log_level):
+            assert all(validate_subgraphs(G_MCS, G_subgraphs, workers=workers).values()), "Not all subgraphs are monomorphic with the supergraph."
 
     # Save traced network record
     record_network = log_pb2.NetworkRecord()
@@ -624,6 +763,7 @@ def get_network_record(records: Union[log_pb2.EpisodeRecord, List[log_pb2.Episod
     record_network.root = root
     record_network.seq = seq
     record_network.split_mode = split_mode
+    record_network.supergraph_mode = supergraph_mode
     record_network.excludes_inputs.extend(excludes_inputs)
     record_network.motifs = pickle.dumps(G_motifs)
     record_network.MCS = pickle.dumps(G_MCS_root)
@@ -652,13 +792,11 @@ def _get_timings_template(G_MCS: nx.DiGraph, num_root_steps: int) -> Timings:
     return timings
 
 
-def get_timings(G_MCS: nx.DiGraph, G: nx.DiGraph, G_subgraphs: Dict[str, nx.DiGraph], num_root_steps: int, root: str):
+def get_timings(G_MCS: nx.DiGraph, G: nx.DiGraph, monomorphisms: Dict[str, Dict[str, str]], num_root_steps: int, root: str, workers: int = None):
     # Get supergraph timings
     timings = _get_timings_template(G_MCS, num_root_steps)
     # Fill in timings for each subgraph
-    for i_step, (root_test, G_step) in enumerate(G_subgraphs.items()):
-        matcher = isomorphism.DiGraphMatcher(G_MCS, G_step, node_match=node_match, edge_match=edge_match)
-        mcs = next(matcher.subgraph_monomorphisms_iter())
+    for i_step, (root_test, mcs) in enumerate(monomorphisms.items()):
         # Add root node to mapping (root is always the only node in the last generation)
         root_slot = f"{root}_s0"
         assert root_slot in G_MCS, "Root node not found in MCS."
@@ -698,7 +836,7 @@ def get_timings(G_MCS: nx.DiGraph, G: nx.DiGraph, G_subgraphs: Dict[str, nx.DiGr
 
 
 def get_timings_from_network_record(network_record: log_pb2.NetworkRecord, G: List[nx.DiGraph] = None, G_subgraphs: List[Dict[str, nx.DiGraph]] = None,
-                                    log_level: int = INFO) -> Timings:
+                                    log_level: int = INFO, workers: int = None) -> Timings:
     assert G is None or len(G) == len(network_record.episode), "Number of graphs does not match number of steps."
     assert G_subgraphs is None or len(G_subgraphs) == len(network_record.episode), "Number of subgraphs does not match number of steps."
 
@@ -710,8 +848,10 @@ def get_timings_from_network_record(network_record: log_pb2.NetworkRecord, G: Li
     G_MCS = pickle.loads(network_record.MCS)
 
     # Get all subgraphs
-    timings = []
     with timer("Get timings", log_level=log_level):
+        # Get all subgraphs
+        keys_subgraphs = {}
+        all_subgraphs = {}
         for i, (record, _G, _G_subgraphs) in enumerate(zip(network_record.episode, G, G_subgraphs)):
             # Create graph if not provided
             if _G is None:
@@ -728,7 +868,20 @@ def get_timings_from_network_record(network_record: log_pb2.NetworkRecord, G: Li
                 # Define subgraphs
                 _G_subgraphs = get_subgraphs(G_traced_pruned, split_mode=network_record.split_mode)
 
-            t = get_timings(G_MCS, _G, _G_subgraphs, num_root_steps=network_record.seq+1, root=network_record.root)
+            # Convert to topological subgraphs
+            if network_record.supergraph_mode == "topological":
+                _G_subgraphs = as_topological_subgraphs(_G_subgraphs)
+
+            keys_subgraphs[i] = {f"{i}_{k}": k for k in _G_subgraphs.keys()}
+            eps_subgraphs = {f"{i}_{k}": v for k, v in _G_subgraphs.items()}
+            all_subgraphs.update(eps_subgraphs)
+
+        # Get monomorphisms
+        monomorphisms = get_subgraph_monomorphisms(G_MCS, all_subgraphs, workers=workers)
+        monomorphisms_eps = {i: {v: monomorphisms[k] for k, v in key_map.items()} for i, key_map in keys_subgraphs.items()}
+        timings = []
+        for i, mono in monomorphisms_eps.items():
+            t = get_timings(G_MCS, _G, mono, num_root_steps=network_record.seq+1, root=network_record.root, workers=workers)
             timings.append(t)
 
         # Stack timings

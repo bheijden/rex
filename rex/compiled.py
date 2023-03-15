@@ -22,7 +22,10 @@ float32 = Union[jnp.float32, onp.float32]
 
 def update_output(buffer, output: Output, eps: int32, seq: int32) -> Output:
     # todo: copy=True needed?
+    # todo: line below reduces performance by 10x.
     new_buffer = jax.tree_map(lambda _b, _o: rjp.dynamic_update_slice(_b, jp.expand_dims(_o, [0, 1]), [eps, seq] + [0]*len(_o.shape), copy=True), buffer, output)
+    # new_buffer = jax.tree_map(lambda _b, _o: rjp.dynamic_update_slice(_b, jp.expand_dims(_o, [0, 1]), [0, 0] + [0]*len(_o.shape), copy=True), buffer, output)
+    # new_buffer = jax.tree_map(lambda _b, _o: _b*1.1, buffer, output)
     return new_buffer
 
 
@@ -92,6 +95,7 @@ def make_run_MCS(nodes: Dict[str, "Node"], MCS: nx.DiGraph, generations: List[Li
             def _run_node(graph_state: GraphState) -> Tuple[StepState, Output]:
                 # Update inputs
                 ss = update_input_fns[name](graph_state, timings_node)
+                # ss = _old_ss
 
                 # Run node step
                 _new_ss, output = nodes[name].step(ss)
@@ -101,6 +105,7 @@ def make_run_MCS(nodes: Dict[str, "Node"], MCS: nx.DiGraph, generations: List[Li
 
                 # Update output buffer
                 _new_output = update_output(graph_state.outputs[name], output, graph_state.eps, timings_node["seq"])
+                # _new_output = graph_state.outputs[name]
                 return _new_seq_ss, _new_output
 
             # Run node step

@@ -126,7 +126,9 @@ def test_plot():
     root = "agent"
     order = ["world", "sensor", "observer", "agent", "actuator"]
     cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
-    record_network, MCS, lst_full, lst_subgraphs = get_network_record(record, root, -1)
+    split_mode = "topological"
+    supergraph_mode = "MCS"
+    record_network, MCS, lst_full, lst_subgraphs = get_network_record(record, root, -1, split_mode=split_mode, supergraph_mode=supergraph_mode, log_level=WARN)
     G = lst_full[0]
 
     from rex.plot import plot_computation_graph, plot_topological_order, plot_depth_order
@@ -160,8 +162,8 @@ def test_plot():
     axes[1].xaxis.set_major_locator(MaxNLocator(integer=True))
     cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
 
-    plot_depth_order(axes[0], G, root=root, MCS=MCS, xmax=0.6, cscheme=cscheme, node_labeltype="seq", draw_excess=True)
-    plot_depth_order(axes[1], G, root=root, MCS=MCS, xmax=0.6, cscheme=cscheme, node_labeltype="ts", draw_excess=False)
+    plot_depth_order(axes[0], G, root=root, MCS=MCS, split_mode=split_mode, supergraph_mode=supergraph_mode, xmax=0.6, cscheme=cscheme, node_labeltype="seq", draw_excess=True)
+    plot_depth_order(axes[1], G, root=root, MCS=MCS, split_mode=split_mode, supergraph_mode=supergraph_mode, xmax=0.6, cscheme=cscheme, node_labeltype="ts", draw_excess=False)
 
     # Plot legend
     handles, labels = axes[0].get_legend_handles_labels()

@@ -122,6 +122,10 @@ class _NewProcess:
 		f.add_done_callback(self._done_callback)
 		return f
 
+	def shutdown(self, wait: bool = True):
+		"""Shutdown the executor."""
+		self._executor.shutdown(wait=wait)
+
 
 def new_process(fn: Callable, max_workers: int = 1, initializer: Callable = None, initargs: Tuple = ()) -> _NewProcess:
 	return _NewProcess(fn, max_workers=max_workers, initializer=initializer, initargs=initargs)

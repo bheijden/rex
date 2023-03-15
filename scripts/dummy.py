@@ -58,7 +58,6 @@ def build_dummy_env() -> Tuple["DummyEnv", Dict[str, Union[Agent, Node]]]:
 
 
 def build_dummy_graph() -> Dict[str, Node]:
-	# todo: set agent (and, optionally, actuator) rate to 5, and we deadlock.
 	# Create nodes
 	world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000))
 	sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007))

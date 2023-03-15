@@ -1,7 +1,11 @@
 # use JAX_LOG_COMPILES=1 to log JIT compilation.
 # todo: [TESTS] Install jumpy from github on CI
-# todo: [PROTO] Write API to easily extract graph_state and step_state from trace --> script_reinitialize.py
 # todo: [PROTO] Record ts start (and end?) of each step.
+# todo: [ASYNC] Add scheduled_ts tokens based on requests from downstream nodes.
+#               Case: cyclical connection (mix of blocking & non-blocking) with varying rates.
+#               Here, the observer must have num_tokens > 2
+#               Observer(rate=30) -(blocking)->Agent(rate<15)
+#               Agent(rate<15) -(non-blocking, skipped)-> Observer(rate=30)
 # todo: [ASYNC] Stress test with varying frequencies and delays.
 # todo: [ASYNC] Do nodes require at least one input (only when clock=SIMULATED)?
 # todo: [ASYNC] Only compiled graphs can be transformed with vmap.
@@ -34,7 +38,7 @@ import jumpy
 from rex.proto import log_pb2
 import rex.utils as utils
 from rex.constants import LATEST, BUFFER, SILENT, DEBUG, INFO, WARN, REAL_TIME, FAST_AS_POSSIBLE, SIMULATED, WALL_CLOCK, SYNC, ASYNC, FREQUENCY, PHASE
-from rex.distributions import Gaussian, GMM\
+from rex.distributions import Gaussian, GMM
 from rex.base import GraphState, StepState
 from dummy import DummyNode, DummyAgent
 from dummy_plot import plot_threads, plot_delay, plot_graph, plot_grouped
@@ -82,7 +86,7 @@ for i in range(5):
         print(f"agent_steps={num_steps} | node_steps={[n._i for n in nodes]} | t={(tend - tstart): 2.4f} sec | fps={num_steps / (tend - tstart): 2.4f}")
 
         # Trace
-        trace_record = trace(record, "root", -1)
+        # trace_record = trace(record, "root", -1)
 
         # Write record to file
         # with open(f"/home/r2ci/rex/scripts/trace_record_{i}.pb", "wb") as f:

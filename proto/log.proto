@@ -131,7 +131,8 @@ message NetworkRecord{
     string root = 2; // Root node
     uint32 seq = 3; // Sequence number
     string split_mode = 4; // Split mode (e.g. `topological_generation`)
-    repeated string excludes_inputs = 5; // Nodes that exclude their inputs during the trace
-    bytes motifs = 6; // Motifs (pickled dict[root_seq, networkx.DiGraph])
-    bytes MCS = 7; // Minimum common (monomorphic) supergraph incl. root in last generation (pickled networkx.DiGraph)
+    string supergraph_mode = 5; // Supergraph mode (e.g. `MCS`, 'topological`)
+    repeated string excludes_inputs = 6; // Nodes that exclude their inputs during the trace
+    bytes motifs = 7; // Motifs (pickled dict[root_seq, networkx.DiGraph])
+    bytes MCS = 8; // Minimum common (monomorphic) supergraph incl. root in last generation (pickled networkx.DiGraph)
 }
