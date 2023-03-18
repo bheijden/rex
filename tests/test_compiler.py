@@ -11,7 +11,7 @@ import rex.jumpy as rjp
 from rex.base import GraphState
 import rex.utils as utils
 from rex.constants import SILENT, DEBUG, INFO, WARN
-from rex.tracer import get_network_record, get_timings_from_network_record, get_chronological_timings, get_output_buffers_from_timings
+from rex.tracer import get_network_record, get_timings_from_network_record, get_chronological_timings, get_outputs_from_timings
 from rex.compiled import CompiledGraph
 
 from scripts.dummy import DummyEnv, build_dummy_env
@@ -93,12 +93,9 @@ def test_compiler():
     # Trace
     trace_mcs, MCS, G, G_subgraphs = get_network_record(record, "agent", -1)
 
-    # Test timings
-    timings = get_timings_from_network_record(trace_mcs)
-    outputs = get_output_buffers_from_timings(MCS, timings, nodes)
-    timings_chron = get_chronological_timings(MCS, timings, eps=0)
-
     # Initialize graph state
+    timings = get_timings_from_network_record(trace_mcs)
+    outputs = get_outputs_from_timings(MCS, timings, nodes)
     init_gs = GraphState(nodes=None, step=jp.int32(0), eps=jp.int32(0), timings=timings, outputs=FrozenDict(outputs))
 
     # Test graph

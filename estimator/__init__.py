@@ -13,7 +13,7 @@ import jumpy.numpy as jp
 
 import networkx as nx
 
-from rex.tracer import get_timings_from_network_record, get_output_buffers_from_timings
+from rex.tracer import get_timings_from_network_record, get_outputs_from_timings
 from rex.proto import log_pb2
 from rex.base import GraphState, Empty, StepState
 from rex.env import BaseEnv
@@ -314,7 +314,7 @@ def init_graph_state(env: BaseEnv, nodes: Dict[str, Node], record: log_pb2.Netwo
 		return _buffer
 
 	# Fill output buffer with data
-	outputs = get_output_buffers_from_timings(MCS, timings, nodes, extra_padding=0)
+	outputs = get_outputs_from_timings(MCS, timings, nodes, extra_padding=0)
 	output_data = {k: d["outputs"] for k, d in data._data_stacked.items() if k in outputs}
 	jax.tree_util.tree_map(_update_buffer, output_data, {k: v for k, v in outputs.items() if k in output_data})
 

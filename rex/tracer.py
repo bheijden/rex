@@ -1,9 +1,12 @@
+from functools import partial
 import multiprocessing
 import jax
 import jumpy
 import numpy as onp
 import jumpy.numpy as jp
+import numpy.ma as ma
 import dill as pickle
+from flax.core import FrozenDict
 from typing import Tuple, List, Dict, Union
 from copy import deepcopy
 from collections import deque
@@ -17,7 +20,7 @@ from rex.node import Node
 from rex.proto import log_pb2
 from rex.mcs import Deque, QueuePolicy, find_largest_motifs
 from rex.utils import timer, log
-from rex.base import NodeTimings, Timings, Output
+from rex.base import BufferSizes, NodeTimings, Timings, Output, GraphBuffer
 from rex.multiprocessing import new_process
 
 
@@ -167,6 +170,7 @@ def create_graph(record: log_pb2.EpisodeRecord, excludes_inputs: List[str] = Non
                         "seq": record_step.tick - 1,
                         "ts_sent": record_step.ts_output_prev,
                         "ts_recv": record_step.ts_output_prev,
+                        "stateful": True,
                         "pruned": pruned,
                         }
                 data.update(**edge_data)
@@ -190,6 +194,7 @@ def create_graph(record: log_pb2.EpisodeRecord, excludes_inputs: List[str] = Non
                             "seq": record_msg.sent.seq,
                             "ts_sent": record_msg.sent.ts.sc,
                             "ts_recv": record_msg.received.ts.sc,
+                            "stateful": False,
                             "pruned": pruned,
                             }
                     data.update(**edge_data)
@@ -816,7 +821,8 @@ def get_timings(G_MCS: nx.DiGraph, G: nx.DiGraph, monomorphisms: Dict[str, Dict[
             for u, v, edata in G.in_edges(n_step, data=True):
                 u_name = G.nodes[u]["name"]
                 v_name = G.nodes[v]["name"]
-                if u_name == v_name or edata["pruned"]:
+                # if u_name == v_name or edata["pruned"]:
+                if edata["stateful"] or edata["pruned"]:
                     continue
                 outputs[u_name].append(edata)
 
@@ -889,7 +895,7 @@ def get_timings_from_network_record(network_record: log_pb2.NetworkRecord, G: Li
     return timings
 
 
-def get_output_buffers_from_timings(G_MCS: nx.DiGraph, timings: Timings, nodes: Dict[str, "Node"], extra_padding: int = 0) -> Dict[str, Output]:
+def get_outputs_from_timings(G_MCS: nx.DiGraph, timings: Timings, nodes: Dict[str, "Node"], extra_padding: int = 0) -> Dict[str, Output]:
     """Get output buffer from timings."""
     # get seq state
     timings = get_timings_after_root_split(G_MCS, timings)
@@ -952,3 +958,140 @@ def get_chronological_timings(G_MCS: nx.DiGraph, timings: Timings, eps: int) -> 
     sort = {k: onp.argsort(v["seq"]) for k, v in slots_run.items()}
     slots_chron = {k: jax.tree_util.tree_map(lambda _arr: _arr[sort[k]], v) for k, v in slots_run.items()}
     return slots_chron
+
+
+def get_buffer_sizes_from_timings(G_MCS: nx.DiGraph, timings: Timings) -> BufferSizes:
+    # Get node names
+    node_names = set([data["name"] for n, data in G_MCS.nodes(data=True)])
+
+    # Get node data
+    slot_node_data = {n: data for n, data in G_MCS.nodes(data=True)}
+    node_data = {}
+    [node_data.update({d["name"]: d}) for slot, d in slot_node_data.items() if d["name"] not in node_data]
+
+    # Get output buffer sizes
+    masked_timings = []
+    for i_gen, gen in enumerate(timings):
+        t_flat = {slot: t for slot, t in gen.items()}
+        slots = {k: [] for k in node_names}
+        [slots[G_MCS.nodes[n]["name"]].append(t_flat[n]) for n in gen]
+        [slots.pop(k) for k in list(slots.keys()) if len(slots[k]) == 0]
+        slots = {k: jax.tree_util.tree_map(lambda *args: onp.stack(args, axis=0), *v) for k, v in slots.items()}
+
+        def _mask(mask, arr):
+            # Repeat mask in extra dimensions of arr (for inputs)
+            if arr.ndim > mask.ndim:
+                extra_dim = tuple([mask.ndim + a for a in range(arr.ndim - mask.ndim)])
+                new_mask = onp.expand_dims(mask, axis=extra_dim)
+                for i in extra_dim:
+                    new_mask = onp.repeat(new_mask, arr.shape[i], axis=-1)
+            else:
+                new_mask = mask
+            # print(mask.shape, arr.shape, new_mask.shape)
+            masked_arr = ma.masked_array(arr, mask=new_mask)
+            return masked_arr
+
+        # NOTE! order of operations is important here (things are popped, min, max, etc.)
+        masked_slots = {k: jax.tree_util.tree_map(partial(_mask, ~v["run"]), v) for k, v in slots.items()}
+        inputs_masked_slots = {k: v.pop("inputs") for k, v in masked_slots.items()}
+        inputs_masked_slots = {k: jax.tree_util.tree_map(lambda x: onp.amin(x, axis=(0, -1,)), v) for k, v in inputs_masked_slots.items()}
+        masked_slots = {k: jax.tree_util.tree_map(lambda x: onp.amax(x, axis=(0,)), v) for k, v in masked_slots.items()}
+        [v.update({"inputs": inputs_masked_slots[k]}) for k, v in masked_slots.items()]
+
+        masked_timings.append(masked_slots)
+
+    def _update_mask(j, arr):
+        arr.mask[..., j] = True
+        return arr
+
+    def _update_arr(i, a, b):
+        a[..., i] = b
+        return a
+
+    # Combine timings for each slot
+    node_masked_timings = {}
+    for i_gen, gen in enumerate(masked_timings):
+        for key, t in gen.items():
+            if key not in node_masked_timings:
+                # Repeat mask in extra dimensions of arr (for number of gens, and mask all but the current i_gen)
+                t = {k: jax.tree_util.tree_map(lambda x: onp.repeat(x[..., None], len(timings), axis=-1), v) for
+                                k, v in t.items()}
+
+                # Update mask to be True for all other gens
+                for j in range(len(timings)):
+                    if j == i_gen:
+                        continue
+                    jax.tree_util.tree_map(partial(_update_mask, j), t)
+
+                node_masked_timings[key] = t
+            else:
+                node_masked_timings[key] = jax.tree_util.tree_map(partial(_update_arr, i_gen), node_masked_timings[key], t)
+
+    # Get min buffer size for each node
+    name_mapping = {n: {v["input_name"]: o for o, v in data["inputs"].items()} for n, data in node_data.items()}
+    min_buffer_sizes = {k: {input_name: output_name for input_name, output_name in inputs.items()} for k, inputs in name_mapping.items()}
+    node_buffer_sizes = {n: [] for n in node_data.keys()}
+    for n, inputs in name_mapping.items():
+        t = node_masked_timings[n]
+        for input_name, output_name in inputs.items():
+            # Determine min input sequence per generation
+            seq_in = t["inputs"][input_name]["seq"]
+            seq_in = seq_in.reshape(*seq_in.shape[:-2], -1)
+            # NOTE: fill masked steps with max value (to not influence buffer size)
+            ma.set_fill_value(seq_in, onp.iinfo(onp.int32).max)
+            filled_seq_in = seq_in.filled()
+            max_seq_in = onp.minimum.accumulate(filled_seq_in[:, ::-1], axis=-1)[:, ::-1]
+
+            # Determine max output sequence per generation
+            seq_out = node_masked_timings[output_name]["seq"]
+            seq_out = seq_out.reshape(*seq_out.shape[:-2], -1)
+            ma.set_fill_value(seq_out, -1)
+            filled_seq_out = seq_out.filled()
+            max_seq_out = onp.maximum.accumulate(filled_seq_out, axis=-1)
+
+            # todo: Is -1 indexing for default_output problematic in buffer i.c.w. modulo wrapped indexing?
+            # todo: check if -1 is correctly handled anywhere (e.g. world).
+            # todo: min buffer size of 1? Only root may have no "subscribers" --> the case for estimators.
+
+            # Assert that max_seq_out >= max_seq_in
+            # assert seq_in[:, 0].max(), "No node has run at this point."  # Fails, because fill value is very large.
+            # assert max_seq_out[:, 0].max() <= -1, "No node has run at this point." # Fails, because fill value is -1
+
+            # Calculate difference to determine buffer size
+            # NOTE: Offset output sequence by +1, because the output is written to the buffer AFTER the buffer is read
+            offset_max_seq_out = onp.roll(max_seq_out, shift=1, axis=1)
+            offset_max_seq_out[:, 0] = -1  # NOTE: First step is always -1, because no node has run at this point.
+            s = offset_max_seq_out - max_seq_in
+
+            # NOTE! +1, because, for example, when offset_max_seq_out = 0, and max_seq_in = 0, we need to buffer 1 step.
+            max_s = s.max() + 1
+
+            # Store min buffer size
+            min_buffer_sizes[n][input_name] = max_s
+            node_buffer_sizes[output_name].append(max_s)
+
+    generations = list(nx.topological_generations(G_MCS))
+    return node_buffer_sizes
+
+
+def get_graph_buffer(G_MCS: nx.DiGraph, timings: Timings, nodes: Dict[str, "Node"], sizes: BufferSizes = None, extra_padding: int = 0) -> GraphBuffer:
+    # Get buffer sizes if not provided
+    if sizes is None:
+        sizes = get_buffer_sizes_from_timings(G_MCS, timings)
+
+    # Create output buffers
+    buffers = {}
+    stack_fn = lambda *x: jp.stack(x, axis=0)
+    rng = jumpy.random.PRNGKey(0)
+    for n, s in sizes.items():
+        assert n in nodes, f"Node `{n}` not found in nodes."
+        if len(sizes) > 0:
+            b = jax.tree_util.tree_map(stack_fn, *[nodes[n].default_output(rng)] * (max(s) + extra_padding))
+            buffers[n] = b
+        else:
+            buffers[n] = None
+
+    # Get dummy timings (to infer static shapes)
+    eps_timing = jax.tree_util.tree_map(lambda x: x[0], timings)
+
+    return GraphBuffer(outputs=FrozenDict(buffers), timings=eps_timing)

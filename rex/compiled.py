@@ -11,21 +11,19 @@ import rex.jumpy as rjp
 
 from rex.node import Node
 from rex.graph import BaseGraph
-from rex.base import InputState, StepState, GraphState, Output, Timings
+from rex.base import InputState, StepState, GraphState, Output, Timings, GraphBuffer
 from rex.agent import Agent
-from rex.tracer import get_node_data, get_output_buffers_from_timings
+from rex.tracer import get_node_data, get_outputs_from_timings, get_graph_buffer
 
 
 int32 = Union[jnp.int32, onp.int32]
 float32 = Union[jnp.float32, onp.float32]
 
 
-def update_output(buffer, output: Output, eps: int32, seq: int32) -> Output:
+def update_output(buffer, output: Output, seq: int32) -> Output:
     # todo: copy=True needed?
-    # todo: line below reduces performance by 10x.
-    new_buffer = jax.tree_map(lambda _b, _o: rjp.dynamic_update_slice(_b, jp.expand_dims(_o, [0, 1]), [eps, seq] + [0]*len(_o.shape), copy=True), buffer, output)
-    # new_buffer = jax.tree_map(lambda _b, _o: rjp.dynamic_update_slice(_b, jp.expand_dims(_o, [0, 1]), [0, 0] + [0]*len(_o.shape), copy=True), buffer, output)
-    # new_buffer = jax.tree_map(lambda _b, _o: _b*1.1, buffer, output)
+    mod_seq = seq % jax.tree_util.tree_leaves(buffer)[0].shape[0]
+    new_buffer = jax.tree_map(lambda _b, _o: rjp.index_update(_b, mod_seq, _o, copy=True), buffer, output)
     return new_buffer
 
 
@@ -41,10 +39,10 @@ def make_update_state(name: str):
 
         # Add node's step state update
         new_nodes[name] = new_ss
-        new_outputs[name] = update_output(graph_state.outputs[name], output, graph_state.eps, timing["seq"])
+        new_outputs[name] = update_output(graph_state.buffer.outputs[name], output, timing["seq"])
 
-        new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes),
-                                              outputs=graph_state.outputs.copy(new_outputs))
+        new_buffer = graph_state.buffer.replace(outputs=graph_state.buffer.outputs.copy(new_outputs))
+        new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes), buffer=new_buffer)
         return new_graph_state
 
     return _update_state
@@ -61,8 +59,9 @@ def make_update_inputs(name: str, inputs_data: Dict[str, Dict[str, str]]):
         for node_name, data in inputs_data.items():
             input_name = data["input_name"]
             t = timings_node["inputs"][input_name]
-            buffer = graph_state.outputs[node_name]
-            inputs = rjp.tree_take(rjp.tree_take(buffer, eps), t["seq"])
+            buffer = graph_state.buffer.outputs[node_name]
+            mod_seq = t["seq"] % jax.tree_util.tree_leaves(buffer)[0].shape[0]
+            inputs = rjp.tree_take(buffer, mod_seq)
             _new = InputState.from_outputs(t["seq"], t["ts_sent"], t["ts_recv"], inputs, is_data=True)
             new_inputs[input_name] = _new
 
@@ -85,7 +84,7 @@ def make_run_MCS(nodes: Dict[str, "Node"], MCS: nx.DiGraph, generations: List[Li
 
             # Prepare old states
             _old_ss = graph_state.nodes[name]
-            _old_output = graph_state.outputs[name]
+            _old_output = graph_state.buffer.outputs[name]
 
             # Add dummy inputs to old step_state (else jax complains for structure mismatch
             if _old_ss.inputs is None:
@@ -104,7 +103,7 @@ def make_run_MCS(nodes: Dict[str, "Node"], MCS: nx.DiGraph, generations: List[Li
                 _new_seq_ss = _new_ss.replace(seq=_new_ss.seq + 1)
 
                 # Update output buffer
-                _new_output = update_output(graph_state.outputs[name], output, graph_state.eps, timings_node["seq"])
+                _new_output = update_output(graph_state.buffer.outputs[name], output, timings_node["seq"])
                 # _new_output = graph_state.outputs[name]
                 return _new_seq_ss, _new_output
 
@@ -115,22 +114,22 @@ def make_run_MCS(nodes: Dict[str, "Node"], MCS: nx.DiGraph, generations: List[Li
             new_nodes[name] = new_ss
             new_outputs[name] = new_output
 
+        new_buffer = graph_state.buffer.replace(outputs=graph_state.buffer.outputs.copy(new_outputs))
         new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes),
-                                              outputs=graph_state.outputs.copy(new_outputs))
+                                              buffer=new_buffer)
         return new_graph_state
 
     def _run_MCS(graph_state: GraphState) -> GraphState:
         # Get eps & step  (used to index timings)
         step = graph_state.step
-        eps = graph_state.eps
 
         # Determine slice sizes (depends on window size)
         # [2:] because first two dimensions are episode and step.
-        timings = graph_state.timings
-        slice_sizes = jax.tree_map(lambda _tb: list(_tb.shape[2:]), timings)
+        timings = graph_state.buffer.timings
+        slice_sizes = jax.tree_map(lambda _tb: list(_tb.shape[1:]), timings)
 
         # Slice timings
-        timings_mcs = jax.tree_map(lambda _tb, _size: rjp.dynamic_slice(_tb, [eps, step] + [0*s for s in _size], [1, 1] + _size)[0, 0], timings, slice_sizes)
+        timings_mcs = jax.tree_map(lambda _tb, _size: rjp.dynamic_slice(_tb, [step] + [0*s for s in _size], [1] + _size)[0], timings, slice_sizes)
 
         # Run generations
         # NOTE! len(generations)+1 = len(timings_mcs) --> last generation is the root.
@@ -142,7 +141,8 @@ def make_run_MCS(nodes: Dict[str, "Node"], MCS: nx.DiGraph, generations: List[Li
     return _run_MCS
 
 
-def make_graph_reset(MCS: nx.DiGraph, generations: List[List[str]], run_MCS: Callable, default_timings: Timings, default_outputs: Dict[str, Output]):
+def make_graph_reset(MCS: nx.DiGraph, generations: List[List[str]], run_MCS: Callable,
+                     default_timings: Timings, default_buffer: GraphBuffer):
     # Determine root node (always in the last generation)
     root_slot = generations[-1][0]
     root = MCS.nodes[root_slot]["name"]
@@ -151,34 +151,56 @@ def make_graph_reset(MCS: nx.DiGraph, generations: List[List[str]], run_MCS: Cal
     node_data = get_node_data(MCS)
     update_input_fns = {name: make_update_inputs(name, data["inputs"]) for name, data in node_data.items()}
 
-    def _graph_reset(graph_state: GraphState) -> Tuple[GraphState, StepState]:
-        # Replace missing timings and outputs with defaults
-        if graph_state.timings is None:
-            assert default_timings is not None, "The graph_state.timings is None and no default_timings were provided."
-            assert len(graph_state.outputs) == 0, "The graph_state.outputs is not empty, but the graph_state.timings is None."
-            graph_state = graph_state.replace(timings=default_timings, outputs=FrozenDict(default_outputs))
-        else:
-            for k, data in node_data.items():
-                assert k in graph_state.outputs, f"Missing node {k} in graph_state.outputs."
-            for gen, tim in zip(generations, graph_state.timings):
-                for k in gen:
-                    assert k in tim, f"Missing node {k} in graph_state.timings."
+    # We pre-compute the modulo sequence for the default timings
+    # name_mapping = {n: {v["input_name"]: o for o, v in data["inputs"].items()} for n, data in node_data.items()}
+    # for gen in default_timings:
+    #     for n, t in gen.items():
+    #         node_name = MCS.nodes[n]["name"]
+    #         t["seq"] = t["seq"] % jax.tree_util.tree_leaves(default_buffer.outputs[node_name])[0].shape[0]
+    #         for i, v in t["inputs"].items():
+    #             output_name = name_mapping[node_name][i]
+    #             v["seq"] = v["seq"] % jax.tree_util.tree_leaves(default_buffer.outputs[output_name])[0].shape[0]
 
-        # Clip step & eps to max values
+    def _graph_reset(graph_state: GraphState) -> Tuple[GraphState, StepState]:
+        # Get buffer
+        buffer = graph_state.buffer if graph_state.buffer is not None else default_buffer
+        assert buffer is not None, "The graph_state.buffer is None and no default_buffer was provided."
+
+        # Get timings
+        timings = graph_state.timings if graph_state.timings is not None else default_timings
+        assert timings is not None, "The graph_state.timings is None and no default_timings were provided."
+
+        # Determine episode timings
         # NOTE! The graph_state.step indexes into the timings and indicates what subgraphs have run.
         #       All subgraphs up until (and including) the graph.state'th subgraph have run.
         #       I.E., graph_state.step=0 means that we have run the first subgraph AFTER this function has run.
         #       We do not increment step+1 here, because we increment before running a chunk in graph_step.
-        max_eps, max_step = graph_state.timings[-1][root_slot]["run"].shape
+        max_eps, max_step = timings[-1][root_slot]["run"].shape
+        eps = jp.clip(graph_state.eps, jp.int32(0), max_eps - 1)
         step = jp.clip(graph_state.step, jp.int32(0), max_step - 1)
-        eps = jp.clip(graph_state.eps, jp.int32(0), max_eps-1)
-        graph_state = graph_state.replace(eps=eps, step=step)
+        eps_timings = rjp.tree_take(timings, eps)
+
+        # Determine episode output buffer
+        if graph_state.outputs is None or len(graph_state.outputs) == 0:
+            eps_outputs = buffer.outputs
+        else:
+            # Pre-fill eps_buffer.outputs with outputs if provided for a certain node.
+            # todo: Pre-fill eps_buffer.outputs with outputs if provided
+            # todo: Based on step, we need to dynamically slice from output buffer using get_timings_after_root_split.
+            # todo: We can also move this outside of the reset function. This seems only relevant for sys id.
+            # todo: We end up with two cases. Either we have a default buffer, or we have a provided buffer with outputs.
+            eps_outputs = ...
+            raise NotImplementedError("Pre-filling eps_buffer.outputs with outputs is not implemented yet.")
+
+        # Replace buffer
+        new_buffer = buffer.replace(outputs=eps_outputs, timings=eps_timings)
+        graph_state = graph_state.replace(eps=eps, step=step, buffer=new_buffer)
 
         # Run initial chunk.
         _next_graph_state = run_MCS(graph_state)
 
         # Update input
-        next_timing = rjp.tree_take(rjp.tree_take(graph_state.timings[-1][root_slot], i=eps), i=step)
+        next_timing = rjp.tree_take(graph_state.buffer.timings[-1][root_slot], i=step)
         next_ss = update_input_fns[root](_next_graph_state, next_timing)
         next_graph_state = _next_graph_state.replace(nodes=_next_graph_state.nodes.copy({root: next_ss}))
         return next_graph_state, next_ss
@@ -197,23 +219,22 @@ def make_graph_step(MCS: nx.DiGraph, generations: List[List[str]], run_MCS: Call
 
     def _graph_step(graph_state: GraphState, step_state: StepState, action: Any) -> Tuple[GraphState, StepState]:
         # Update graph_state with action
-        timing = rjp.tree_take(rjp.tree_take(graph_state.timings[-1][root_slot], i=graph_state.eps), i=graph_state.step)
+        timing = rjp.tree_take(graph_state.buffer.timings[-1][root_slot], i=graph_state.step)
         new_graph_state = update_state(graph_state, timing, step_state, action)
 
         # Grab step
         # NOTE! The graph_state.step is used to index into the timings.
         #       Therefore, we increment it before running the subgraph so that we index into the timings of the next step.
         #       Hence, graph_state.step indicates what subgraphs have run.
-        max_eps, max_step = new_graph_state.timings[-1][root_slot]["run"].shape
+        max_step = new_graph_state.buffer.timings[-1][root_slot]["run"].shape[0]
         next_step = jp.clip(new_graph_state.step+1, jp.int32(0), max_step - 1)
-        eps = jp.clip(new_graph_state.eps, jp.int32(0), max_eps-1)
-        graph_state = new_graph_state.replace(eps=eps, step=next_step)
+        graph_state = new_graph_state.replace(step=next_step)
 
         # Run chunk of next step.
         _next_graph_state = run_MCS(graph_state)
 
         # Update input
-        next_timing = rjp.tree_take(rjp.tree_take(graph_state.timings[-1][root_slot], i=eps), i=next_step)
+        next_timing = rjp.tree_take(graph_state.buffer.timings[-1][root_slot], i=next_step)
         next_ss = update_input(_next_graph_state, next_timing)
         next_graph_state = _next_graph_state.replace(nodes=_next_graph_state.nodes.copy({root: next_ss}))
         return next_graph_state, next_ss
@@ -226,7 +247,8 @@ class CompiledGraph(BaseGraph):
         super().__init__(root=root, nodes=nodes)
         self._MCS = MCS
         self._default_timings = default_timings
-        self._default_outputs = get_output_buffers_from_timings(MCS, default_timings, self.nodes_and_root) if default_timings is not None else None
+        # self._default_outputs = get_outputs_from_timings(MCS, default_timings, self.nodes_and_root) if default_timings is not None else None
+        self._default_buffer = get_graph_buffer(MCS, default_timings, self.nodes_and_root) if default_timings is not None else None
 
         # Get generations
         generations = list(nx.topological_generations(MCS))
@@ -235,7 +257,7 @@ class CompiledGraph(BaseGraph):
         run_MCS = make_run_MCS(self.nodes_and_root, MCS, generations)
 
         # Make compiled reset function
-        self.__reset = make_graph_reset(MCS, generations, run_MCS, default_timings=self._default_timings, default_outputs=self._default_outputs)
+        self.__reset = make_graph_reset(MCS, generations, run_MCS, default_timings=self._default_timings, default_buffer=self._default_buffer)
 
         # Make compiled step function
         self.__step = make_graph_step(MCS, generations, run_MCS)

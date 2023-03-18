@@ -1,3 +1,5 @@
+import jumpy
+import time
 import matplotlib
 import matplotlib.pyplot as plt
 
@@ -12,7 +14,10 @@ from rex.utils import timer
 import rex.tracer as tracer
 import rex.open_colors as oc
 from rex.proto import log_pb2
+from rex.compiled import CompiledGraph
 from rex.constants import ERROR, INFO, DEBUG, WARN, SILENT
+
+from scripts.dummy import build_dummy_env, DummyEnv
 
 
 # Plot
@@ -85,45 +90,76 @@ if __name__ == "__main__":
     # todo: [DONE] Provide list of log_pb2.EpisodeRecords to function that identifies MCS
     # todo: [LATER] Create separate function to merge NetworkRecords.
     # todo: [DONE] Create networkx tracer tests.
-    # todo: [DONE] Extract tick state per chunk
+    # todo: [DONE] Extract tick state per subgraph
+    # todo: [DONE] Extract min buffer sizes per node
 
-    order = ["world", "sensor", "observer", "root", "actuator"]
-    cscheme = {"sensor": "grape", "observer": "pink", "root": "teal", "actuator": "indigo"}
-    root_name = "root"
-    root_seq = 200
+    env, nodes = build_dummy_env()
+
+    # Simulate
+    tstart = time.time()
+    graph_state, obs = env.reset(jumpy.random.PRNGKey(0))
+    steps = 0
+    while True:
+        steps += 1
+        graph_state, obs, reward, done, info = env.step(graph_state, None)
+        if done:
+            tend = time.time()
+            env.stop()
+            print(f"agent_steps={steps} | t={(tend - tstart): 2.4f} sec | fps={steps / (tend - tstart): 2.4f}")
+            break
+
+    # Gather the records
+    record = env.graph.get_episode_record()
+
+    order = ["world", "sensor", "observer", "agent", "actuator"]
+    cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
+    root_name = "agent"
+    root_seq = 100
     split_mode = "topological"
     supergraph_mode = "MCS"
 
     # Load records
-    records = []
-    for i in range(1, 2):
-        record = log_pb2.EpisodeRecord()
-        with open(f"eps_record_{i}.pb", "rb") as f:
-            record.ParseFromString(f.read())
-        records.append(record)
+    records = [record]
+    # for i in range(1, 2):
+    #     record = log_pb2.EpisodeRecord()
+    #     with open(f"eps_record_{i}.pb", "rb") as f:
+    #         record.ParseFromString(f.read())
+    #     records.append(record)
 
     # Get network record
     record_network, G_MCS, G, G_subgraphs = tracer.get_network_record(records, root=root_name, seq=root_seq, split_mode=split_mode, supergraph_mode=supergraph_mode, cscheme=cscheme, order=order, log_level=50, workers=None)
 
-    # # todo: convert G_subgraphs to
+    # Convert to topologically sorted subgraphs.
     # G_subgraphs_seq = tracer.as_topological_subgraphs(G_subgraphs[0])
 
     # Get timings
     # timings = tracer.get_timings_from_network_record(record_network, log_level=50)
     timings = tracer.get_timings_from_network_record(record_network, G, G_subgraphs, log_level=50, workers=None)
 
-    # Get output buffers
-    from dummy import DummyNode, DummyAgent
-    world = DummyNode("world", rate=20)
-    sensor = DummyNode("sensor", rate=20)
-    observer = DummyNode("observer", rate=30)
-    agent = DummyAgent("root", rate=45)
-    actuator = DummyNode("actuator", rate=45)
-    nodes = [world, sensor, observer, agent, actuator]
-    nodes = {n.name: n for n in nodes}
+    # Get graph buffers
+    buffers = tracer.get_graph_buffer(G_MCS, timings, nodes)
 
-    outputs = tracer.get_output_buffers_from_timings(G_MCS, timings, nodes)
+    # Initialize dummy env
+    graph = CompiledGraph(nodes=nodes, root=nodes["agent"], MCS=G_MCS, default_timings=timings)
+    env_mcs = DummyEnv(graph=graph, max_steps=env.max_steps, name="dummy_env_mcs")
 
+    # Simulate
+    tstart = time.time()
+    graph_state, obs = env_mcs.reset(jumpy.random.PRNGKey(0))
+    steps = 0
+    while True:
+        steps += 1
+        graph_state, obs, reward, done, info = env_mcs.step(graph_state, None)
+        if done:
+            tend = time.time()
+            env.stop()
+            print(f"agent_steps={steps} | t={(tend - tstart): 2.4f} sec | fps={steps / (tend - tstart): 2.4f}")
+            break
+
+    # Get default outputs
+    outputs = tracer.get_outputs_from_timings(G_MCS, timings, nodes)
+
+    # Prepare graphs for plotting
     G_subgraphs = G_subgraphs[0]
     G_full = G[0]
     G_MCS_root = G_MCS

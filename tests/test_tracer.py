@@ -35,6 +35,12 @@ def test_tracer(split_mode, supergraph_mode):
 	record_network, MCS, lst_full, lst_subgraphs = tracer.get_network_record(record, root, -1, split_mode=split_mode,
 		                                                                     supergraph_mode=supergraph_mode, log_level=WARN,
 	                                                                         cscheme=cscheme, order=order, validate=True, )
+
+	# Get timings
+	timings = tracer.get_timings_from_network_record(record_network, log_level=WARN)
+	outputs = tracer.get_outputs_from_timings(MCS, timings, nodes)
+	timings_chron = tracer.get_chronological_timings(MCS, timings, eps=0)
+
 	G = lst_full[0]
 	G_subgraphs = lst_subgraphs[0]
 

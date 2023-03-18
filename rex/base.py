@@ -10,6 +10,7 @@ import rex.jumpy as rjp
 Output = TypeVar('Output')
 State = TypeVar('State')
 Params = TypeVar('Params')
+BufferSizes = Dict[str, List[int]]
 NodeTimings = Dict[str, Dict[str, Union[jp.ndarray, Dict[str, Dict[str, jp.ndarray]]]]]
 Timings = List[NodeTimings]
 
@@ -72,9 +73,26 @@ class StepState:
 
 
 @struct.dataclass
+class GraphBuffer:
+    """
+    outputs: A ring buffer that holds the outputs for every node's output channel.
+    timings: The timings for a given episode (i.e. GraphState.timings[eps]).
+    """
+    outputs: FrozenDict[str, Output]
+    timings: Timings
+    # todo: add sequence number to buffer? Again, this is only useful for sys id.
+    # todo: Instead, create a helper function that maps eps, step to absolute sequence numbers.
+
+
+@struct.dataclass
 class GraphState:
     nodes: FrozenDict[str, StepState]
+    # todo: set initial step per default to 0?
     step: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: None)
     eps: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
+    # todo: Remove outputs.
     outputs: FrozenDict[str, Output] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
     timings: Timings = struct.field(pytree_node=True, default_factory=lambda: None)
+    buffer: GraphBuffer = struct.field(pytree_node=True, default_factory=lambda: None)
+
+

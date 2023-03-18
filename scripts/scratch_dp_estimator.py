@@ -16,14 +16,22 @@ import experiments as exp
 import stable_baselines3 as sb3
 import envs.double_pendulum as dpend
 
+# todo: remove outputs from base.GraphState
+# todo: remove +1 from tracer.get_outputs_from_timings
+# todo: extract masked array from tracer.get_buffer_sizes_from_timings
+# todo: verify buffer implementation (vary window, connections, etc.. in dummy env)
+# todo: convert eps, step, buffer to update mask and absolute seq's
+# todo: set default GraphState.step to 0
+# todo: speed improvements full rollout jit, vs jit per step
+
 # Environment
 ENV = "double_pendulum"
 DIST_FILE = f"21eps_pretrained_sbx_sac_gmms_2comps.pkl"
 SPLIT_MODE = "generational"
-SUPERGRAPH_MODE = "MCS"  # topo=15, 1.3M, MCS=5, 2M
+SUPERGRAPH_MODE = "topological"  # topo=15, 1.3M, MCS=5, 2M
 JITTER = BUFFER
 SCHEDULING = PHASE
-MAX_STEPS = 5*80
+MAX_STEPS = 10*80
 WIN_ACTION = 2
 WIN_OBS = 3
 BLOCKING = True
@@ -79,7 +87,7 @@ policy = exp.make_policy(model)
 record_pre = exp.eval_env(gym_env, policy, n_eval_episodes=NUM_EVAL_PRE, verbose=True, seed=SEED, record_settings=RECORD_SETTINGS)
 
 # Trace & compile environment
-cenv = exp.make_compiled_env(env, record_pre.episode, max_steps=MAX_STEPS, eval_env=False, split_mode=SPLIT_MODE, supergraph_mode=SUPERGRAPH_MODE,log_level=50)
+cenv = exp.make_compiled_env(env, record_pre.episode, max_steps=MAX_STEPS, eval_env=False, split_mode=SPLIT_MODE, supergraph_mode=SUPERGRAPH_MODE, log_level=50)
 
 # Rollouts
 rw = exp.RolloutWrapper(cenv)
@@ -89,17 +97,16 @@ rw = exp.RolloutWrapper(cenv)
 # jax.profiler.start_trace("/tmp/tensorboard")
 
 # Rn rollouts
-
 nenvs = 7000
 seed = jumpy.random.PRNGKey(0)
 rng = jumpy.random.split(seed, num=nenvs)
-for i in range(10):
+for i in range(100):
     seed = jumpy.random.PRNGKey(i)
     rng = jumpy.random.split(seed, num=nenvs)
     timer = utils.timer(f"{i=}", log_level=0)
     with timer:
         res = rw.batch_rollout(rng)
-    fps = env.max_steps * nenvs / timer.duration
+    fps = rw.num_env_steps * nenvs / timer.duration
     print(f"[{timer.name}] time={timer.duration} sec | fps={fps:.0f} steps/sec")
 
 # jax.profiler.stop_trace()

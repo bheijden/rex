@@ -766,6 +766,7 @@ class RolloutWrapper(object):
             else:
                 action = self.env.action_space().sample(rng_net)
             next_state, next_obs, reward, done, info = self.env.step(state, action)
+            # next_state = next_state.replace(step=next_state.step % 5)# TODO: REMOVE!!!!!!
             new_cum_reward = cum_reward + reward * valid_mask
             new_valid_mask = valid_mask * (1 - done)
             carry = [
