@@ -20,7 +20,7 @@ from rex.node import Node
 from rex.proto import log_pb2
 from rex.mcs import Deque, QueuePolicy, find_largest_motifs
 from rex.utils import timer, log
-from rex.base import BufferSizes, NodeTimings, Timings, Output, GraphBuffer
+from rex.base import SeqsMapping, BufferSizes, NodeTimings, Timings, Output, GraphBuffer
 from rex.multiprocessing import new_process
 
 
@@ -862,6 +862,7 @@ def get_timings_from_network_record(network_record: log_pb2.NetworkRecord, G: Li
             # Create graph if not provided
             if _G is None:
                 _G = create_graph(record)
+                G[i] = _G
 
             # Get subgraphs if not provided
             if _G_subgraphs is None:
@@ -873,6 +874,7 @@ def get_timings_from_network_record(network_record: log_pb2.NetworkRecord, G: Li
 
                 # Define subgraphs
                 _G_subgraphs = get_subgraphs(G_traced_pruned, split_mode=network_record.split_mode)
+                G_subgraphs[i] = _G_subgraphs
 
             # Convert to topological subgraphs
             if network_record.supergraph_mode == "topological":
@@ -887,7 +889,7 @@ def get_timings_from_network_record(network_record: log_pb2.NetworkRecord, G: Li
         monomorphisms_eps = {i: {v: monomorphisms[k] for k, v in key_map.items()} for i, key_map in keys_subgraphs.items()}
         timings = []
         for i, mono in monomorphisms_eps.items():
-            t = get_timings(G_MCS, _G, mono, num_root_steps=network_record.seq+1, root=network_record.root, workers=workers)
+            t = get_timings(G_MCS, G[i], mono, num_root_steps=network_record.seq+1, root=network_record.root, workers=workers)
             timings.append(t)
 
         # Stack timings
@@ -960,7 +962,9 @@ def get_chronological_timings(G_MCS: nx.DiGraph, timings: Timings, eps: int) -> 
     return slots_chron
 
 
-def get_buffer_sizes_from_timings(G_MCS: nx.DiGraph, timings: Timings) -> BufferSizes:
+def get_masked_timings(G_MCS: nx.DiGraph, timings: Timings) -> NodeTimings:
+    # generations = list(nx.topological_generations(G_MCS))
+
     # Get node names
     node_names = set([data["name"] for n, data in G_MCS.nodes(data=True)])
 
@@ -970,13 +974,14 @@ def get_buffer_sizes_from_timings(G_MCS: nx.DiGraph, timings: Timings) -> Buffer
     [node_data.update({d["name"]: d}) for slot, d in slot_node_data.items() if d["name"] not in node_data]
 
     # Get output buffer sizes
-    masked_timings = []
+    masked_timings_slot = []
     for i_gen, gen in enumerate(timings):
         t_flat = {slot: t for slot, t in gen.items()}
         slots = {k: [] for k in node_names}
         [slots[G_MCS.nodes[n]["name"]].append(t_flat[n]) for n in gen]
         [slots.pop(k) for k in list(slots.keys()) if len(slots[k]) == 0]
-        slots = {k: jax.tree_util.tree_map(lambda *args: onp.stack(args, axis=0), *v) for k, v in slots.items()}
+        # slots:= [eps, step, slot_idx, window=optional]
+        slots = {k: jax.tree_util.tree_map(lambda *args: onp.stack(args, axis=2), *v) for k, v in slots.items()}
 
         def _mask(mask, arr):
             # Repeat mask in extra dimensions of arr (for inputs)
@@ -991,51 +996,58 @@ def get_buffer_sizes_from_timings(G_MCS: nx.DiGraph, timings: Timings) -> Buffer
             masked_arr = ma.masked_array(arr, mask=new_mask)
             return masked_arr
 
-        # NOTE! order of operations is important here (things are popped, min, max, etc.)
         masked_slots = {k: jax.tree_util.tree_map(partial(_mask, ~v["run"]), v) for k, v in slots.items()}
-        inputs_masked_slots = {k: v.pop("inputs") for k, v in masked_slots.items()}
-        inputs_masked_slots = {k: jax.tree_util.tree_map(lambda x: onp.amin(x, axis=(0, -1,)), v) for k, v in inputs_masked_slots.items()}
-        masked_slots = {k: jax.tree_util.tree_map(lambda x: onp.amax(x, axis=(0,)), v) for k, v in masked_slots.items()}
-        [v.update({"inputs": inputs_masked_slots[k]}) for k, v in masked_slots.items()]
-
-        masked_timings.append(masked_slots)
+        masked_timings_slot.append(masked_slots)
 
     def _update_mask(j, arr):
-        arr.mask[..., j] = True
+        arr.mask[:, :, :, j] = True
         return arr
 
-    def _update_arr(i, a, b):
-        a[..., i] = b
-        return a
+    def _concat_arr(a, b):
+        return ma.concatenate((a, b), axis=2)
 
-    # Combine timings for each slot
-    node_masked_timings = {}
-    for i_gen, gen in enumerate(masked_timings):
+    # Combine timings for each slot. masked_timings := [eps, step, slot_idx, gen_idx, window=optional]
+    masked_timings = {}
+    for i_gen, gen in enumerate(masked_timings_slot):
         for key, t in gen.items():
-            if key not in node_masked_timings:
-                # Repeat mask in extra dimensions of arr (for number of gens, and mask all but the current i_gen)
-                t = {k: jax.tree_util.tree_map(lambda x: onp.repeat(x[..., None], len(timings), axis=-1), v) for
-                                k, v in t.items()}
+            # Repeat mask in extra dimensions of arr (for number of gens, and mask all but the current i_gen)
+            t = {k: jax.tree_util.tree_map(lambda x: onp.repeat(x[:, :, :, None], len(timings), axis=3), v) for k, v in
+                 t.items()}
 
-                # Update mask to be True for all other gens
-                for j in range(len(timings)):
-                    if j == i_gen:
-                        continue
-                    jax.tree_util.tree_map(partial(_update_mask, j), t)
+            # Update mask to be True for all other gens
+            for j in range(len(timings)):
+                if j == i_gen:
+                    continue
+                jax.tree_util.tree_map(partial(_update_mask, j), t)
 
-                node_masked_timings[key] = t
+            # Add to masked_timings
+            if key not in masked_timings:
+                # Add as new entry
+                masked_timings[key] = t
             else:
-                node_masked_timings[key] = jax.tree_util.tree_map(partial(_update_arr, i_gen), node_masked_timings[key], t)
+                # Concatenate with existing entry
+                masked_timings[key] = jax.tree_util.tree_map(_concat_arr, masked_timings[key], t)
+    return masked_timings
+
+
+def get_buffer_sizes_from_timings(G_MCS: nx.DiGraph, timings: Timings) -> BufferSizes:
+    # Get masked timings:= [eps, step, slot_idx, gen_idx, window=optional]
+    masked_timings = get_masked_timings(G_MCS, timings)
+
+    # Get node data
+    slot_node_data = {n: data for n, data in G_MCS.nodes(data=True)}
+    node_data = {}
+    [node_data.update({d["name"]: d}) for slot, d in slot_node_data.items() if d["name"] not in node_data]
 
     # Get min buffer size for each node
     name_mapping = {n: {v["input_name"]: o for o, v in data["inputs"].items()} for n, data in node_data.items()}
     min_buffer_sizes = {k: {input_name: output_name for input_name, output_name in inputs.items()} for k, inputs in name_mapping.items()}
     node_buffer_sizes = {n: [] for n in node_data.keys()}
     for n, inputs in name_mapping.items():
-        t = node_masked_timings[n]
+        t = masked_timings[n]
         for input_name, output_name in inputs.items():
             # Determine min input sequence per generation
-            seq_in = t["inputs"][input_name]["seq"]
+            seq_in = onp.amin(t["inputs"][input_name]["seq"], axis=(2, 4))
             seq_in = seq_in.reshape(*seq_in.shape[:-2], -1)
             # NOTE: fill masked steps with max value (to not influence buffer size)
             ma.set_fill_value(seq_in, onp.iinfo(onp.int32).max)
@@ -1043,19 +1055,11 @@ def get_buffer_sizes_from_timings(G_MCS: nx.DiGraph, timings: Timings) -> Buffer
             max_seq_in = onp.minimum.accumulate(filled_seq_in[:, ::-1], axis=-1)[:, ::-1]
 
             # Determine max output sequence per generation
-            seq_out = node_masked_timings[output_name]["seq"]
+            seq_out = onp.amax(masked_timings[output_name]["seq"], axis=(2,))
             seq_out = seq_out.reshape(*seq_out.shape[:-2], -1)
             ma.set_fill_value(seq_out, -1)
             filled_seq_out = seq_out.filled()
             max_seq_out = onp.maximum.accumulate(filled_seq_out, axis=-1)
-
-            # todo: Is -1 indexing for default_output problematic in buffer i.c.w. modulo wrapped indexing?
-            # todo: check if -1 is correctly handled anywhere (e.g. world).
-            # todo: min buffer size of 1? Only root may have no "subscribers" --> the case for estimators.
-
-            # Assert that max_seq_out >= max_seq_in
-            # assert seq_in[:, 0].max(), "No node has run at this point."  # Fails, because fill value is very large.
-            # assert max_seq_out[:, 0].max() <= -1, "No node has run at this point." # Fails, because fill value is -1
 
             # Calculate difference to determine buffer size
             # NOTE: Offset output sequence by +1, because the output is written to the buffer AFTER the buffer is read
@@ -1070,7 +1074,6 @@ def get_buffer_sizes_from_timings(G_MCS: nx.DiGraph, timings: Timings) -> Buffer
             min_buffer_sizes[n][input_name] = max_s
             node_buffer_sizes[output_name].append(max_s)
 
-    generations = list(nx.topological_generations(G_MCS))
     return node_buffer_sizes
 
 
@@ -1085,13 +1088,77 @@ def get_graph_buffer(G_MCS: nx.DiGraph, timings: Timings, nodes: Dict[str, "Node
     rng = jumpy.random.PRNGKey(0)
     for n, s in sizes.items():
         assert n in nodes, f"Node `{n}` not found in nodes."
-        if len(sizes) > 0:
-            b = jax.tree_util.tree_map(stack_fn, *[nodes[n].default_output(rng)] * (max(s) + extra_padding))
-            buffers[n] = b
-        else:
-            buffers[n] = None
+        buffer_size = max(s) + extra_padding if len(s) > 0 else max(1, extra_padding)
+        b = jax.tree_util.tree_map(stack_fn, *[nodes[n].default_output(rng)] * buffer_size)
+        buffers[n] = b
 
     # Get dummy timings (to infer static shapes)
     eps_timing = jax.tree_util.tree_map(lambda x: x[0], timings)
 
     return GraphBuffer(outputs=FrozenDict(buffers), timings=eps_timing)
+
+
+def get_seqs_mapping(G_MCS: nx.DiGraph, timings: Timings, buffer: GraphBuffer) -> Tuple[SeqsMapping, SeqsMapping]:
+    # generations = list(nx.topological_generations(G_MCS))
+
+    def _get_buffer_size(b):
+        leaves = jax.tree_util.tree_leaves(b)
+        size = leaves[0].shape[0] if len(leaves) > 0 else 1
+        return size
+
+    # Get buffer sizes
+    buffer_sizes = {n: _get_buffer_size(b) for n, b in buffer.outputs.items()}
+
+    # Get masked timings:= [eps, step, slot_idx, gen_idx, window=optional]
+    masked_timings = get_masked_timings(G_MCS, timings)
+
+    # Determine absolute sequence numbers in buffer
+    # seqs:=[eps, step, slot_idx, gen_idx, seq]
+    # updated:=[eps, step, slot_idx, gen_idx, updated]
+    seqs = {}
+    updated = {}
+    for n, t in masked_timings.items():
+        # Take max over slots in same generation
+        seq_out = onp.amax(t["seq"], axis=(2,))
+        # Record shape of seq_out [num_eps, num_steps*num_MCS_gens]
+        shape_seq_out = seq_out.shape
+        # Reshape to [num_eps, num_steps, num_MCS_gens]
+        seq_out = seq_out.reshape(*shape_seq_out[:-2], -1)
+        ma.set_fill_value(seq_out, -1)  # todo: effect of fill value?
+        filled_seq_out = seq_out.filled()
+        # Get max executed seq per generation
+        max_seq_out = onp.maximum.accumulate(filled_seq_out, axis=-1)
+        # Create buffers for seqs, and sort based on modulo with buffer size
+        # NOTE: min buffer_seq = -1 here
+        buffer_seqs = onp.stack([onp.maximum(-1, max_seq_out - s) for s in range(buffer_sizes[n])], axis=-1)
+        idx_seqs = onp.argsort(buffer_seqs % buffer_sizes[n], axis=-1)
+        sorted_seqs = onp.take_along_axis(buffer_seqs, idx_seqs, axis=-1)
+
+        # NOTE! updated seqs = True if seq is updated AFTER this step is executed
+        updated_seqs = (sorted_seqs != onp.roll(sorted_seqs, shift=1, axis=1))  # Roll in gen axis
+        updated_seqs[:, 0, :] = False  # First step is never updated
+
+        # Reshape to step shape
+        sorted_seqs = sorted_seqs.reshape(*shape_seq_out, buffer_sizes[n])
+        updated_seqs = updated_seqs.reshape(*shape_seq_out, buffer_sizes[n])
+
+        # Store
+        seqs[n] = sorted_seqs
+        updated[n] = updated_seqs
+
+    return seqs, updated
+
+
+def get_step_seqs_mapping(G_MCS: nx.DiGraph, timings: Timings, buffer: GraphBuffer) -> Tuple[SeqsMapping, SeqsMapping]:
+    # Get update mask
+    seqs, updated = get_seqs_mapping(G_MCS, timings, buffer)
+
+    # Get updated seqs in buffer AFTER step is executed
+    updated_step = {n: onp.any(v[:, :, :, :], axis=2) for n, v in updated.items()}
+
+    # Get absolute seqs in buffer BEFORE step is executed
+    after_seqs_step = {n: v[:, :, -1, :] for n, v in seqs.items()}
+    init_seqs_step = {n: onp.full(arr[:, [0], :].shape, fill_value=-1) for n, arr in after_seqs_step.items()}
+    before_seqs_step = {n: onp.concatenate([init_seqs_step[n], arr], axis=1) for n, arr in after_seqs_step.items()}
+
+    return before_seqs_step, updated_step

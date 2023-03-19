@@ -183,6 +183,12 @@ def tree_take(tree: Any, i: Union[jp.ndarray, Sequence[int], int], axis: int = 0
             raise
 
 
+def take_along_axis(arr: jp.ndarray, indices: jp.ndarray, axis: int = -1) -> jp.ndarray:
+    """Take values from the input array by matching 1d index and data slices."""
+    np = jumpy.core.which_np(arr, indices)
+    return np.take_along_axis(arr, indices, axis)
+
+
 def vmap(fun: F, include: Sequence[bool] = None) -> F:
     """Creates a function which maps ``fun`` over argument axes.
 

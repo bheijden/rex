@@ -13,16 +13,23 @@ from rex.node import Node
 from rex.graph import BaseGraph
 from rex.base import InputState, StepState, GraphState, Output, Timings, GraphBuffer
 from rex.agent import Agent
-from rex.tracer import get_node_data, get_outputs_from_timings, get_graph_buffer
+from rex.tracer import get_node_data, get_graph_buffer
 
 
 int32 = Union[jnp.int32, onp.int32]
 float32 = Union[jnp.float32, onp.float32]
 
 
-def update_output(buffer, output: Output, seq: int32) -> Output:
-    # todo: copy=True needed?
-    mod_seq = seq % jax.tree_util.tree_leaves(buffer)[0].shape[0]
+def get_buffer_size(buffer: GraphBuffer) -> jp.int32:
+    leaves = jax.tree_util.tree_leaves(buffer)
+    size = leaves[0].shape[0] if len(leaves) > 0 else 1
+    return size
+
+
+def update_output(buffer: GraphBuffer, output: Output, seq: int32) -> Output:
+    size = get_buffer_size(buffer)
+    mod_seq = seq % size
+    # todo: copy=True needed? --> `False` would lead to faster execution with numpy backend
     new_buffer = jax.tree_map(lambda _b, _o: rjp.index_update(_b, mod_seq, _o, copy=True), buffer, output)
     return new_buffer
 
@@ -60,7 +67,8 @@ def make_update_inputs(name: str, inputs_data: Dict[str, Dict[str, str]]):
             input_name = data["input_name"]
             t = timings_node["inputs"][input_name]
             buffer = graph_state.buffer.outputs[node_name]
-            mod_seq = t["seq"] % jax.tree_util.tree_leaves(buffer)[0].shape[0]
+            size = get_buffer_size(buffer)
+            mod_seq = t["seq"] % size
             inputs = rjp.tree_take(buffer, mod_seq)
             _new = InputState.from_outputs(t["seq"], t["ts_sent"], t["ts_recv"], inputs, is_data=True)
             new_inputs[input_name] = _new
@@ -180,20 +188,8 @@ def make_graph_reset(MCS: nx.DiGraph, generations: List[List[str]], run_MCS: Cal
         step = jp.clip(graph_state.step, jp.int32(0), max_step - 1)
         eps_timings = rjp.tree_take(timings, eps)
 
-        # Determine episode output buffer
-        if graph_state.outputs is None or len(graph_state.outputs) == 0:
-            eps_outputs = buffer.outputs
-        else:
-            # Pre-fill eps_buffer.outputs with outputs if provided for a certain node.
-            # todo: Pre-fill eps_buffer.outputs with outputs if provided
-            # todo: Based on step, we need to dynamically slice from output buffer using get_timings_after_root_split.
-            # todo: We can also move this outside of the reset function. This seems only relevant for sys id.
-            # todo: We end up with two cases. Either we have a default buffer, or we have a provided buffer with outputs.
-            eps_outputs = ...
-            raise NotImplementedError("Pre-filling eps_buffer.outputs with outputs is not implemented yet.")
-
         # Replace buffer
-        new_buffer = buffer.replace(outputs=eps_outputs, timings=eps_timings)
+        new_buffer = buffer.replace(timings=eps_timings)
         graph_state = graph_state.replace(eps=eps, step=step, buffer=new_buffer)
 
         # Run initial chunk.

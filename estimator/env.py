@@ -12,7 +12,6 @@ from rex.base import StepState, GraphState, Empty
 from rex.node import Node
 from rex.agent import Agent as BaseAgent
 from rex.env import BaseEnv
-from rex.proto import log_pb2
 import rex.jumpy as rjp
 
 
@@ -42,16 +41,12 @@ class Replay:
 		return self._node.default_output(rng, graph_state)
 
 	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None):
-		if graph_state.step is not None:
-			return rjp.tree_take(self._states, graph_state.step, axis=0)
-		else:
-			return self._node.default_state(rng, graph_state)
+		# todo: this is a hack, we should grab the state from self._states
+		return self._node.default_state(rng, graph_state)
 
 	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None):
-		if graph_state.step is not None:
-			return rjp.tree_take(self._params, graph_state.step, axis=0)
-		else:
-			return self._node.default_params(rng, graph_state)
+		# todo: this is a hack, we should grab the state from self._params
+		return self._node.default_params(rng, graph_state)
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None):
 		return self._node.reset(rng, graph_state)
@@ -60,7 +55,7 @@ class Replay:
 		seq = step_state.seq
 		eps = step_state.eps
 		output = jax.tree_map(lambda x: rjp.dynamic_slice(x, [eps, seq] + [0*s for s in x.shape[2:]], [1, 1] + list(x.shape[2:]))[0, 0],
-		                         self._outputs)
+		                      self._outputs)
 		return step_state, output
 
 	@property
@@ -117,7 +112,7 @@ class ReconstructionLoss:
 		# Calculate squared loss of
 		seq = step_state.seq
 		eps = step_state.eps
-		target =jax.tree_map(lambda x: rjp.dynamic_slice(x, [eps, seq] + [0 * s for s in x.shape[2:]], [1, 1] + list(x.shape[2:]))[0, 0], self._outputs)
+		target = jax.tree_map(lambda x: rjp.dynamic_slice(x, [eps, seq] + [0 * s for s in x.shape[2:]], [1, 1] + list(x.shape[2:]))[0, 0], self._outputs)
 
 		# Calculate loss
 		cum_loss = step_state.state.cum_loss
@@ -182,12 +177,15 @@ class EstimatorEnv(BaseEnv):
 		assert graph_state.step is not None, "Graph state must have a step index."
 		assert graph_state.eps is not None, "Graph state must have an episode index."
 		assert graph_state.nodes.get("estimator", None) is not None, "Graph state must have an estimator node."
+		assert graph_state.timings is not None, "Graph state must have a timings dict."
+		assert graph_state.buffer is not None, "Graph state must have a buffer."
 		prev_graph_state = graph_state
 		starting_step = prev_graph_state.step
 		eps = prev_graph_state.eps
-		outputs = prev_graph_state.outputs
-		timings = prev_graph_state.timings
 		new_nodes = prev_graph_state.nodes.unfreeze()
+
+		# Define new graph state
+		graph_state = prev_graph_state.replace(nodes=new_nodes)
 
 		# For every node, prepare the initial stepstate
 		rng, rng_estimator, rng_agent, rng_world = jumpy.random.split(rng, num=4)
@@ -204,9 +202,6 @@ class EstimatorEnv(BaseEnv):
 			state = node.default_state(rng_state, _graph_state)
 			return StepState(rng=rng_step, params=params, state=state)
 
-		# Define new graph state
-		graph_state = GraphState(nodes=new_nodes, step=starting_step, eps=eps, outputs=outputs, timings=timings)
-
 		# Step_state root & world (root must be reset before world, as the world may copy some params from the root)
 		new_nodes["agent"] = get_step_state(self.nodes["agent"], rng_agent, graph_state)
 		new_nodes[self.world.name] = get_step_state(self.world, rng_world, graph_state)
@@ -215,7 +210,7 @@ class EstimatorEnv(BaseEnv):
 		# Get new step_state for other nodes in arbitrary order
 		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes) + 1)
 		for (name, n), rng_n in zip(self.nodes.items(), rngs):
-			if name == "agent" or name == self.estimator.name or name == self.world.name:
+			if name in ["agent", self.world.name, self.estimator.name]:
 				continue
 			# Replace step state in graph state
 			new_nodes[name] = get_step_state(n, rng_n, graph_state)
@@ -228,7 +223,7 @@ class EstimatorEnv(BaseEnv):
 		# Reset nodes
 		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_world_and_estimator) + 1)
 		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_world_and_estimator.values(), rngs)]
-		return GraphState(nodes=FrozenDict(new_nodes), step=starting_step, eps=eps, outputs=outputs, timings=timings)
+		return graph_state.replace(nodes=FrozenDict(new_nodes))
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
 		"""Reset environment."""

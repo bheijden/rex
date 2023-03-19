@@ -92,6 +92,20 @@ if __name__ == "__main__":
     # todo: [DONE] Create networkx tracer tests.
     # todo: [DONE] Extract tick state per subgraph
     # todo: [DONE] Extract min buffer sizes per node
+    # todo: [DONE] min buffer size of 1? Only root may have no "subscribers" --> the case for estimators.
+    # todo: [DONE] BUGG? loss or new_loss?
+    # todo: [DONE] remove outputs from base.GraphState
+    # todo: [DONE] convert eps, step, buffer to update mask and absolute seq's
+    # todo: [DONE] set default GraphState.step to 0
+    # todo: [DONE] make estimator work again --> Test with perfect initialization (should result in 0 loss).
+    # todo: [DONE] verify buffer implementation (vary window, connections, etc.. in dummy env)
+    # todo: [DONE] modify tests to get code coverage sufficiently high
+    # todo: starting step & episode in double pendulum & pendulum envs
+    # todo: Add outputs to state of wrapped nodes
+    # todo: default rng = None? --> Problematic for switching between backends (numpy, jax)
+    # todo: resolve future error "OSError: handle is closed" --> had to do with new_process and tracer. Shutdown should be handled better.
+    # todo: speed improvements full rollout jit, vs jit per step
+    # todo: maybe, no speed up because policy does not use the observations --> therefore nodes are optimized away.
 
     env, nodes = build_dummy_env()
 
@@ -115,11 +129,11 @@ if __name__ == "__main__":
     cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
     root_name = "agent"
     root_seq = 100
-    split_mode = "topological"
+    split_mode = "generational"
     supergraph_mode = "MCS"
 
     # Load records
-    records = [record]
+    records = [record, record]
     # for i in range(1, 2):
     #     record = log_pb2.EpisodeRecord()
     #     with open(f"eps_record_{i}.pb", "rb") as f:
@@ -137,7 +151,16 @@ if __name__ == "__main__":
     timings = tracer.get_timings_from_network_record(record_network, G, G_subgraphs, log_level=50, workers=None)
 
     # Get graph buffers
-    buffers = tracer.get_graph_buffer(G_MCS, timings, nodes)
+    buffer = tracer.get_graph_buffer(G_MCS, timings, nodes)
+
+    # Determine step_update_mask
+    seqs_step, updated_step = tracer.get_step_seqs_mapping(G_MCS, timings, buffer)
+
+    # Get update mask
+    # seqs, updated = tracer.get_seqs_mapping(G_MCS, timings, buffer)
+
+    # Get masked_timings
+    masked_timings = tracer.get_masked_timings(G_MCS, timings)
 
     # Initialize dummy env
     graph = CompiledGraph(nodes=nodes, root=nodes["agent"], MCS=G_MCS, default_timings=timings)

@@ -100,8 +100,9 @@ class DoublePendulumEnv(BaseEnv):
 		"""Get the graph state."""
 		# Prepare new graph state
 		starting_step = jp.int32(0)
+		starting_eps = jp.int32(0)
 		new_nodes = dict()
-		graph_state = GraphState(step=jp.int32(0), nodes=new_nodes)
+		graph_state = GraphState(nodes=new_nodes)
 
 		# For every node, prepare the initial stepstate
 		rng, rng_agent, rng_world = jumpy.random.split(rng, num=3)
@@ -127,7 +128,7 @@ class DoublePendulumEnv(BaseEnv):
 		# Reset nodes
 		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_world_and_agent)+1)
 		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_world_and_agent.values(), rngs)]
-		return GraphState(step=jp.int32(0), nodes=FrozenDict(new_nodes))
+		return GraphState(eps=starting_eps, step=starting_step, nodes=FrozenDict(new_nodes))
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
 		"""Reset environment."""

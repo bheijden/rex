@@ -206,7 +206,8 @@ def show_communication(record: log_pb2.EpisodeRecord) -> Tuple[plt.Figure, plt.A
     return fig, ax
 
 
-def show_computation_graph(G: nx.DiGraph, MCS: nx.DiGraph, root: str, plot_type: str = "computation", xmax: float = 0.6) -> Tuple[
+def show_computation_graph(G: nx.DiGraph, MCS: nx.DiGraph, root: str, plot_type: str = "computation", xmax: float = 0.6,
+                           split_mode="generational", supergraph_mode="MCS") -> Tuple[
     plt.Figure, plt.Axes]:
     order = ["world", "sensor", "agent", "actuator"]
     cscheme = {"world": "gray", "sensor": "grape", "agent": "teal", "actuator": "indigo", "render": "yellow", "estimator": "orange"}
@@ -227,7 +228,7 @@ def show_computation_graph(G: nx.DiGraph, MCS: nx.DiGraph, root: str, plot_type:
     elif plot_type == "depth":
         ax.set(facecolor=oc.ccolor("gray"), xlabel="Depth order", yticks=[], xlim=[-1, 10])
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        plot_depth_order(ax, G, root=root, MCS=MCS, xmax=xmax, cscheme=cscheme, node_labeltype="seq", draw_excess=True)
+        plot_depth_order(ax, G, root=root, MCS=MCS, xmax=xmax, cscheme=cscheme, split_mode=split_mode, supergraph_mode=supergraph_mode, node_labeltype="seq", draw_excess=True)
 
     # Plot legend
     handles, labels = ax.get_legend_handles_labels()
@@ -729,13 +730,6 @@ class RolloutWrapper(object):
         self.model_forward = model_forward
         self.num_env_steps = self.env.max_steps
 
-    # @partial(jax.jit, static_argnums=(0,))
-    # def population_rollout(self, rng_eval, policy_params):
-    # 	"""Reshape parameter vector and evaluate the generation."""
-    # 	# Evaluate population of nets on gymnax task - vmap over rng & params
-    # 	pop_rollout = jax.vmap(self.batch_rollout, in_axes=(None, 0))
-    # 	return pop_rollout(rng_eval, policy_params)
-
     @partial(jax.jit, static_argnums=(0,))
     def batch_rollout(self, rng_eval):
         """Evaluate a generation of networks on RL/Supervised/etc. task."""
@@ -766,7 +760,6 @@ class RolloutWrapper(object):
             else:
                 action = self.env.action_space().sample(rng_net)
             next_state, next_obs, reward, done, info = self.env.step(state, action)
-            # next_state = next_state.replace(step=next_state.step % 5)# TODO: REMOVE!!!!!!
             new_cum_reward = cum_reward + reward * valid_mask
             new_valid_mask = valid_mask * (1 - done)
             carry = [

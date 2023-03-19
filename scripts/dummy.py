@@ -63,7 +63,7 @@ def build_dummy_graph() -> Dict[str, Node]:
 	sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007))
 	observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016))
 	agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
-	actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), advance=False)
+	actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), advance=False, stateful=True)
 	nodes = [world, sensor, observer, agent, actuator]
 
 	# Connect
@@ -190,7 +190,7 @@ class DummyEnv(BaseEnv):
 	def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> GraphState:
 		"""Get the graph state."""
 		# Prepare graph_state
-		graph_state = graph_state or GraphState(step=jp.int32(0), eps=jp.int32(0), nodes=dict(), timings=None, outputs=FrozenDict({}))
+		graph_state = graph_state or GraphState(step=jp.int32(0), eps=jp.int32(0), nodes=None, timings=None)
 
 		# For every node, prepare the initial stepstate
 		new_nodes = dict()

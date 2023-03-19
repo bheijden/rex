@@ -13,9 +13,9 @@ import jumpy.numpy as jp
 
 import networkx as nx
 
-from rex.tracer import get_timings_from_network_record, get_outputs_from_timings
+from rex.tracer import get_timings_from_network_record, get_outputs_from_timings, get_graph_buffer, get_step_seqs_mapping, get_seqs_mapping
 from rex.proto import log_pb2
-from rex.base import GraphState, Empty, StepState
+from rex.base import GraphState, Empty, StepState, Output, GraphBuffer, SeqsMapping
 from rex.env import BaseEnv
 import rex.utils as utils
 import rex.jumpy as rjp
@@ -24,7 +24,8 @@ if TYPE_CHECKING:
 	from estimator.callback import BaseCallback
 
 
-def single_loss(env: BaseEnv, params: optax.Params, graph_state: GraphState, rng: jp.array, starting_eps: jp.int32, starting_step: jp.int32, num_steps: jp.int32) -> Tuple[jp.float32, GraphState]:
+def single_loss(env: BaseEnv, graph_state: GraphState, seqs_step: SeqsMapping, params: optax.Params, outputs: Dict[str, Output],
+                rng: jp.array, starting_eps: jp.int32, starting_step: jp.int32, num_steps: jp.int32) -> Tuple[jp.float32, GraphBuffer]:
 	# Overwrite params in graph state with optimizer params
 	new_nodes = {}
 	for node_name, params in params.items():
@@ -33,14 +34,35 @@ def single_loss(env: BaseEnv, params: optax.Params, graph_state: GraphState, rng
 		new_params = jax.tree_util.tree_map(lambda x, y: x if y is None else y, graph_state.nodes[node_name].params, params)
 		new_nodes[node_name] = graph_state.nodes[node_name].replace(params=new_params)
 
+	# Determine episode timings
+	max_eps, max_step = next(iter(graph_state.timings[-1].values()))["run"].shape
+	eps = jp.clip(starting_eps, jp.int32(0), max_eps - 1)
+	step = jp.clip(starting_step, jp.int32(0), max_step - 1)
+	eps_timings = rjp.tree_take(graph_state.timings, eps)
+
+	def _fill_buffer(seqs, arr):
+		exp_dims = [1] * (arr.ndim - 1)
+		exp_seqs = jp.expand_dims(seqs, exp_dims)
+		return rjp.take_along_axis(arr, exp_seqs, axis=0)
+
+	# Fill buffer with outputs
+	new_outputs = {}
+	eps_outputs = rjp.tree_take(outputs, eps, axis=0)
+	for output_name, b in graph_state.buffer.outputs.items():
+		bsize = seqs_step[output_name].shape[-1]
+		seqs = rjp.dynamic_slice(seqs_step[output_name], [eps, step, 0], [1, 1, bsize])[0, 0]
+		o = jax.tree_util.tree_map(partial(_fill_buffer, seqs), eps_outputs[output_name])
+		new_outputs[output_name] = o
+
 	# Update graph state
-	gs = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes), eps=starting_eps, step=starting_step)
+	buffer = graph_state.buffer.replace(outputs=FrozenDict(new_outputs), timings=eps_timings)
+	gs = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes), eps=eps, step=step, buffer=buffer)
 
 	# Reset env
 	gs, loss_init = env.reset(rng, gs)
 
-	# Save initial graph state for preparing outputs
-	# todo: determine mask that identifies which outputs have been updated after reset.
+	# Return buffer after first step (likely has most accurate output estimates).
+	new_buffer = gs.buffer
 
 	# Perform steps
 	def _step(carry, x):
@@ -49,17 +71,17 @@ def single_loss(env: BaseEnv, params: optax.Params, graph_state: GraphState, rng
 		# Only add dynamic loss to total loss
 		new_loss = (1-done)*(new_loss_step.loss) + loss
 		new_carry = (new_gs, new_loss_step, new_loss)
-		return new_carry, loss
+		return new_carry, new_loss
 
 	carry_out, scan_out = jumpy.lax.scan(_step, (gs, loss_init, loss_init.loss), None, length=num_steps)  # todo: unroll?
-	loss = scan_out[-1]
+	loss = scan_out[-1] if len(scan_out) > 0 else loss_init.loss
 
-	return loss, gs
+	return loss, new_buffer
 
 
 Metric = TypeVar('Metric')
 Metrics = Dict[str, Metric]
-Carry = Tuple[Metrics, Dict, Dict, GraphState]
+Carry = Tuple[Metrics, Dict, Dict, Dict[str, Output]]
 ScanOut = Any
 
 
@@ -79,39 +101,58 @@ class Config:
 	prior_fn: Callable[[optax.Params], Any]
 
 
-def fit(env: BaseEnv, params: optax.Params, optimizer: optax.GradientTransformation, graph_state: GraphState, num_batches: int = 20, num_steps: int = 3, num_training_steps: int = 1000,
+def fit(env: BaseEnv, params: optax.Params, optimizer: optax.GradientTransformation, graph_state: GraphState, outputs: Dict[str, Output], num_batches: int = 20, num_steps: int = 3, num_training_steps: int = 1000,
         num_training_steps_per_epoch: int = 100, prior_fn: Callable[[optax.Params], Any] = lambda x: jp.float32(0),
         callbacks: Dict[str, "BaseCallback"] = None) -> optax.Params:
-	max_eps, max_steps = graph_state.timings[-1]["estimator_s0"]["run"].shape
+	max_eps, max_steps = next(iter(graph_state.timings[-1].values()))["run"].shape
 	start_eps, start_steps = jp.meshgrid(jp.arange(0, max_eps), jp.arange(0, max_steps))
 	start_eps, start_steps = start_eps.flatten(), start_steps.flatten()
-	batch_loss = jax.vmap(partial(single_loss, env), in_axes=(None, None, 0, 0, 0, None), out_axes=0)
 
-	def loss(params: optax.Params, _gs, _rng: jp.ndarray) -> Tuple[jnp.ndarray, GraphState]:
-		_rngs = jax.random.split(_rng, num_batches+1)
+	# Determine step_update_mask
+	seqs_step, updated_step = get_step_seqs_mapping(env.graph.MCS, graph_state.timings, graph_state.buffer)
+
+	# todo: test out single_loss without vmap.
+	# loss, new_buffer = single_loss(env, graph_state, seqs_step, params, outputs, jumpy.random.PRNGKey(0), jp.int32(0),
+	#                                jp.int32(12), num_steps=jp.int32(2))
+
+	# Determine batch_loss
+	# todo: avoid having to switch
+	batch_loss = jax.vmap(partial(single_loss, env, graph_state, seqs_step), in_axes=(None, None, 0, 0, 0, None), out_axes=0)
+	# batch_loss = jumpy.vmap(partial(single_loss, env, graph_state, seqs_step), include=(False, False, True, True, True, False))
+
+	def loss(params: optax.Params, _outputs: Dict[str, Output], _rng: jp.ndarray) -> Tuple[jnp.ndarray, Dict[str, Output]]:
+		# Determine batch eps and steps
+		_rngs = jumpy.random.split(_rng, num_batches+1)
 		_rng, _rngs = _rngs[0], _rngs[1:]
-		choice = jax.random.choice(_rng, start_steps.shape[0], shape=(num_batches,), replace=False)
+		choice = jumpy.random.choice(_rng, start_steps.shape[0], shape=(num_batches,), replace=False)
 		steps = jp.take(start_steps, choice)
 		eps = jp.take(start_eps, choice)
 
 		# Perform batch rollout
-		loss_batch, gs_batch = batch_loss(params, _gs, _rngs, eps, steps, jp.int32(num_steps))
+		loss_batch, buffer_batch = batch_loss(params, _outputs, _rngs, eps, steps, jp.int32(num_steps))
 
-		# Add prior loss
+		# Add prior loss on params
 		ploss = prior_fn(params)
 		ploss = jax.tree_util.tree_reduce(lambda acc, l: acc + jp.sum(l), ploss, jp.float32(0.))
-		# todo: determine mask that identifies which outputs have been updated
-		return loss_batch.mean() + ploss, jax.tree_util.tree_map(lambda x: x[0], gs_batch)
+
+		# Update outputs with buffer_batch
+		# todo: Determine mask that identifies which outputs have been updated after reset.
+		# todo: Use updated_step for this.
+		_new_outputs = _outputs
+		return loss_batch.mean() + ploss, _new_outputs
+
+	# todo: test out loss with vmap.
+	# loss_batch, new_outputs = loss(params, outputs, jumpy.random.PRNGKey(0))
 
 	@jax.jit
 	def train_step(carry: Carry, _rng):
-		metrics, params, opt_state, _gs = carry
-		(loss_value, _gs), grads = jax.value_and_grad(loss, has_aux=True)(params, _gs, _rng)
+		metrics, params, opt_state, _outputs = carry
+		(loss_value, _outputs), grads = jax.value_and_grad(loss, argnums=0, has_aux=True)(params, _outputs, _rng)
 		updates, opt_state = optimizer.update(grads, opt_state, params)
 		params = optax.apply_updates(params, updates)
-		# Make all params positive
+		# Make all params positive todo: (hack)
 		params["world"] = jax.tree_util.tree_map(lambda x: jp.abs(x), params["world"])
-		carry = (metrics, params, opt_state, _gs)
+		carry = (metrics, params, opt_state, _outputs)
 		return carry, (loss_value, params)
 
 	# Initialize optimizer
@@ -136,16 +177,16 @@ def fit(env: BaseEnv, params: optax.Params, optimizer: optax.GradientTransformat
 		config = config.replace(epoch=i)
 
 		# Update metrics
-		carry = (metrics, params, opt_state, graph_state)
+		carry = (metrics, params, opt_state, outputs)
 		metrics = {cb_name: cb.on_epoch_start(config, metrics[cb_name], carry) for cb_name, cb in callbacks.items()}
-		carry = (metrics, params, opt_state, graph_state)
+		carry = (metrics, params, opt_state, outputs)
 
 		# Run epoch
 		rngs_step = jumpy.random.split(rng, num=num_training_steps_per_epoch)
 		carry, scan_out = jax.lax.scan(train_step, carry, rngs_step, length=num_training_steps_per_epoch, unroll=1)
 
 		# Update metrics
-		metrics, params, opt_state, graph_state = carry
+		metrics, params, opt_state, outputs = carry
 		metrics = {cb_name: cb.on_epoch_end(config, metrics[cb_name], carry, scan_out) for cb_name, cb in callbacks.items()}
 
 		# timer = utils.timer(f"epoch {i}")
@@ -300,17 +341,20 @@ def visualize(_world_states, nodes, ts_actuator, ts_sensor, ts_world):
 
 
 def init_graph_state(env: BaseEnv, nodes: Dict[str, Node], record: log_pb2.NetworkRecord, MCS: nx.DiGraph, G: List[nx.DiGraph], G_subgraphs: List[Dict[str, nx.DiGraph]], data: exp.RecordHelper):
-	# Get timings
+	# Get timings & buffers
 	timings = get_timings_from_network_record(record, G, G_subgraphs)
+	buffer = get_graph_buffer(MCS, timings, nodes, extra_padding=0)
+	seqs_step, updated_step = get_step_seqs_mapping(MCS, timings, buffer)
 	num_eps, num_steps = next(iter(timings[0].values()))["run"].shape
 
 	def _update_buffer(_data: jp.ndarray, _buffer: jp.ndarray) -> jp.ndarray:
+		# todo: do not overwrite last entry
 		if len(_buffer.shape) != len(_data.shape):
 			raise ValueError(f"Warning: buffer shape {tuple(_buffer.shape)} does not match data shape {tuple(_data.shape)}")
-		if _buffer.shape[1] > _data.shape[1]:
+		if _buffer.shape[1]-1 > _data.shape[1]:
 			_buffer[:, :_data.shape[1]] = _data
 		else:
-			_buffer[:] = _data[:, :_buffer.shape[1]]
+			_buffer[:, :-1] = _data[:, :(_buffer.shape[1]-1)]
 		return _buffer
 
 	# Fill output buffer with data
@@ -323,19 +367,33 @@ def init_graph_state(env: BaseEnv, nodes: Dict[str, Node], record: log_pb2.Netwo
 	params = params.replace(th_std=jp.float32(0.), th2_std=jp.float32(0.), thdot_std=jp.float32(0.), thdot2_std=jp.float32(0.))
 	ss_sensor = StepState(rng=None, state=None, inputs=None, params=params)
 
+	# Define initial estimator state
+	def _fill_buffer(seqs, arr):
+		exp_dims = [1] * (arr.ndim - 1)
+		exp_seqs = jp.expand_dims(seqs, exp_dims)
+		return rjp.take_along_axis(arr, exp_seqs, axis=0)
+
+	world_states = []
+	seqs_world = seqs_step["world"].max(axis=-1)
+	for eps in range(num_eps):
+		world_outputs = rjp.tree_take(outputs["world"], eps, axis=0)
+		o = jax.tree_util.tree_map(partial(_fill_buffer, seqs_world[eps]), world_outputs)
+		world_states.append(o)
+	world_states = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *world_states)
+
 	# Define initial estimator params
 	# num_steps = env._cgraph.max_steps + 1
-	world_state = nodes["world"].default_state(jumpy.random.PRNGKey(0))
-	world_states = jax.tree_map(lambda *x: jp.repeat(jp.stack(x)[None], num_eps, axis=0), *([world_state] * (num_steps+1)))
+	# world_state = nodes["world"].default_state(jumpy.random.PRNGKey(0))
+	# world_states = jax.tree_map(lambda *x: jp.repeat(jp.stack(x)[None], num_eps, axis=0), *([world_state] * (num_steps+1)))
 	p_est = EstimatorParams(world_states=world_states)
 	ss_est = StepState(rng=None, state=None, inputs=None, params=p_est)
 
 	# Define initial graph state
 	ndict = dict(sensor=ss_sensor, estimator=ss_est)
-	init_gs = GraphState(nodes=FrozenDict(ndict), step=jp.int32(0), eps=jp.int32(0), outputs=FrozenDict(outputs), timings=timings)
+	init_gs = GraphState(nodes=FrozenDict(ndict), timings=timings, buffer=buffer)
 	init_gs, _ = env.reset(jumpy.random.PRNGKey(0), init_gs)
 
-	return init_gs
+	return init_gs, outputs
 
 
 def _init_progress(record: log_pb2.EpisodeRecord, nodes: Dict[str, Node], graph_state: GraphState, wseqs):

@@ -242,6 +242,7 @@ class World(Node):
 		# Get action
 		u = list(inputs.values())[0].data.action[-1][0]
 		x = jp.array([state.th, state.th2, state.thdot, state.thdot2])
+		# print(step_state.eps, step_state.seq, list(inputs.values())[0].seq[0], f"u={u} || x={x}")
 		next_x = x
 
 		# Calculate next state
@@ -282,8 +283,7 @@ class Sensor(Node):
 			th2 = jp.float32(0.)
 			thdot = jp.float32(0.)
 			thdot2 = jp.float32(0.)
-		return Output(cos_th=jp.cos(th), sin_th=jp.sin(th), cos_th2=jp.cos(th2), sin_th2=jp.sin(th2), thdot=thdot,
-		              thdot2=thdot2)
+		return Output(cos_th=jp.cos(th), sin_th=jp.sin(th), cos_th2=jp.cos(th2), sin_th2=jp.sin(th2), thdot=thdot, thdot2=thdot2)
 
 	def step(self, step_state: StepState) -> Tuple[StepState, Output]:
 		"""Step the node."""

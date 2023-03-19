@@ -56,7 +56,7 @@ if __name__ == "__main__":
 	num_init_eps = 2
 	scheduling = PHASE
 	jitter = BUFFER
-	clock = WALL_CLOCK  # WALL_CLOCK, SIMULATED
+	clock = SIMULATED  # WALL_CLOCK, SIMULATED
 	real_time_factor = REAL_TIME  # REAL_TIME, FAST_AS_POSSIBLE
 	max_steps = 100
 	win_action = 1
@@ -68,8 +68,8 @@ if __name__ == "__main__":
 	delays_sim["step"]["world"] = Gaussian(0.)
 	delays_sim["inputs"]["world"]["actuator"] = Gaussian(0.)
 	delays_sim["inputs"]["sensor"]["world"] = Gaussian(0.)
-	delays = jax.tree_map(lambda d: 0.7*d.high, delays_sim)
-	rates = dict(world=60, agent=20, actuator=20, sensor=20, render=20)
+	delays = jax.tree_map(lambda d: 0.75*d.high, delays_sim)
+	rates = dict(world=80, agent=20, actuator=20, sensor=20, render=20)
 
 	# Make real environment
 	# import envs.pendulum.real as real

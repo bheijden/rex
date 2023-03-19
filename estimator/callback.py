@@ -266,10 +266,13 @@ class StateFitCallback(BaseCallback):
 		return Empty()
 
 	def on_epoch_end(self, config: Config, metric: Metric, carry: Carry, scan_out: ScanOut) -> Metric:
-		metrics, params, opt_state, graph_state = carry
+		metrics, params, opt_state, outputs = carry
 
 		# Update plot
-		world_states = graph_state.nodes["estimator"].params.world_states
+		if "estimator" in params:
+			world_states = params["estimator"].world_states
+		else:
+			world_states = config.graph_state.nodes["estimator"].params.world_states
 		self._frames.append(world_states)
 
 		# Visualize
@@ -381,7 +384,7 @@ class ParamFitCallback(BaseCallback):
 		return metric
 
 	def on_epoch_end(self, config: Config, metric: ParamFitMetric, carry: Carry, scan_out: ScanOut) -> ParamFitMetric:
-		metrics, params, opt_state, graph_state = carry
+		metrics, params, opt_state, outputs = carry
 		epoch = config.epoch
 		num_steps = config.num_training_steps_per_epoch
 		steps = (epoch+1) * num_steps + 1

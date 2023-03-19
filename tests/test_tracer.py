@@ -38,8 +38,10 @@ def test_tracer(split_mode, supergraph_mode):
 
 	# Get timings
 	timings = tracer.get_timings_from_network_record(record_network, log_level=WARN)
+	buffer = tracer.get_graph_buffer(MCS, timings, nodes)
 	outputs = tracer.get_outputs_from_timings(MCS, timings, nodes)
 	timings_chron = tracer.get_chronological_timings(MCS, timings, eps=0)
+	seqs_step, updated_step = tracer.get_step_seqs_mapping(MCS, timings, buffer)
 
 	G = lst_full[0]
 	G_subgraphs = lst_subgraphs[0]
