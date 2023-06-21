@@ -165,7 +165,7 @@ class Graph(BaseGraph):
         return record
 
     def max_eps(self, graph_state: GraphState = None):
-        return 0
+        return 1
 
     def max_steps(self, graph_state: GraphState = None) -> int:
         return jp.inf

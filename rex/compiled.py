@@ -84,9 +84,13 @@ def make_run_MCS(nodes: Dict[str, "Node"], MCS: nx.DiGraph, generations: List[Li
     update_input_fns = {name: make_update_inputs(name, data["inputs"]) for name, data in node_data.items()}
 
     def _run_generation(graph_state: GraphState, timings_gen: Dict):
+        # todo: test speed difference for linear graph
         new_nodes = dict()
         new_outputs = dict()
         for slot_name, timings_node in timings_gen.items():
+            # todo: test speed difference for linear graph
+            # new_nodes = dict()
+            # new_outputs = dict()
             name = MCS.nodes[slot_name]["name"]
             pred = timings_gen[slot_name]["run"]
 
@@ -94,7 +98,7 @@ def make_run_MCS(nodes: Dict[str, "Node"], MCS: nx.DiGraph, generations: List[Li
             _old_ss = graph_state.nodes[name]
             _old_output = graph_state.buffer.outputs[name]
 
-            # Add dummy inputs to old step_state (else jax complains for structure mismatch
+            # Add dummy inputs to old step_state (else jax complains about structural mismatch)
             if _old_ss.inputs is None:
                 _old_ss = update_input_fns[name](graph_state, timings_node)
 
@@ -122,9 +126,13 @@ def make_run_MCS(nodes: Dict[str, "Node"], MCS: nx.DiGraph, generations: List[Li
             new_nodes[name] = new_ss
             new_outputs[name] = new_output
 
+            # Update buffer
+            # new_buffer = graph_state.buffer.replace(outputs=graph_state.buffer.outputs.copy(new_outputs))
+            # graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes), buffer=new_buffer)
+        # new_graph_state = graphstate
+
         new_buffer = graph_state.buffer.replace(outputs=graph_state.buffer.outputs.copy(new_outputs))
-        new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes),
-                                              buffer=new_buffer)
+        new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes), buffer=new_buffer)
         return new_graph_state
 
     def _run_MCS(graph_state: GraphState) -> GraphState:

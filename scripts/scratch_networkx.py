@@ -104,7 +104,7 @@ if __name__ == "__main__":
     # todo: Add outputs to state of wrapped nodes
     # todo: default rng = None? --> Problematic for switching between backends (numpy, jax)
     # todo: resolve future error "OSError: handle is closed" --> had to do with new_process and tracer. Shutdown should be handled better.
-    # todo: speed improvements full rollout jit, vs jit per step
+    # todo: [DONE] speed improvements full rollout jit, vs jit per step
     # todo: maybe, no speed up because policy does not use the observations --> therefore nodes are optimized away.
 
     env, nodes = build_dummy_env()

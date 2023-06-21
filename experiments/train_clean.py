@@ -69,6 +69,7 @@ if __name__ == "__main__":
 	#     - Add process noise to actuator scaled by delta action.
 	#     - Add coulomb friction to make the learning easier in the upright position.
 	#     - Use a stabilizing controller for upright position, and augment actions with a switching parameter.
+	# todo: randomize over episode timings. Currently not implemented.
 	# todo: Verify that measured delays are working correctly
 	# todo: Make new process wrapper that unpickle nodes of inputs as BaseNodes (enables access to e.g. phase, msg structures).
 	# todo: Modify graph sorting that traces multiple outputs (i.e. add rendering to compiled graph).

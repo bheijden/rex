@@ -99,8 +99,9 @@ class DoublePendulumEnv(BaseEnv):
 	def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> GraphState:
 		"""Get the graph state."""
 		# Prepare new graph state
-		starting_step = jp.int32(0)
-		starting_eps = jp.int32(0)
+		rng, rng_eps = jumpy.random.split(rng, num=2)
+		starting_step = jp.int32(0) if graph_state is None else graph_state.step
+		starting_eps = jumpy.random.choice(rng, self.graph.max_eps(), shape=()) if graph_state is None else graph_state.eps
 		new_nodes = dict()
 		graph_state = GraphState(nodes=new_nodes)
 

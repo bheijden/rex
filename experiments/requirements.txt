@@ -19,3 +19,6 @@ torchaudio
 
 #todo: RUN COMMAND BELOW TO INSTALL JAX
 # pip install --upgrade "jax[cuda]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+# todo: Probably need to run this instead,
+# CUDA 11.4 and CuDNN 8.2. This wheel is deprecated and will be discontinued with jax 0.4.8.
+# poetry run pip install --upgrade "jax[cuda11_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html

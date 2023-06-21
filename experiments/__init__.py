@@ -754,6 +754,9 @@ class RolloutWrapper(object):
             """lax.scan compatible step transition in jax env."""
             obs, state, policy_state, rng, cum_reward, valid_mask = state_input
             rng, rng_net = jax.random.split(rng, 2)
+            # rng, rng_step = jax.random.split(rng, 2)
+            # new_step = jumpy.random.choice(rng_step, self.num_env_steps, shape=(), replace=False)
+            # state = state.replace(step=new_step)
             if self.model_forward is not None:
                 scaled_action = self.model_forward.policy._predict(obs, deterministic=True)
                 action = self.model_forward.policy.unscale_action(scaled_action)

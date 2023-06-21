@@ -21,10 +21,10 @@ import envs.double_pendulum as dpend
 ENV = "double_pendulum"
 DIST_FILE = f"21eps_pretrained_sbx_sac_gmms_2comps.pkl"
 SPLIT_MODE = "generational"
-SUPERGRAPH_MODE = "MCS"  # topo=15, 1.3M, MCS=5, 2M
+SUPERGRAPH_MODE = "topological"  # topo=15, 3.1M, MCS=5, 8.6M
 JITTER = BUFFER
 SCHEDULING = PHASE
-MAX_STEPS = 1*80
+MAX_STEPS = 5*80
 WIN_ACTION = 2
 WIN_OBS = 3
 BLOCKING = True
@@ -48,11 +48,12 @@ SEED = 0
 NUM_ENVS = 10
 SAVE_FREQ = 40_000
 NSTEPS = 200_000
-NUM_EVAL_PRE = 2
+NUM_EVAL_PRE = 4
 NUM_EVAL_POST = 20
 HYPERPARAMS = {"learning_rate": 0.01}
 CONTINUE = True
-RUN_ROLLOUTS = False
+RUN_PER_STEP = False
+RUN_ROLLOUTS = True
 
 # Record settings
 RECORD_SETTINGS = {"agent": dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True),
@@ -80,6 +81,39 @@ policy = exp.make_policy(model)
 # Evaluate model
 record_pre = exp.eval_env(gym_env, policy, n_eval_episodes=NUM_EVAL_PRE, verbose=True, seed=SEED, record_settings=RECORD_SETTINGS)
 
+# Evaluate per step jit rollout
+if RUN_PER_STEP:
+    # Trace & compile environment
+    cenv = exp.make_compiled_env(env, record_pre.episode, max_steps=MAX_STEPS, eval_env=False, split_mode=SPLIT_MODE,
+                                 supergraph_mode=SUPERGRAPH_MODE, log_level=50)
+
+    def env_reset(_rng):
+        new_rng, rng_reset = jax.random.split(_rng, 2)
+        gs, obs = cenv.reset(rng_reset)
+        return new_rng, gs, obs
+
+    def env_step(_rng, _gs, _obs,):
+        new_rng, rng_net = jax.random.split(_rng, 2)
+        action = cenv.action_space().sample(rng_net)
+        new_gs, new_obs, reward, done, info = cenv.step(_gs, action)
+        return new_rng, new_gs, new_obs, reward, done, info
+
+    nenvs = 20
+    seed = jumpy.random.PRNGKey(0)
+    rng = jumpy.random.split(seed, num=nenvs)
+    env_reset = jax.jit(jax.vmap(env_reset))
+    env_step = jax.jit(jax.vmap(env_step))
+    for i in range(100):
+        timer = utils.timer(f"Per step | {i=}", log_level=0)
+        with timer:
+            rng, gs, obs = env_reset(rng)
+            for j in range(cenv.max_steps):
+                rng, gs, obs, reward, done, info = env_step(rng, gs, obs)
+            reward.block_until_ready()
+        fps = cenv.max_steps * nenvs / timer.duration
+        print(f"[{timer.name}] time={timer.duration} sec | fps={fps:.0f} steps/sec")
+
+# Evaluate rollouts
 if RUN_ROLLOUTS:
     # Trace & compile environment
     cenv = exp.make_compiled_env(env, record_pre.episode, max_steps=MAX_STEPS, eval_env=False, split_mode=SPLIT_MODE, supergraph_mode=SUPERGRAPH_MODE, log_level=50)
@@ -94,11 +128,14 @@ if RUN_ROLLOUTS:
     for i in range(100):
         seed = jumpy.random.PRNGKey(i)
         rng = jumpy.random.split(seed, num=nenvs)
-        timer = utils.timer(f"{i=}", log_level=0)
+        timer = utils.timer(f"Full rollout | {i=}", log_level=0)
         with timer:
             res = rw.batch_rollout(rng)
+            res[2].block_until_ready()
         fps = rw.num_env_steps * nenvs / timer.duration
         print(f"[{timer.name}] time={timer.duration} sec | fps={fps:.0f} steps/sec")
+
+exit()
 
 # Prepare data
 data = exp.RecordHelper(record_pre)
