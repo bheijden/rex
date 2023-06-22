@@ -1,62 +1,35 @@
+import dill as pickle
 from typing import Any, Tuple, Dict, Union, Optional
-import gym
-import jumpy as jp
+import jumpy.numpy as jp
 import abc
 
 from rex.spaces import Space
-from rex.utils import log
-from rex.node import Node
-from rex.graph import Graph
-from rex.compiled import CompiledGraph
-from rex.base import GraphState, Params
-from rex.proto import log_pb2
-from rex.constants import SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, INTERPRETED, VECTORIZED, SEQUENTIAL, BATCHED, WARN
-from rex.agent import Agent
+from rex.utils import log, NODE_COLOR, NODE_LOG_LEVEL
+from rex.graph import BaseGraph
+from rex.base import GraphState, Params, RexResetReturn, RexStepReturn
+from rex.constants import WARN, INFO
 
 
 class BaseEnv:
-    def __init__(self,
-                 nodes: Dict[str, "Node"],
-                 agent: Agent,
-                 max_steps: int = 200,
-                 sync: int = SYNC,
-                 clock: int = SIMULATED,
-                 scheduling: int = PHASE,
-                 real_time_factor: Union[int, float] = FAST_AS_POSSIBLE,
-                 graph: int = INTERPRETED,
-                 trace: log_pb2.TraceRecord = None,
-                 log_level: int = WARN,
-                 name: str = "env",
-                 color: str = "blue",
-                 ):
-        self.log_level = log_level
+    def __init__(self, graph: BaseGraph, max_steps: int, name: str = "env"):
         self.name = name
-        self.color = color
-        self.max_steps = 100 if max_steps is None else max_steps
+        self.graph = graph
+        self.max_steps = max_steps
         assert self.max_steps > 0, "max_steps must be a positive integer"
 
-        # Check that the agent is of the correct type
-        assert isinstance(agent, Agent), "The agent must be an instance of Agent"
-        assert len([n for n in nodes.values() if n.name == agent.name]) == 0, "The agent should be provided separately, so not inside the `nodes` dict"
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        return state
 
-        # Initialize graph
-        if graph in [VECTORIZED, SEQUENTIAL, BATCHED]:
-            assert trace is not None, "Compiled graphs require a trace"
-            self.graph = CompiledGraph(nodes, trace, agent, graph)
-            assert self.graph.max_steps >= self.max_steps, f"max_steps ({self.max_steps}) must be smaller than the max number of compiled steps in the graph ({self.graph.max_steps})"
-        elif graph == INTERPRETED:
-            if trace is not None:
-                self.log("WARNING", "trace is ignored. Set `graph` to a compiled setting (.e.g SEQUENTIAL) to use it.", log_level=WARN)
-            self.graph = Graph(nodes, agent, sync, clock, scheduling, real_time_factor)
-        else:
-            raise ValueError(f"Unknown graph mode: {graph}")
+    def __setstate__(self, state):
+        self.__dict__.update(state)
 
     @abc.abstractmethod
-    def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
+    def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> RexResetReturn:
         raise NotImplementedError
 
     @abc.abstractmethod
-    def step(self, graph_state: GraphState, action: Any) -> Tuple[GraphState, Any, float, bool, Dict]:
+    def step(self, graph_state: GraphState, action: Any) -> RexStepReturn:
         raise NotImplementedError
 
     def close(self):
@@ -83,6 +56,36 @@ class BaseEnv:
     def env_is_wrapped(self, wrapper_class, indices=None):
         return False
 
+    @property
+    def log_level(self):
+        return NODE_LOG_LEVEL.get(self, WARN)
+
+    @property
+    def color(self):
+        return NODE_COLOR.get(self, "green")
+
     def log(self, id: str, value: Optional[Any] = None, log_level: Optional[int] = None):
         log_level = log_level if isinstance(log_level, int) else self.log_level
         log(self.name, self.color, min(log_level, self.log_level), id, value)
+
+    def save(self, path: str):
+        """Save the environment to a file using pickle."""
+        # Append pkl extension
+        if not path.endswith(".pkl"):
+            path = path + ".pkl"
+
+        with open(path, "wb") as f:
+            pickle.dump(self, f)
+            self.log("Environment", f"Saved environment `{self.name}` to {path}.", INFO)
+
+    @staticmethod
+    def load(path: str):
+        """Load the environment from a file using pickle."""
+        # Append pkl extension
+        if not path.endswith(".pkl"):
+            path = path + ".pkl"
+
+        with open(path, "rb") as f:
+            env = pickle.load(f)
+            env.log("Environment", f"Loaded environment `{env.name}` from {path}.", INFO)
+        return env

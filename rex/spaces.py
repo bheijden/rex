@@ -6,7 +6,8 @@ https://github.com/RobertTLange/gymnax/blob/main/gymnax/environments/spaces.py
 """
 
 from typing import Tuple
-import jumpy as jp
+import jumpy
+import jumpy.numpy as jp
 
 
 class Space:
@@ -32,7 +33,7 @@ class Discrete(Space):
 
     def sample(self, rng: jp.ndarray) -> jp.ndarray:
         """Sample random action uniformly from set of categorical choices."""
-        return jp.randint(rng, shape=self.shape, low=0, high=self.n).astype(self.dtype)
+        return jumpy.random.randint(rng, shape=self.shape, low=0, high=self.n).astype(self.dtype)
 
     def contains(self, x: jp.int32) -> bool:
         """Check whether specific object is within space."""
@@ -59,7 +60,7 @@ class Box(Space):
 
     def sample(self, rng: jp.ndarray) -> jp.ndarray:
         """Sample random action uniformly from 1D continuous range."""
-        return jp.random_uniform(rng, shape=self.shape, low=self.low, high=self.high).astype(self.dtype)
+        return jumpy.random.uniform(rng, shape=self.shape, low=self.low, high=self.high).astype(self.dtype)
 
     def contains(self, x: jp.int32) -> bool:
         """Check whether specific object is within space."""

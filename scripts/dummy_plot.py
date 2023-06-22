@@ -30,8 +30,8 @@ def plot_threads(d):
     ystart = plot_event_thread(ax, d["observer"], ystart=ystart, dy=dy)
     ystart = plot_input_thread(ax, d["observer"].inputs[1], ystart=ystart, dy=dy / 2, name="")
 
-    ystart = plot_input_thread(ax, d["agent"].inputs[0], ystart=ystart - margin, dy=dy / 2, name="")
-    ystart = plot_event_thread(ax, d["agent"], ystart=ystart, dy=dy)
+    ystart = plot_input_thread(ax, d["root"].inputs[0], ystart=ystart - margin, dy=dy / 2, name="")
+    ystart = plot_event_thread(ax, d["root"], ystart=ystart, dy=dy)
 
     ystart = plot_input_thread(ax, d["actuator"].inputs[0], ystart=ystart - margin, dy=dy / 2, name="")
     ystart = plot_event_thread(ax, d["actuator"], ystart=ystart, dy=dy)
@@ -70,7 +70,7 @@ def plot_grouped(d):
     ax.set(ylim=[-0.001, 0.3], xlim=[-0.001, 0.3], yticks=[], facecolor=oc.ccolor("gray"))
 
     # Function arguments
-    # plot_grouped(ax, d["observer"], "agent")
+    # plot_grouped(ax, d["observer"], "root")
     plot_grouped(ax, d["actuator"])
 
     # Plot legend
@@ -99,7 +99,7 @@ def plot_delay(d):
     [ax.set(facecolor=oc.ccolor("gray")) for ax in axes.flatten().tolist()]
 
     # Plot delays
-    plot_delay(axes[0], d["agent"], clock=SIMULATED)
+    plot_delay(axes[0], d["root"], clock=SIMULATED)
     plot_delay(axes[1], d["actuator"].inputs[0], clock=SIMULATED)
 
     # axes[0].set(xlim=[0, 0.0025])
@@ -132,8 +132,8 @@ def plot_graph(traceback):
     ax.set(facecolor=oc.ccolor("gray"), xlabel="time (s)", yticks=[], xlim=[-0.01, 0.3])
 
     # Plot graph
-    order = ["world", "sensor", "observer", "agent", "actuator"]
-    cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
+    order = ["world", "sensor", "observer", "root", "actuator"]
+    cscheme = {"sensor": "grape", "observer": "pink", "root": "teal", "actuator": "indigo"}
     plot_computation_graph(ax, traceback, order=order, cscheme=cscheme, xmax=0.6, node_size=200, draw_excluded=True,
                            draw_stateless=False, draw_edgelabels=False, draw_nodelabels=True)
 

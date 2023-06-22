@@ -1,49 +1,55 @@
 from typing import Any, Dict, Tuple, Union
-import jumpy as jp
+import jumpy
+import jumpy.numpy as jp
 from math import ceil
 from flax import struct
 from rex.distributions import Distribution, Gaussian
-from rex.constants import WARN, LATEST
-from rex.base import StepState, GraphState
+from rex.constants import WARN, LATEST, PHASE
+from rex.base import StepState, GraphState, Empty
 from rex.node import Node
+from rex.multiprocessing import new_process
 
 from envs.pendulum.env import Output as ActuatorOutput
+from envs.pendulum.render import Render
 
 
-def build_pendulum(rate: Dict[str, float] = None,
-                   process: Dict[str, float] = None,
-                   process_sim: Dict[str, Distribution] = None,
-                   trans: Dict[str, float] = None,
-                   trans_sim: Dict[str, Distribution] = None,
-                   log_level: Dict[str, int] = None
+def build_pendulum(rates: Dict[str, float],
+                   delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distribution]]]],
+                   delays: Dict[str, Dict[str, Union[float, Dict[str, float]]]],
+                   scheduling: int = PHASE,
+                   advance: bool = False,
                    ) -> Dict[str, Node]:
-	rate = rate or {}
-	process = process or {}
-	process_sim = process_sim or {}
-	trans = trans or {}
-	trans_sim = trans_sim or {}
-	log_level = log_level or {}
 
-	# Fill in default values
-	names = ["world", "actuator", "sensor"]
-	for name in names:
-		rate[name] = rate.get(name, rate.get("world", 30.0))
-		process[name] = process.get(name, None)
-		process_sim[name] = process_sim.get(name, Gaussian(mean=0., var=0.))
-		log_level[name] = log_level.get(name, WARN)
-		if name in ["actuator", "sensor"]:
-			trans[name] = trans.get(name, None)
-			trans_sim[name] = trans_sim.get(name, Gaussian(mean=0., var=0.))
+	# Prepare delays
+	process_sim = delays_sim["step"]
+	process = delays["step"]
+	trans_sim = delays_sim["inputs"]
+	trans = delays["inputs"]
 
 	# Create nodes
-	world = World(name="world", rate=rate["world"], delay=process["world"], delay_sim=process_sim["world"], log_level=log_level["world"], color="blue")
-	actuator = Actuator(name="actuator", rate=rate["actuator"], delay=process["actuator"], delay_sim=process_sim["actuator"], log_level=log_level["actuator"], color="green")
-	sensor = Sensor(name="sensor", rate=rate["sensor"], delay=process["sensor"], delay_sim=process_sim["sensor"], log_level=log_level["sensor"], color="yellow")
+	# Create nodes
+	world = World(name="world", rate=rates["world"], scheduling=scheduling,
+	              delay=process["world"], delay_sim=process_sim["world"])
+	actuator = Actuator(name="actuator", rate=rates["actuator"], scheduling=scheduling, advance=advance,
+	                    delay=process["actuator"], delay_sim=process_sim["actuator"])
+	sensor = Sensor(name="sensor", rate=rates["sensor"], scheduling=scheduling,
+	                delay=process["sensor"], delay_sim=process_sim["sensor"])
+	render = Render(name="render", rate=rates["render"], scheduling=scheduling,
+	                delay=process["render"], delay_sim=process_sim["render"])
 
 	# Connect nodes
-	world.connect(actuator, window=1, blocking=False, skip=False, delay_sim=trans_sim["actuator"], delay=trans["actuator"], jitter=LATEST)
-	sensor.connect(world, window=1, blocking=False, skip=True, delay_sim=trans_sim["sensor"], delay=trans["sensor"], jitter=LATEST)
-	return dict(world=world, actuator=actuator, sensor=sensor)
+	world.connect(actuator, window=1, blocking=False, skip=True, jitter=LATEST,
+	              delay_sim=trans_sim["world"]["actuator"], delay=trans["world"]["actuator"])
+	sensor.connect(world, window=1, blocking=False, skip=True, jitter=LATEST,
+	               delay_sim=trans_sim["sensor"]["world"], delay=trans["sensor"]["world"])
+	render.connect(sensor, window=1, blocking=False, skip=False, jitter=LATEST,
+	               delay_sim=trans_sim["render"]["sensor"], delay=trans["render"]["sensor"])
+
+	# render.connect(actuator, window=1, blocking=False, skip=False, delay_sim=Gaussian(mean=0., std=0.), delay=0.0, jitter=LATEST)
+
+	render.step = new_process(render.step)
+
+	return dict(world=world, actuator=actuator, sensor=sensor, render=render)
 
 
 @struct.dataclass
@@ -76,10 +82,6 @@ class Output:
 	thdot: jp.float32
 
 
-@struct.dataclass
-class Empty: pass
-
-
 def runge_kutta4(ode, dt, params, x, u):
 	k1 = ode(params, x, u)
 	k2 = ode(params, x + 0.5 * dt * k1, u)
@@ -103,11 +105,23 @@ def sigmoid(x):
 
 
 class World(Node):
-	def __init__(self, *args, dt_ode: float = 1/100, **kwargs):
+	def __init__(self, *args, dt_ode: float = 1 / 100, eval_env: bool = False, **kwargs):
 		super().__init__(*args, **kwargs)
-		dt = 1/self.rate
+		dt = 1 / self.rate
 		self.substeps = ceil(dt / dt_ode)
 		self.dt_ode = dt / self.substeps
+		self.eval_env = eval_env
+
+	def __getstate__(self):
+		args, kwargs, inputs = super().__getstate__()
+		kwargs.update(dict(dt_ode=self.dt_ode, eval_env=self.eval_env))
+		return args, kwargs, inputs
+
+	def __setstate__(self, state):
+		args, kwargs, inputs = state
+		self.__init__(*args, **kwargs)
+		# At this point, the inputs are not yet fully unpickled.
+		self.inputs = inputs
 
 	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
 		"""Default params of the node."""
@@ -138,9 +152,13 @@ class World(Node):
 		except (AttributeError, KeyError):
 			pass
 		# Else, return default state
-		rng_th, rng_thdot = jp.random_split(rng, num=2)
-		th = jp.random_uniform(rng_th, shape=(), low=-3.14, high=3.14)
-		thdot = 0.  # jp.random_uniform(rng_thdot, shape=(), low=-9., high=9.)
+		rng_th, rng_thdot = jumpy.random.split(rng, num=2)
+		if not self.eval_env:
+			th = jumpy.random.uniform(rng_th, shape=(), low=-3.14, high=3.14)
+			thdot = 0.  # jumpy.random.uniform(rng_thdot, shape=(), low=-9., high=9.)
+		else:
+			th = jumpy.random.uniform(rng_th, shape=(), low=-0.3, high=0.3) + 3.14
+			thdot = jumpy.random.uniform(rng_thdot, shape=(), low=-0.1, high=0.1)
 		return State(th=th, thdot=thdot)
 
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
@@ -154,15 +172,7 @@ class World(Node):
 			thdot = jp.float32(0.)
 		return Output(th=th, thdot=thdot)
 
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-		"""Reset the node."""
-		rng_params, rng_state, rng_inputs, rng_step = jp.random_split(rng, num=4)
-		params = self.default_params(rng_params, graph_state)
-		state = self.default_state(rng_state, graph_state)
-		inputs = self.default_inputs(rng_inputs, graph_state)
-		return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
-
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
+	def step(self, step_state: StepState) -> Tuple[StepState, Output]:
 		"""Step the node."""
 
 		# Unpack StepState
@@ -179,7 +189,8 @@ class World(Node):
 
 		# Update state
 		next_th, next_thdot = next_x
-		new_state = state.replace(th=next_th, thdot=jp.clip(next_thdot, -params.max_speed, params.max_speed))
+		next_thdot = jp.clip(next_thdot, -params.max_speed, params.max_speed)
+		new_state = state.replace(th=next_th, thdot=next_thdot)
 		new_step_state = step_state.replace(state=new_state)
 
 		# Prepare output
@@ -189,16 +200,6 @@ class World(Node):
 
 
 class Sensor(Node):
-	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs)
-
-	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
-		"""Default params of the node."""
-		return Empty()
-
-	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
-		"""Default state of the node."""
-		return Empty()
 
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
 		"""Default output of the node."""
@@ -211,15 +212,7 @@ class Sensor(Node):
 			thdot = jp.float32(0.)
 		return Output(th=th, thdot=thdot)
 
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-		"""Reset the node."""
-		rng_params, rng_state, rng_inputs, rng_step = jp.random_split(rng, num=4)
-		params = self.default_params(rng_params, graph_state)
-		state = self.default_state(rng_state, graph_state)
-		inputs = self.default_inputs(rng_inputs, graph_state)
-		return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
-
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
+	def step(self, step_state: StepState) -> Tuple[StepState, Output]:
 		"""Step the node."""
 
 		# Unpack StepState
@@ -234,30 +227,12 @@ class Sensor(Node):
 
 
 class Actuator(Node):
-	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs)
 
-	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
-		"""Default params of the node."""
-		return Empty()
-
-	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
-		"""Default state of the node."""
-		return Empty()
-
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
+	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ActuatorOutput:
 		"""Default output of the node."""
 		return ActuatorOutput(action=jp.array([0.0], dtype=jp.float32))
 
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-		"""Reset the node."""
-		rng_params, rng_state, rng_inputs, rng_step = jp.random_split(rng, num=4)
-		params = self.default_params(rng_params, graph_state)
-		state = self.default_state(rng_state, graph_state)
-		inputs = self.default_inputs(rng_inputs, graph_state)
-		return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
-
-	def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
+	def step(self, step_state: StepState) -> Tuple[StepState, ActuatorOutput]:
 		"""Step the node."""
 
 		# Unpack StepState

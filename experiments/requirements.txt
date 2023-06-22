@@ -1,0 +1,24 @@
+trimesh  # brax
+sb3-contrib>=1.7.0
+huggingface_sb3>=2.2.1, <3.*
+tqdm
+rich
+optuna
+optax
+plotly # Used to plot optuna
+jupyterlab
+ipywidgets
+pyyaml>=5.1
+pytablewriter~=0.64
+rospkg>=1.4.0
+rl_zoo3
+--extra-index-url https://download.pytorch.org/whl/cu113
+torch
+torchvision
+torchaudio
+
+#todo: RUN COMMAND BELOW TO INSTALL JAX
+# pip install --upgrade "jax[cuda]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+# todo: Probably need to run this instead,
+# CUDA 11.4 and CuDNN 8.2. This wheel is deprecated and will be discontinued with jax 0.4.8.
+# poetry run pip install --upgrade "jax[cuda11_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html

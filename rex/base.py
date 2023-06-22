@@ -1,32 +1,44 @@
-from functools import partial
 import jax
-from typing import Any, Union, List, TypeVar
+from typing import Any, Tuple, List, TypeVar, Dict, Union
 from flax import struct
 from flax.core import FrozenDict
-import jumpy as jp
+import jumpy.numpy as jp
 import rex.jumpy as rjp
 
 
-Output = TypeVar('Output')
-State = TypeVar('State')
-Params = TypeVar('Params')
+Output = TypeVar("Output")
+State = TypeVar("State")
+Params = TypeVar("Params")
+SeqsMapping = Dict[str, jp.ndarray]
+BufferSizes = Dict[str, List[int]]
+NodeTimings = Dict[str, Dict[str, Union[jp.ndarray, Dict[str, Dict[str, jp.ndarray]]]]]
+Timings = List[NodeTimings]
+
+
+@struct.dataclass
+class Empty:
+    pass
 
 
 @struct.dataclass
 class InputState:
     """A ring buffer that holds the inputs for a node's input channel."""
+
     seq: jp.ndarray
     ts_sent: jp.ndarray
     ts_recv: jp.ndarray
     data: Output  # --> must be a pytree where the shape of every leaf will become (size, *leafs.shape)
 
     @classmethod
-    def from_outputs(cls, seq: jp.ndarray, ts_sent: jp.ndarray, ts_recv: jp.ndarray, outputs: List[Any]) -> "InputState":
+    def from_outputs(
+        cls, seq: jp.ndarray, ts_sent: jp.ndarray, ts_recv: jp.ndarray, outputs: List[Any], is_data: bool = False
+    ) -> "InputState":
         """Create an InputState from a list of outputs.
 
-        The oldest message should be the first in the list.
+        The oldest message should be first in the list.
         """
-        data = jp.tree_map(lambda *o: jp.stack(o, axis=0), *outputs)
+
+        data = jax.tree_map(lambda *o: jp.stack(o, axis=0), *outputs) if not is_data else outputs
         return cls(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=data)
 
     def _shift(self, a: jp.ndarray, new: jp.ndarray):
@@ -43,26 +55,47 @@ class InputState:
 
         # get new values
         if size > 1:
-            new = jp.tree_map(lambda tb, t: self._shift(tb, t), tb, new_t)
+            new = jax.tree_map(lambda tb, t: self._shift(tb, t), tb, new_t)
         else:
-            new = jp.tree_map(lambda _tb, _t: rjp.index_update(_tb, jp.int32(0), _t, copy=True), tb, new_t)
+            new = jax.tree_map(lambda _tb, _t: rjp.index_update(_tb, jp.int32(0), _t, copy=True), tb, new_t)
         return InputState(*new)
 
     def __getitem__(self, val):
         tb = [self.seq, self.ts_sent, self.ts_recv, self.data]
-        return InputState(*jp.tree_map(lambda _tb: _tb[val], tb))
+        return InputState(*jax.tree_map(lambda _tb: _tb[val], tb))
 
 
 @struct.dataclass
 class StepState:
     rng: jp.ndarray
-    inputs: FrozenDict[str, InputState]
     state: State
     params: Params
+    inputs: FrozenDict[str, InputState] = struct.field(pytree_node=True, default_factory=lambda: None)
+    eps: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
+    seq: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
+    ts: rjp.float32 = struct.field(pytree_node=True, default_factory=lambda: jp.float32(0.0))
+
+
+@struct.dataclass
+class GraphBuffer:
+    """
+    outputs: A ring buffer that holds the outputs for every node's output channel.
+    timings: The timings for a given episode (i.e. GraphState.timings[eps]).
+    """
+
+    outputs: FrozenDict[str, Output]
+    timings: Timings
 
 
 @struct.dataclass
 class GraphState:
-    nodes: FrozenDict[str, StepState]
     step: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
-    outputs: FrozenDict[str, Output] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
+    eps: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
+    nodes: FrozenDict[str, StepState] = struct.field(pytree_node=True, default_factory=lambda: None)
+    timings: Timings = struct.field(pytree_node=True, default_factory=lambda: None)
+    buffer: GraphBuffer = struct.field(pytree_node=True, default_factory=lambda: None)
+
+
+RexObs = Union[Dict[str, Any], jp.ndarray]
+RexResetReturn = Tuple[GraphState, RexObs, Dict]
+RexStepReturn = Tuple[GraphState, RexObs, float, bool, bool, Dict]

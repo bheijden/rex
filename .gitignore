@@ -130,3 +130,9 @@ dmypy.json
 
 # pycharm
 .idea/
+
+# experiments
+logs/
+*.zip
+*.mp4
+*.pb

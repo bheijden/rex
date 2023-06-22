@@ -2,21 +2,29 @@ syntax = "proto3";
 
 package logging;
 
+message ExperimentRecord {
+    repeated EpisodeRecord episode = 1;
+    bytes environment = 2;
+}
 
 message EpisodeRecord {
     repeated NodeRecord node = 1;  // Contains all node timings
-//    repeated TraceRecord trace = 2;  // Records a traced episode
 }
 
 message NodeRecord {
     NodeInfo info = 1;
     uint32 sync = 2; // Synchronous (=0), or asynchronous (=1)
     uint32 clock = 3;  // Simulated (=0) or wall-clock (=1)
-    uint32 scheduling = 4;  // Phase (=0) or frequency (=1)
-    float real_time_factor = 5;  // Fast-as-possible (=0), real-time (=1), or any other value > 0.
-    float ts_start = 6;  // Wall-clock timestamp of episode start.
-    repeated InputRecord inputs = 8; // Input info and timing info on received messages.
-    repeated StepRecord steps = 9;  // Timing info on executed steps
+    float real_time_factor = 4;  // Fast-as-possible (=0), real-time (=1), or any other value > 0.
+    float ts_start = 5;  // Wall-clock timestamp of episode start.
+    repeated uint32 rng = 6;  // PRNG key (seeds the delay_sim of the output & initial step_state.rng).
+    repeated InputRecord inputs = 7; // Input info and timing info on received messages.
+    repeated StepRecord steps = 8;  // Timing info on executed steps
+    Serialization outputs = 9;  // Serialized output trajectory.
+    Serialization rngs = 10;  // Serialized RNG state trajectory.
+    Serialization states = 11;  // Serialized state trajectory.
+    Serialization params = 12;  // Serialized parameter trajectory.
+    Serialization step_states = 13;  // Serialized step_state trajectory. Already includes rng, state, and params.
 }
 
 message StepRecord {
@@ -37,7 +45,8 @@ message StepRecord {
 
 message InputRecord {
     InputInfo info = 1;
-    repeated GroupedRecord grouped = 2;
+    repeated uint32 rng = 2;  // PRNG key (seeds the delay_sim of the input).
+    repeated GroupedRecord grouped = 3;
 }
 
 message GroupedRecord {
@@ -69,14 +78,18 @@ message GraphInfo {
 
 message NodeInfo {
     string name = 1; // Name of the node
-    float rate = 2; // Rate of the node
-    bool stateful = 3;  // Whether the node is stateful (=True) or stateless (=False).
-    bool advance = 4;  // Whether the node may advance its step (=True) or not (=False).
-    float phase = 5; // Phase shift
-    GMM delay_sim = 6; // Computation delay distribution of the node step
-    float delay = 7; // Computation delay that is taken into account.
-    repeated InputInfo inputs = 8;  // Registered inputs
+    string cls = 2; // Class of the node as a string `module/attribute`
+    bytes state = 3; // Pickled state of the node. Can be used to reconstruct the node. See Node.__getstate__ and Node.__setstate__.
+    float rate = 4; // Rate of the node
+    bool stateful = 5;  // Whether the node is stateful (=True) or stateless (=False).
+    bool advance = 6;  // Whether the node may advance its step (=True) or not (=False).
+    uint32 scheduling = 7;  // Phase (=0) or frequency (=1)
+    float phase = 8; // Phase shift
+    GMM delay_sim = 9; // Computation delay distribution of the node step
+    float delay = 10; // Computation delay that is taken into account.
+    repeated InputInfo inputs = 11;  // Registered inputs
 }
+
 
 message InputInfo {
     string name = 1; // name of the input argument
@@ -99,55 +112,27 @@ message GMM {
 message Gaussian {
     float weight = 1;
     float mean = 2;
-    float var = 3;
+    float std = 3;
     float percentile = 4;
     float low = 5;
     float high = 6;
 }
 
-message TraceRecord {
-    EpisodeRecord episode = 1;
-    repeated NodeInfo node = 2; // Node info
-    repeated string pruned = 6; // Nodes that have been pruned entirely
-    StepRecord trace = 3;  // Traced step call
-    repeated TracedStep used = 4; // Topologically sorted step calls
-    repeated TracedStep excluded = 5; // if the step call was excluded in the trace.
-    bool isolate = 7; // Whether there was a trace that was isolated into its own depth (=True) or not (=False).
-    uint32 max_consecutive = 8; // The maximum number of consecutive depths without an isolated trace.
-    uint32 max_depth = 9; // The maximum depth of the trace. Starts counting at 0, so len(depths) = max_depth + 1.
-    string name = 10; // Name of the traced node
+message Serialization {
+    // Flax serialization of data.
+    // Use `flax.serialization.from_bytes(pickle.load(target), encoded_bytes[idx])` to deserialize.
+    // If the target cannot be pickled, use `flax.serialization.msgpack_restore(encoded_bytes)` instead to retrieve a state-dict.
+    bytes target = 1; // Template object (pickled) with state-dict registrations that matches the structure being deserialized from `encoded_bytes`.
+    repeated bytes encoded_bytes = 2; // Encoded bytes (each element in the list can be reconstructed to target).
 }
 
-message TracedStep {
-    bool used = 1;  // Whether the step is required (=True) or not (=False).
-    uint32 index = 2; // Index in the topologically sorted computation graph
-    uint32 depth = 3; // Depth of the graph
-    bool stateful = 4; // Whether the node is stateful (=True) or stateless (=False).
-    bool static = 5;    // Whether the node's params are static (=True) or stateless (=False).
-    bool isolate = 11; // Whether the node is isolated (=True) or not (=False).
-    string name = 6; // Node name.
-    uint32 tick = 7; // The tick count.
-    double ts_step = 8; // Step timestamp (after considering any input, scheduling, or last output phase shifts).
-    repeated Dependency upstream = 9; // Upstream dependencies, on which this step call depends.
-    repeated Dependency downstream = 10; // Downstream dependencies that depend on this step call.
-}
-
-message Dependency {
-    bool used = 1;  // Whether the dependency is required (=True) or not (=False).
-    Source source = 2;
-    Target target = 3;
-}
-
-message Source {
-    string name = 1;    // Node name.
-    uint32 tick = 2;    // Sequence number (=input dependency), or tick of previous step call (= state dependency).
-    double ts = 3;      // Sent timestamp of output (=input dependency), or ts_output (= state dependency). ts_output == ts_sent.
-}
-
-message Target {
-    string name = 1 ;       // Node name.
-    string input_name = 2;  // Input name (=input dependency), else None (=state dependency).
-    uint32 tick = 3;        // Tick of current step call (=input and state dependency).
-    double ts = 4;          // Timestamp of received input message (=input dependency) or ts_step (=state dependency).
-    Target rerouted = 5;    // Rerouted target (if any).
+message NetworkRecord{
+    repeated EpisodeRecord episode = 1;
+    string root = 2; // Root node
+    uint32 seq = 3; // Sequence number
+    string split_mode = 4; // Split mode (e.g. `topological_generation`)
+    string supergraph_mode = 5; // Supergraph mode (e.g. `MCS`, 'topological`)
+    repeated string excludes_inputs = 6; // Nodes that exclude their inputs during the trace
+    bytes motifs = 7; // Motifs (pickled dict[root_seq, networkx.DiGraph])
+    bytes MCS = 8; // Minimum common (monomorphic) supergraph incl. root in last generation (pickled networkx.DiGraph)
 }

@@ -1,22 +1,25 @@
 from typing import TYPE_CHECKING, List, Deque, Callable
-import re
+import pickle
 from functools import wraps
+import importlib
 from time import time
-import sys
 from termcolor import colored
 from os import getpid
 from threading import current_thread
-import jax.numpy as jnp  # todo: replace with from brax import jumpy as jp.ndarray?
+import numpy as onp
+import jax
 
+from rex.proto import log_pb2
 from rex.constants import WARN, INFO, SIMULATED
 
 if TYPE_CHECKING:
-    from rex.node import Node
+    from rex.node import BaseNode
 
 
-# Global log level
+# Global log levels
 LOG_LEVEL = WARN
-
+NODE_LOG_LEVEL = {}
+NODE_COLOR = {}
 
 # def synchronized(lock):
 #     """A decorator for synchronizing access to a given function."""
@@ -27,6 +30,18 @@ LOG_LEVEL = WARN
 #                 return fn(*args, **kwargs)
 #         return inner
 #     return wrapper
+
+
+def load(attribute: str):
+    """Loads an attribute from a module.
+
+    :param attribute: The attribute to load. Has the form "module/attribute".
+    :return: The attribute.
+    """
+    module, attribute = attribute.split("/")
+    module = importlib.import_module(module)
+    attribute = getattr(module, attribute)
+    return attribute
 
 
 def log(
@@ -44,9 +59,15 @@ def log(
         print(colored(log_msg, color))
 
 
-def set_log_level(log_level: int):
-    import rex.utils as utils
-    utils.LOG_LEVEL = log_level
+def set_log_level(log_level: int, node: "BaseNode" = None, color: str = None):
+    if node is not None:
+        NODE_LOG_LEVEL[node] = log_level
+        if color is not None:
+            NODE_COLOR[node] = color
+    else:
+        global LOG_LEVEL
+        LOG_LEVEL = log_level
+        assert color is None, "Cannot set color without node"
 
 
 # def timing(num: int = 1):
@@ -65,16 +86,18 @@ def set_log_level(log_level: int):
 
 
 class timer:
-    def __init__(self, name: str, log_level: int = INFO):
-        self.name = name
+    def __init__(self, name: str = None, log_level: int = INFO):
+        self.name = name or "timer"
         self.log_level = log_level
+        self.duration = None
 
     def __enter__(self):
         self.tstart = time()
 
     def __exit__(self, type, value, traceback):
+        self.duration = time() - self.tstart
         if self.log_level >= LOG_LEVEL:
-            print(f"[{self.name}] Elapsed: {time() - self.tstart}")
+            log(name="tracer", color="white", log_level=self.log_level, id=f"{self.name}", msg=f"Elapsed: {self.duration}")
 
 
 # def analyse_deadlock(nodes: List["Node"], log_level: int = INFO):
@@ -155,3 +178,32 @@ class AttrDict(dict):
         self.__dict__ = self
 
 
+def get_delay_data(record: log_pb2.ExperimentRecord, concatenate: bool = True):
+    get_step_delay = lambda s: s.delay  # todo: use comp_delay?
+    get_input_delay = lambda m: m.delay  # todo: use comm_delay?
+
+    exp_data, exp_info = [], []
+    for e in record.episode:
+        data, info = dict(inputs=dict(), step=dict()), dict(inputs=dict(), step=dict())
+        exp_data.append(data), exp_info.append(info)
+        for n in e.node:
+            node_name = n.info.name
+            # Fill info tree
+            info["inputs"][node_name] = dict()
+            info["step"][node_name] = n.info
+            for i in n.inputs:
+                input_name = i.info.name
+                info["inputs"][node_name][input_name] = (n.info, i.info)
+
+            # Fill data tree
+            delays = [get_step_delay(s) for s in n.steps]
+            data["step"][node_name] = onp.array(delays)
+            data["inputs"][node_name] = dict()
+            for i in n.inputs:
+                input_name = i.info.name
+                delays = [get_input_delay(m) for g in i.grouped for m in g.messages]
+                data["inputs"][node_name][input_name] = onp.array(delays)
+
+    data = jax.tree_map(lambda *x: onp.concatenate(x, axis=0), *exp_data) if concatenate else exp_data
+    info = jax.tree_map(lambda *x: x[0], *exp_info) if concatenate else exp_info
+    return data, info

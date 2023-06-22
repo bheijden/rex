@@ -4,7 +4,7 @@ from jax import jit
 from jax import numpy as jnp
 import jax.random as rnd
 from rex.constants import READY, RUNNING, STOPPING, STOPPED, RUNNING_STATES, DEBUG
-from rex.distributions import Gaussian, Distribution
+from rex.distributions import Gaussian, Distribution, DistState
 from rex.input import Input
 from rex.proto import log_pb2 as log_pb2
 from rex.utils import log
@@ -14,10 +14,8 @@ if TYPE_CHECKING:
 
 
 class Output:
-    def __init__(self, node: "Node", log_level: int, color: str, delay: float, delay_sim: Distribution):
+    def __init__(self, node: "Node", delay: float, delay_sim: Distribution):
         self.node = node
-        self.log_level = log_level
-        self.color = color
         self.inputs = []
         self.delay_sim = delay_sim
         self._state = STOPPED
@@ -26,14 +24,22 @@ class Output:
 
         # Jit function (call self.warmup() to pre-compile)
         self._num_buffer = 50
+        self._jit_reset = jit(self.delay_sim.reset)
         self._jit_sample = jit(self.delay_sim.sample, static_argnums=1)
-        self._jit_split = jit(rnd.split, static_argnums=1)
 
         # Reset every run
         self._phase_dist = None
         self._phase = None
         self.q_sample = None
-        self._rng = None
+        self._dist_state: DistState = None
+
+    @property
+    def log_level(self):
+        return self.node.log_level
+
+    @property
+    def color(self):
+        return self.node.color
 
     @property
     def name(self) -> str:
@@ -42,6 +48,12 @@ class Output:
     @property
     def rate(self) -> float:
         return self.node.rate
+
+    @property
+    def max_window(self) -> int:
+        wins = [i.window for i in self.inputs]
+        max_win = max(wins) if len(wins) > 0 else 0
+        return max_win
 
     @property
     def phase(self) -> float:
@@ -59,15 +71,15 @@ class Output:
             return self._phase_dist
 
     def warmup(self):
-        self._jit_sample(rnd.PRNGKey(0), shape=self._num_buffer).block_until_ready()  # Only to trigger jit compilation
-        self._jit_split(rnd.PRNGKey(0), num=2).block_until_ready()  # Only to trigger jit compilation
+        dist_state = self._jit_reset(rnd.PRNGKey(0))
+        new_dist_state, samples = self._jit_sample(dist_state, shape=self._num_buffer)
+        samples.block_until_ready()  # Only to trigger jit compilation
 
     def sample_delay(self) -> float:
         # Generate samples batch-wise
         if len(self.q_sample) == 0:
-            self._rng, sample_rng = self._jit_split(self._rng, num=2)
-            samples = tuple(self._jit_sample(sample_rng, shape=self._num_buffer).tolist())
-            self.q_sample.extend(samples)
+            self._dist_state, samples = self._jit_sample(self._dist_state, shape=self._num_buffer)
+            self.q_sample.extend(tuple(samples.tolist()))
 
         # Sample delay
         sample = self.q_sample.popleft()
@@ -85,8 +97,8 @@ class Output:
         self._phase, self._phase_dist = None, None
         self._phase_dist = self.phase_dist
         self._phase = self.phase
-        self.q_sample = deque() #if self.q_sample is None else self.q_sample
-        self._rng = rng
+        self._dist_state = self._jit_reset(rng)
+        self.q_sample = deque()
 
         # Set running state
         self._state = READY
@@ -115,13 +127,11 @@ class Output:
 
         # Only send output if we are running
         if self._state in [RUNNING]:
-
             # Push message to inputs
             [i._submit(i.push_input, msg, header) for i in self.inputs]
 
     def push_ts_output(self, ts_output: float, header: log_pb2.Header):
         # Only send output if we are running
         if self._state in [RUNNING]:
-
             # Push message to inputs
             [i._submit(i.push_ts_input, ts_output, header) for i in self.inputs]

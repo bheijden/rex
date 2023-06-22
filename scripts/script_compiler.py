@@ -1,7 +1,8 @@
 import time
+import jumpy
 import jax.numpy as jnp
 import numpy as onp
-import jumpy as jp
+import jumpy.numpy as jp
 import jax
 
 from rex.jumpy import use
@@ -12,6 +13,7 @@ from dummy import DummyNode, DummyEnv, DummyAgent
 
 
 if __name__ == "__main__":
+    raise NotImplementedError("This script must be refactored to use pickle.")
 
     # Load protobuf trace
     with open("/home/r2ci/rex/scripts/record_1.pb", "rb") as f:
@@ -21,24 +23,26 @@ if __name__ == "__main__":
     inputs = {n.info.name: {i.info.name: i for i in n.inputs} for n in record.episode.node}
 
     # Re-initialize nodes
-    world = DummyNode.from_info(d["world"].info, log_level=WARN, color="magenta")
-    sensor = DummyNode.from_info(d["sensor"].info, log_level=WARN, color="yellow")
-    observer = DummyNode.from_info(d["observer"].info, log_level=WARN, color="cyan")
-    agent = DummyAgent.from_info(d["agent"].info, log_level=WARN, color="blue")
-    actuator = DummyNode.from_info(d["actuator"].info, log_level=WARN, color="green")
+    # todo: use pickle
+    world = DummyNode.from_info(d["world"].info)
+    sensor = DummyNode.from_info(d["sensor"].info)
+    observer = DummyNode.from_info(d["observer"].info)
+    agent = DummyAgent.from_info(d["root"].info)
+    actuator = DummyNode.from_info(d["actuator"].info)
     nodes = [world, sensor, observer, agent, actuator]
     nodes = {n.name: n for n in nodes}
 
     # Re-initialize connections
+    # todo: use pickle
     sensor.connect_from_info(inputs["sensor"]["world"].info, world)
     observer.connect_from_info(inputs["observer"]["sensor"].info, sensor)
-    observer.connect_from_info(inputs["observer"]["agent"].info, agent)
-    agent.connect_from_info(inputs["agent"]["observer"].info, observer)
-    actuator.connect_from_info(inputs["actuator"]["agent"].info, agent)
+    observer.connect_from_info(inputs["observer"]["root"].info, agent)
+    agent.connect_from_info(inputs["root"]["observer"].info, observer)
+    actuator.connect_from_info(inputs["actuator"]["root"].info, agent)
     world.connect_from_info(inputs["world"]["actuator"].info, actuator)
 
     # Create environment
-    # env = DummyEnv(nodes, agent=agent, max_steps=200, sync=SYNC, clock=SIMULATED, scheduling=PHASE, real_time_factor=FAST_AS_POSSIBLE)
+    # env = DummyEnv(nodes, root=root, max_steps=200, sync=SYNC, clock=SIMULATED, scheduling=PHASE, real_time_factor=FAST_AS_POSSIBLE)
     env = DummyEnv(nodes, agent=agent, max_steps=20, trace=record)
 
     # Warmup
@@ -54,11 +58,11 @@ if __name__ == "__main__":
         env_step = jax.jit(env.step) if use_jit else env.step
 
         # Get initial graph state
-        seed = jp.random_prngkey(0)
+        seed = jumpy.random.PRNGKey(0)
 
         # Reset environment (warmup)
         with timer("jit reset", log_level=WARN):
-            graph_state, obs = env_reset(seed)
+            graph_state, obs, info = env_reset(seed)
 
         # Initial step (warmup)
         with timer("jit step", log_level=WARN):
@@ -73,7 +77,7 @@ if __name__ == "__main__":
             if done:
                 step = graph_state.step
                 tend = time.time()
-                graph_state, obs = env_reset(seed)
+                graph_state, obs, info = env_reset(seed)
                 treset = time.time()
                 print(f"agent_steps={eps_steps} | chunk_index={step} | t={(treset - tstart): 2.4f} sec | t_r={(treset - tend): 2.4f} sec | fps={eps_steps / (tend - tstart): 2.4f} | fps={eps_steps / (treset - tstart): 2.4f} (incl. reset)")
                 tstart = treset

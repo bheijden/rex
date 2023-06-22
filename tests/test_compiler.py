@@ -1,17 +1,20 @@
+import dill as pickle
 import time
+import jumpy
 import jax.numpy as jnp
 import numpy as onp
-import jumpy as jp
+import jumpy.numpy as jp
 import jax
+from flax.core import FrozenDict
 
 import rex.jumpy as rjp
-from rex.tracer import trace
-from rex.utils import timer
-from rex.constants import LATEST, BUFFER, SILENT, DEBUG, INFO, WARN, REAL_TIME, FAST_AS_POSSIBLE, SIMULATED, \
-    WALL_CLOCK, SYNC, ASYNC, FREQUENCY, PHASE, VECTORIZED, SEQUENTIAL, INTERPRETED
-from rex.proto import log_pb2
-from rex.distributions import Gaussian, GMM
-from scripts.dummy import DummyNode, DummyEnv, DummyAgent
+from rex.base import GraphState
+import rex.utils as utils
+from rex.constants import SILENT, DEBUG, INFO, WARN
+from rex.tracer import get_network_record, get_timings_from_network_record, get_graph_buffer
+from rex.compiled import CompiledGraph
+
+from scripts.dummy import DummyEnv, build_dummy_env
 
 
 def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = False, seed: int = 0, vmap: int = 1):
@@ -22,30 +25,30 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
 
     use_jit = use_jit and backend == "jax"
     with rjp.use(backend=backend):
-        rng = rjp.random_prngkey(jp.int32(seed))
+        rng = jumpy.random.PRNGKey(jp.int32(seed))
 
         env_reset = rjp.vmap(env.reset)
         env_step = rjp.vmap(env.step)
-        rng = jp.random_split(rng, num=vmap)
+        rng = jumpy.random.split(rng, num=vmap)
 
         # Get reset and step function
         env_reset = jax.jit(env_reset) if use_jit else env_reset
         env_step = jax.jit(env_step) if use_jit else env_step
 
         # Reset environment (warmup)
-        with timer(f"{name} | jit reset", log_level=WARN):
-            graph_state, obs = env_reset(rng)
+        with utils.timer(f"{name} | jit reset", log_level=WARN):
+            graph_state, obs, info = env_reset(rng)
             gs_lst.append(graph_state)
             obs_lst.append(obs)
             ss_new = graph_state.nodes["agent"]
             ss_lst.append(ss_new)
 
         # Initial step (warmup)
-        with timer(f"{name} | jit step", log_level=WARN):
-            graph_state, obs, reward, done, info = env_step(graph_state, None)
+        with utils.timer(f"{name} | jit step", log_level=WARN):
+            graph_state, obs, reward, truncated, done, info = env_step(graph_state, None)
             obs_lst.append(obs)
             gs_lst.append(graph_state)
-            # ss_new = graph_state.nodes["agent"].replace(rng=jp.array([0, 0], dtype=jp.int32))
+            # ss_new = graph_state.nodes["agent""].replace(rng=jp.array([0, 0], dtype=jp.int32))
             ss_new = graph_state.nodes["agent"]
             ss_lst.append(ss_new)
 
@@ -53,10 +56,10 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
         tstart = time.time()
         eps_steps = 1
         while True:
-            graph_state, obs, reward, done, info = env_step(graph_state, None)
+            graph_state, obs, reward, truncated, done, info = env_step(graph_state, None)
             obs_lst.append(obs)
             gs_lst.append(graph_state)
-            # ss_new = graph_state.nodes["agent"].replace(rng=jp.array([0, 0], dtype=jp.int32))
+            # ss_new = graph_state.nodes["agent""].replace(rng=jp.array([0, 0], dtype=jp.int32))
             ss_new = graph_state.nodes["agent"]
             ss_lst.append(ss_new)
             eps_steps += 1
@@ -73,133 +76,98 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
     return gs_lst, obs_lst, ss_lst
 
 
-def _plot(new_record):
-    # Create new plot
-    from rex.plot import plot_depth_order
-    import seaborn as sns
-    sns.set()
-    from matplotlib.ticker import MaxNLocator
-    import matplotlib.pyplot as plt
-    import rex.open_colors as oc
-    fig, ax = plt.subplots()
-    fig.set_size_inches(12, 5)
-    ax.set(facecolor=oc.ccolor("gray"), xlabel="Depth order", yticks=[], xlim=[-1, 10])
-    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-    cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
-
-    plot_depth_order(ax, new_record, xmax=0.6, cscheme=cscheme, node_labeltype="tick", draw_excess=True)
-
-    # Plot legend
-    handles, labels = ax.get_legend_handles_labels()
-    by_label = dict(zip(labels, handles))
-    by_label = dict(sorted(by_label.items()))
-    ax.legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
-              bbox_to_anchor=(1.0, 0.50))
-    plt.show()
-
-
 def test_compiler():
-    world = DummyNode("world", rate=20, delay_sim=Gaussian(0/1e3), log_level=WARN, color="magenta")
-    sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(7/1e3), log_level=WARN, color="yellow")
-    observer = DummyNode("observer", rate=30, delay_sim=Gaussian(16/1e3), log_level=WARN, color="cyan")
-    agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(5/1e3, 1/1e3), log_level=WARN, color="blue", advance=True)
-    actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1/45), log_level=WARN, color="green", advance=False, stateful=False)
-    nodes = [world, sensor, observer, agent, actuator]
-    nodes = {n.name: n for n in nodes}
+    env, nodes = build_dummy_env()
 
-    # Connect
-    sensor.connect(world, blocking=False, delay_sim=Gaussian(4/1e3), skip=False, jitter=LATEST, window=2, name="testworld")
-    observer.connect(sensor, blocking=False, delay_sim=Gaussian(3/1e3), skip=False, jitter=BUFFER)
-    observer.connect(agent, blocking=False, delay_sim=Gaussian(3/1e3), skip=True, jitter=LATEST)
-    agent.connect(observer, blocking=True, delay_sim=Gaussian(3/1e3), skip=False, jitter=BUFFER)
-    actuator.connect(agent, blocking=True, delay_sim=Gaussian(3/1e3, 1/1e3), skip=False, jitter=LATEST, delay=5/1e3)
-    world.connect(actuator, blocking=False, delay_sim=Gaussian(4/1e3), skip=True, jitter=LATEST)
-
-    # Warmup nodes (pre-compile jitted functions)
-    [n.warmup() for n in nodes.values()]
-
-    # Create environment
-    max_steps = 200
-    env = DummyEnv(nodes, agent=agent, max_steps=max_steps, sync=SYNC, clock=SIMULATED, scheduling=PHASE, real_time_factor=FAST_AS_POSSIBLE, name="env")
+    # Place observer step in separate process
+    # TODO: TURN ON AGAIN!
+    # from rex.multiprocessing import new_process
+    # nodes["observer"].step = new_process(nodes["observer"].step, max_workers=2)
 
     # Evaluate async env
     gs_async, obs_async, ss_async = evaluate(env, name="async", backend="numpy", use_jit=False, seed=0)
 
     # Gather record
-    record = log_pb2.EpisodeRecord()
-    [record.node.append(node.record) for node in nodes.values()]
+    record = env.graph.get_episode_record()
 
     # Trace
-    trace_opt = trace(record, "agent", -1, static=True)
-    trace_all = trace(record, "agent", -1, static=False)
+    trace_mcs, MCS, G, G_subgraphs = get_network_record(record, "agent", -1)
 
-    # Plot
-    # _plot(trace_all)
-    # _plot(trace_opt)
+    # Initialize graph state
+    timings = get_timings_from_network_record(trace_mcs)
+    buffer = get_graph_buffer(MCS, timings, nodes)
+    init_gs = GraphState(timings=timings, buffer=buffer)
+
+    # Test graph
+    _ = env.graph.max_eps()
+    _ = env.graph.max_starting_step(max_steps=10)
+
+    # Test compiled graph
+    graph = CompiledGraph(nodes=nodes, root=nodes["agent"], MCS=MCS, default_timings=timings)
+    _ = graph.max_starting_step(max_steps=10, graph_state=init_gs)
+    _ = graph.max_starting_step(max_steps=10, graph_state=None)
+    _ = graph.max_eps(graph_state=None)
+    _ = graph.max_eps(graph_state=init_gs)
+
+    # Define env
+    env_mcs = DummyEnv(graph=graph, max_steps=env.max_steps, name="env_mcs")
+
+    # Test graph with timings & output buffers already set
+    _, obs, info = env_mcs.reset(rng=jumpy.random.PRNGKey(0), graph_state=init_gs)
+    _, obs, info = env_mcs.reset(rng=jumpy.random.PRNGKey(0))
 
     # Plot progress
     must_plot = False
     if must_plot:
         from scripts.dummy_plot import plot_delay, plot_graph, plot_grouped, plot_threads
         r = {n.info.name: n for n in record.node}
-        plot_graph(trace_opt)
+        # plot_graph(trace_seq)
         plot_delay(r)
         plot_grouped(r)
         plot_threads(r)
 
-    # Compile environments
-    env_opt = DummyEnv(nodes, agent=agent, max_steps=max_steps, trace=trace_opt, graph=SEQUENTIAL, name="env_opt")
-    env_all = DummyEnv(nodes, agent=agent, max_steps=max_steps, trace=trace_all, graph=VECTORIZED, name="env_all")
+    # Test pickle
+    env_mcs.graph = pickle.loads(pickle.dumps(env_mcs.graph))
 
     # Evaluate compiled envs
-    gs_opt, obs_opt, ss_opt = evaluate(env_opt, name="opt", backend="numpy", use_jit=False, seed=0)
-    gs_all, obs_all, ss_all = evaluate(env_all, name="all", backend="jax", use_jit=True, seed=0)
-
-    gs_opt, obs_opt, ss_opt = evaluate(env_opt, name="opt", backend="jax", use_jit=True, seed=0)
-    gs_all, obs_all, ss_all = evaluate(env_all, name="all", backend="numpy", use_jit=False, seed=0)
+    _, _, _ = evaluate(env_mcs, name="mcs-nojit-numpy", backend="numpy", use_jit=False, seed=0)
+    gs_mcs, obs_mcs, ss_mcs = evaluate(env_mcs, name="mcs-jit-jax", backend="jax", use_jit=True, seed=0, vmap=1)
 
     # Compare
-    def compare(_async, _opt, _all):
+    def compare(_async, _mcs):
         if not isinstance(_async, (onp.ndarray, jnp.ndarray)):
-            _equal_all = onp.allclose(_async, _all)
-            _equal_opt = onp.allclose(_all, _opt)
-            _op_all = "==" if _equal_all else "!="
-            _op_opt = "==" if _equal_opt else "!="
-            msg = f"{_async} {_op_all} {_all} {_op_opt} {_opt}"
-            assert _equal_all, msg
-            assert _equal_opt, msg
+            _equal_mcs = onp.allclose(_async, _mcs)
+            _op_mcs = "==" if _equal_mcs else "!="
+            msg = f"{_async} {_op_mcs} {_mcs}"
+            assert _equal_mcs, msg
         else:
             for i in range(len(_async)):
-                _equal_all = onp.allclose(_async[i], _all[i])
-                _equal_opt = onp.allclose(_all[i], _opt[i])
-                _op_all = "==" if _equal_all else "!="
-                _op_opt = "==" if _equal_opt else "!="
-                msg = f"{_async} {_op_all} {_all} {_op_opt} {_opt}"
+                _equal_mcs = onp.allclose(_async[i], _mcs[i])
+                _op_mcs = "==" if _equal_mcs else "!="
+                msg = f"{_async} {_op_mcs} {_mcs}"
                 try:
-                    assert _equal_all, msg
-                    assert _equal_opt, msg
+                    assert _equal_mcs, msg
                 except AssertionError:
-                    print("waiting for debugger...")
                     raise
 
     # Test InputState API
-    _ = ss_all[0].inputs["observer"][0]
+    _ = ss_mcs[0].inputs["observer"][0]
 
     # Merge all logged obs, gs, and ss
-    obs = jp.tree_map(lambda *args: args, obs_async, obs_opt, obs_all)
-    ss = jp.tree_map(lambda *args: args, ss_async, ss_opt, ss_all)
-    params = [[__ss.params for __ss in _ss] for _ss in [ss_async, ss_opt, ss_all]]
-    state = [[__ss.state for __ss in _ss] for _ss in [ss_async, ss_opt, ss_all]]
+    # obs = jax.tree_map(lambda *args: args, obs_async, obs_mcs)
+    # ss = jax.tree_map(lambda *args: args, ss_async, ss_mcs)
+    params = [[__ss.params for __ss in _ss] for _ss in [ss_async, ss_mcs]]
+    state = [[__ss.state for __ss in _ss] for _ss in [ss_async, ss_mcs]]
 
-    # Compare observations and agent step states
+    # Compare observations and root step states
     print("Comparing agent.inputs...")
-    jp.tree_map(compare, obs_async, obs_opt, obs_all)
+    jax.tree_map(compare, obs_async, obs_mcs)
     print("agent.inputs ok")
     print("Comparing agent.params...")
-    jp.tree_map(compare, *params)
+    jax.tree_map(compare, *params)
     print("agent.params ok")
     print("Comparing agent.state...")
-    jp.tree_map(compare, *state)
+    jax.tree_map(compare, *state)
     print("agent.state ok")
 
 

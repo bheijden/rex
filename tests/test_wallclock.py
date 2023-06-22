@@ -1,3 +1,4 @@
+import jumpy
 import time
 import seaborn as sns
 sns.set()
@@ -9,7 +10,7 @@ import rex.utils as utils
 from rex.proto import log_pb2
 from rex.constants import LATEST, BUFFER, SILENT, DEBUG, INFO, WARN, SYNC, ASYNC, REAL_TIME, FAST_AS_POSSIBLE, FREQUENCY, PHASE, SIMULATED, WALL_CLOCK
 from rex.distributions import Gaussian, GMM
-from rex.base import GraphState
+from rex.base import GraphState, StepState
 from scripts.dummy import DummyNode, DummyAgent
 
 utils.set_log_level(WARN)
@@ -17,11 +18,11 @@ utils.set_log_level(WARN)
 
 def test_wallclock():
     # Create nodes
-    world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000), log_level=WARN, color="magenta")
-    sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007), log_level=WARN, color="yellow")
-    observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016), log_level=WARN, color="cyan")
-    agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(0.005, 0.001), log_level=WARN, color="blue", advance=True)
-    actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), log_level=WARN, color="green", advance=False,
+    world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000))
+    sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007))
+    observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016))
+    agent = DummyAgent("root", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
+    actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), advance=False,
                          stateful=True)
     nodes = [world, sensor, observer, agent, actuator]
 
@@ -45,11 +46,19 @@ def test_wallclock():
     real_time_factor, scheduling, clock, sync = 20, PHASE, WALL_CLOCK, ASYNC
 
     # Get graph state
-    node_ss = {n.name: n.reset(rng) for rng, n in zip(rngs, nodes)}
+    def reset_node(node, rng):
+        rng_params, rng_state, rng_inputs, rng_step, rng_reset = jumpy.random.split(rng, num=5)
+        params = node.default_params(rng_params)
+        state = node.default_state(rng_state)
+        inputs = node.default_inputs(rng_inputs)
+        node.reset(rng_reset)
+        return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
+
+    node_ss = {n.name: reset_node(n, rng) for n, rng in zip(nodes, rngs)}
     graph_state = GraphState(step=0, nodes=node_ss)
 
     # Reset nodes (Allows setting the run mode)
-    [n._reset(graph_state, real_time_factor=real_time_factor, scheduling=scheduling, clock=clock, sync=sync) for rng, n in
+    [n._reset(graph_state, real_time_factor=real_time_factor, clock=clock) for rng, n in
      zip(rngs, nodes)]
 
     # An additional reset is required when running async (futures, etc..)
@@ -65,15 +74,15 @@ def test_wallclock():
 
     # Simulate
     tstart = time.time()
-    ts_step, step_state = agent.observation.popleft().result()  # Retrieve first obs
+    step_state = agent.observation.popleft().result()  # Retrieve first obs
     for _ in range(num_steps):
         action = agent.default_output(seed)  # NOTE! Re-using the seed here.
-        agent.action[-1].set_result((step_state, action))  # The set result must be the action of the agent.
-        ts_step, step_state = agent.observation.popleft().result()  # Retrieve observation
+        agent.action[-1].set_result((step_state, action))  # The set result must be the action of the root.
+        step_state = agent.observation.popleft().result()  # Retrieve observation
     tend = time.time()
 
     # Initiate reset
-    agent.action[-1].cancel()  # Cancel to stop the actions being sent by the agent node.
+    agent.action[-1].cancel()  # Cancel to stop the actions being sent by the root node.
 
     # Stop all ndoes
     fs = [n._stop() for n in nodes]
@@ -85,5 +94,5 @@ def test_wallclock():
 
     # Gather the records
     record = log_pb2.EpisodeRecord()
-    [record.node.append(node.record) for node in nodes]
+    [record.node.append(node.record()) for node in nodes]
     d = {n.info.name: n for n in record.node}

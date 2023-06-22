@@ -1,7 +1,7 @@
 from typing import Tuple, Deque, Dict
 from collections import deque
 from concurrent.futures import Future, CancelledError
-import jumpy as jp
+import jumpy.numpy as jp
 
 from rex.base import StepState, InputState, GraphState, Output, Params, State
 from rex.node import Node
@@ -16,28 +16,16 @@ class Agent(Node):
         self._q_obs: Deque[Future]
         super().__init__(*args, **kwargs)
 
-    def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
-        """Default params of the node."""
-        raise NotImplementedError
-
-    def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
-        """Default state of the node."""
-        raise NotImplementedError
-
     def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
-        """Default output of the node."""
+        """Default output of the root."""
         raise NotImplementedError
 
-    def default_inputs(self, rng: jp.ndarray, graph_state: GraphState = None) -> Dict[str, InputState]:
-        """Default inputs of the node."""
-        return super().default_inputs(rng, graph_state)
-
-    def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-        """Reset the agent."""
-        raise NotImplementedError
+    # def default_inputs(self, rng: jp.ndarray, graph_state: GraphState = None) -> Dict[str, InputState]:
+    #     """Default inputs of the node."""
+    #     return super().default_inputs(rng, graph_state)
 
     def get_step_state(self, graph_state: GraphState) -> StepState:
-        """Get the step state of the agent."""
+        """Get the step state of the root."""
         return graph_state.nodes[self.name]
 
     @property
@@ -55,7 +43,7 @@ class Agent(Node):
         self._f_obs = Future()
         self._q_obs.append(self._f_obs)
 
-    def step(self, ts: jp.float32, step_state: StepState) -> Tuple[StepState, Output]:
+    def step(self, step_state: StepState) -> Tuple[StepState, Output]:
         self._f_act = Future()
         self._q_act.append(self._f_act)
 
@@ -64,7 +52,7 @@ class Agent(Node):
         self._q_obs.append(_new_f_obs)
 
         # Set observations as future result
-        self._f_obs.set_result((ts, step_state))
+        self._f_obs.set_result(step_state)
         self._f_obs = _new_f_obs
 
         # Wait for action future's result to be set with action
@@ -77,4 +65,3 @@ class Agent(Node):
                 self._q_act.popleft()
                 self._must_reset = True
         return None, None  # Do not return anything if we must reset
-

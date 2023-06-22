@@ -11,7 +11,6 @@ try:
 except ImportError:
     print("Seaborn not installed, plots will not be as pretty.")
 from rex.proto import log_pb2
-from rex.tracer import trace
 from rex.plot import plot_computation_graph, plot_topological_order
 
 with open("/home/r2ci/rex/scripts/record_1.pb", "rb") as f:
@@ -23,11 +22,11 @@ rdict = {n.info.name: n for n in record.node}
 
 # Set actuator to be stateless
 rdict["actuator"].info.stateful = False
-rdict["agent"].info.stateful = True
+rdict["root"].info.stateful = True
 rdict['actuator'].inputs[0].info.window = 2
 
 # Trace record
-traceback = trace(record, "agent", -1, static=True)
+traceback = trace(record, "root", -1)
 
 # Create new plot
 fig, ax = plt.subplots()
@@ -35,8 +34,8 @@ fig.set_size_inches(12, 5)
 ax.set(facecolor=oc.ccolor("gray"), xlabel="time (s)", yticks=[], xlim=[-0.01, 0.3])
 
 # Plot graph
-order = ["world", "sensor", "observer", "agent", "actuator"]
-cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
+order = ["world", "sensor", "observer", "root", "actuator"]
+cscheme = {"sensor": "grape", "observer": "pink", "root": "teal", "actuator": "indigo"}
 plot_computation_graph(ax, traceback, order=order, cscheme=cscheme, xmax=0.6, draw_excluded=True, draw_stateless=False,
                        draw_edgelabels=False, draw_nodelabels=True)
 

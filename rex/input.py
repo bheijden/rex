@@ -2,48 +2,75 @@ import traceback
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, Future, CancelledError
 from threading import RLock
-from typing import Optional, Any, Deque, TYPE_CHECKING, Tuple, Callable
-import jumpy as jp
+from typing import Optional, Any, Deque, TYPE_CHECKING, Tuple, Callable, Dict
+import jumpy.numpy as jp
 from jax import numpy as jnp
 from jax import jit
 import jax.random as rnd
 
 from rex.base import InputState
-from rex.constants import READY, RUNNING, STOPPING, STOPPED, RUNNING_STATES, DEBUG, WARN, ERROR, SIMULATED, WALL_CLOCK, ASYNC, SYNC, FAST_AS_POSSIBLE, ASYNC, LATEST, BUFFER
-from rex.distributions import Distribution
+from rex.constants import (
+    READY,
+    RUNNING,
+    STOPPING,
+    STOPPED,
+    RUNNING_STATES,
+    DEBUG,
+    WARN,
+    ERROR,
+    SIMULATED,
+    WALL_CLOCK,
+    ASYNC,
+    SYNC,
+    FAST_AS_POSSIBLE,
+    ASYNC,
+    LATEST,
+    BUFFER,
+)
+from rex.distributions import Distribution, DistState
 from rex.proto import log_pb2 as log_pb2
 from rex.utils import log
 
 if TYPE_CHECKING:
-    from rex.node import Node
+    from rex.node import BaseNode
     from rex.output import Output
 
 
 class Input:
-    def __init__(self, node: "Node", output: "Output", window: int, blocking: bool, skip: bool, jitter: int, delay: float, delay_sim: Distribution, log_level: int, color: str, name: str):
-        # todo: add this constraint?
-        # assert not (skip and not blocking), "You can only skip blocking connections."
+    def __init__(
+        self,
+        node: "BaseNode",
+        output: "Output",
+        window: int,
+        blocking: bool,
+        skip: bool,
+        jitter: int,
+        delay: float,
+        delay_sim: Distribution,
+        name: str,
+    ):
         self.node = node
         self.output = output
         self.input_name = name
         self.window = window
-        self.blocking = blocking    #: Connection type
+        self.blocking = blocking  #: Connection type
         self.delay_sim = delay_sim  #: Communication delay
-        self.skip = skip            #: Skip first dependency
-        self.jitter = jitter        #: Jitter mode
-        self.log_level = log_level
-        self.color = color
+        self.skip = skip  #: Skip first dependency
+        self.jitter = jitter  #: Jitter mode
         self.delay = delay if delay is not None else delay_sim.high
         assert self.delay >= 0, "Phase should be non-negative."
         self._state = STOPPED
+        self._unpickled = True  # Used to determine whether this input is fully unpickled or not.
 
         # Jit function (call self.warmup() to pre-compile)
         self._num_buffer = 50
+        self._jit_reset = jit(self.delay_sim.reset)
         self._jit_sample = jit(self.delay_sim.sample, static_argnums=1)
-        self._jit_split = jit(rnd.split, static_argnums=1)
 
         # Executor
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"{self.node.name}/{self.output.name}")
+        node_name = self.node if isinstance(node, str) else self.node.name
+        output_name = self.output if isinstance(output, str) else self.output.name
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"{node_name}/{output_name}")
         self._q_task: Deque[Tuple[Future, Callable, Any, Any]] = deque(maxlen=10)
         self._lock = RLock()
 
@@ -53,7 +80,7 @@ class Input:
         self._phase = None
         self._phase_dist = None
         self._prev_recv_sc = None
-        self._rng = None
+        self._dist_state: DistState = None
         self.q_msgs: Deque[Any] = None
         self.q_ts_input: Deque[Tuple[int, float]] = None
         self.q_ts_max: Deque[float] = None
@@ -64,6 +91,41 @@ class Input:
         self.q_grouped: Deque[InputState] = None
         self.q_ts_next_step: Deque[Tuple[int, float]] = None
         self.q_sample: Deque = None
+
+    def __getstate__(self):
+        """Used for pickling"""
+        args = ()
+        kwargs = dict(
+            node=self.node.name,
+            output=self.output.name,
+            window=self.window,
+            blocking=self.blocking,
+            skip=self.skip,
+            jitter=self.jitter,
+            delay=self.delay,
+            delay_sim=self.delay_sim,
+            name=self.input_name,
+        )
+        return args, kwargs
+
+    def __setstate__(self, state):
+        """Used for unpickling"""
+        args, kwargs = state
+        self.__init__(*args, **kwargs)
+        # Only once the input is fully unpickled, (i.e. node & output are replaced with actual objects)
+        self._unpickled = False
+
+    @property
+    def unpickled(self):
+        return self._unpickled
+
+    @property
+    def log_level(self):
+        return self.node.log_level
+
+    @property
+    def color(self):
+        return self.node.color
 
     @property
     def name(self) -> str:
@@ -86,15 +148,15 @@ class Input:
             return self._phase_dist
 
     def warmup(self):
-        self._jit_sample(rnd.PRNGKey(0), shape=self._num_buffer).block_until_ready()  # Only to trigger jit compilation
-        self._jit_split(rnd.PRNGKey(0), num=2).block_until_ready()  # Only to trigger jit compilation
+        dist_state = self._jit_reset(rnd.PRNGKey(0))
+        new_dist_state, samples = self._jit_sample(dist_state, shape=self._num_buffer)
+        samples.block_until_ready()  # Only to trigger jit compilation
 
     def sample_delay(self) -> float:
         # Generate samples batch-wise
         if len(self.q_sample) == 0:
-            self._rng, sample_rng = self._jit_split(self._rng, num=2)
-            samples = tuple(self._jit_sample(sample_rng, shape=self._num_buffer).tolist())
-            self.q_sample.extend(samples)
+            self._dist_state, samples = self._jit_sample(self._dist_state, shape=self._num_buffer)
+            self.q_sample.extend(tuple(samples.tolist()))
 
         # Sample delay
         sample = self.q_sample.popleft()
@@ -102,9 +164,38 @@ class Input:
 
     @property
     def info(self) -> log_pb2.InputInfo:
-        return log_pb2.InputInfo(name=self.input_name, output=self.output.name, rate=self.output.rate, window=self.window, blocking=self.blocking,
-                                 skip=self.skip, jitter=self.jitter, phase=self.phase, phase_dist=self.phase_dist.info,
-                                 delay_sim=self.delay_sim.info, delay=self.delay)
+        return log_pb2.InputInfo(
+            name=self.input_name,
+            output=self.output.name,
+            rate=self.output.rate,
+            window=self.window,
+            blocking=self.blocking,
+            skip=self.skip,
+            jitter=self.jitter,
+            phase=self.phase,
+            phase_dist=self.phase_dist.info,
+            delay_sim=self.delay_sim.info,
+            delay=self.delay,
+        )
+
+    def unpickle(self, nodes: Dict[str, "BaseNode"]):
+        """Unpickle the input after the node and output are unpickled."""
+        if self.unpickled:
+            return
+
+        # Attempt to unpickle the node
+        if isinstance(self.node, str):
+            self.node = nodes.get(self.node)
+        if isinstance(self.output, str):
+            self.output = nodes.get(self.output).output
+            self.output.connect(self)
+
+        # Node is only fully unpickled once the node and output are replaced with actual objects
+        from rex.node import BaseNode
+        from rex.output import Output
+
+        if isinstance(self.node, BaseNode) and isinstance(self.output, Output):
+            self._unpickled = True
 
     def log(self, id: str, value: Optional[Any] = None, log_level: Optional[int] = None):
         log_level = log_level if isinstance(log_level, int) else self.log_level
@@ -115,21 +206,28 @@ class Input:
             if self._state in [READY, RUNNING] or stopping:
                 f = self._executor.submit(fn, *args, **kwargs)
                 self._q_task.append((f, fn, args, kwargs))
-                f.add_done_callback(self._f_callback)
+                f.add_done_callback(self._done_callback)
             else:
                 self.log("SKIPPED", fn.__name__, log_level=DEBUG)
                 f = Future()
                 f.cancel()
         return f
 
-    def _f_callback(self, f: Future):
+    def _done_callback(self, f: Future):
         e = f.exception()
         if e is not None and e is not CancelledError:
             error_msg = "".join(traceback.format_exception(None, e, e.__traceback__))
             log(f"{self.node.name}/{self.name}", "red", ERROR, "ERROR", error_msg)
 
     def reset(self, rng: jnp.ndarray, input_state: InputState):
-        assert self._state in [STOPPED, READY], f"Input {self.name} of {self.node.name} must first be stopped, before it can be reset."
+        assert self.unpickled, (
+            "Input must be fully unpickled before being reset. "
+            "This means that self.node and self.output must be replaced with actual nodes."
+        )
+        assert self._state in [
+            STOPPED,
+            READY,
+        ], f"Input {self.name} of {self.node.name} must first be stopped, before it can be reset."
 
         # Empty queues
         self._input_state = input_state
@@ -137,8 +235,8 @@ class Input:
         self._phase_dist = self.phase_dist
         self._phase = self.phase
         self._record = None
-        self._prev_recv_sc = 0.  # Ensures the FIFO property for incoming messages.
-        self._rng = rng
+        self._prev_recv_sc = 0.0  # Ensures the FIFO property for incoming messages.
+        self._dist_state = self._jit_reset(rng)
         self.q_msgs = deque()
         self.q_ts_input = deque()
         self.q_zip_delay = deque()
@@ -148,14 +246,16 @@ class Input:
         self.q_expected_ts_max = deque()
         self.q_grouped = deque()
         self.q_ts_next_step = deque()
-        self.q_sample = deque() #if self.q_sample is None else self.q_sample
+        self.q_sample = deque()
 
         # Set running state
         self._state = READY
         self.log(RUNNING_STATES[self._state], log_level=DEBUG)
 
     def start(self, record: log_pb2.InputRecord):
-        assert self._state in [READY], f"Input {self.name} of {self.node.name} must first be reset, before it can start running."
+        assert self._state in [
+            READY
+        ], f"Input {self.name} of {self.node.name} must first be reset, before it can start running."
 
         # Set running state
         self._state = RUNNING
@@ -164,6 +264,7 @@ class Input:
         # Store running configuration
         self._record = record
         self._record.info.CopyFrom(self.info)
+        self._record.rng.extend(self._dist_state.rng.tolist())
 
     def stop(self) -> Future:
         assert self._state in [RUNNING], f"Input {self.name} of {self.node.name} must be running in order to stop."
@@ -204,6 +305,8 @@ class Input:
                     for seq, ts_recv in self.q_ts_input:
                         ts_expected = seq / self.output.rate + phase
                         if ts_expected > ts_step:
+                            break
+                        if ts_recv > ts_step:
                             break
                         num_msgs += 1
                 else:  # self.jitter in [LATEST]:
@@ -289,7 +392,7 @@ class Input:
 
             # Determine max timestamp of grouped message for blocking connection
             input_ts = [self.q_ts_input.popleft()[1] for _i in range(num_msgs)]
-            ts_max = max([0.] + input_ts)
+            ts_max = max([0.0] + input_ts)
             self.q_ts_max.append(ts_max)
 
             # Push push_phase_shift (must be called from node thread)
@@ -299,7 +402,9 @@ class Input:
     def push_selection(self):
         has_expected = len(self.q_expected_select) > 0
         if has_expected:
-            has_recv_all_expected = len(self.q_msgs) >= self.q_expected_select[0][1]  # self.q_expected[0]=(ts_next_step, exp_num_msgs)
+            has_recv_all_expected = (
+                len(self.q_msgs) >= self.q_expected_select[0][1]
+            )  # self.q_expected[0]=(ts_next_step, exp_num_msgs)
             if has_recv_all_expected:
                 ts_next_step, num_msgs = self.q_expected_select.popleft()
                 log_msg = f"blocking={self.blocking} | step_ts={ts_next_step: .2f} | num_msgs={num_msgs}"
@@ -333,8 +438,9 @@ class Input:
                     grouped.append((seq, ts_sent, ts_recv, msg))
 
                 # Only add messages that will not get pushed out immediately.
-                for (seq, ts_sent, ts_recv, msg) in grouped[-self.window:]:
+                for seq, ts_sent, ts_recv, msg in grouped[-self.window :]:
                     # self._input_state.push(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=msg)
+                    # todo: makes a copy of the message. Is this necessary?
                     self._input_state = self._input_state.push(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=msg)
 
                 # Add grouped message to queue
@@ -463,4 +569,3 @@ class Input:
 
             # See if we can prepare tuple for next step
             self.push_selection()
-
