@@ -7,7 +7,7 @@ from flax.core import FrozenDict
 from rex.graph import BaseGraph
 from rex.proto import log_pb2
 from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, WARN
-from rex.base import StepState, GraphState
+from rex.base import StepState, GraphState, RexStepReturn, RexResetReturn
 from rex.env import BaseEnv
 from rex.node import Node
 from rex.agent import Agent as BaseAgent
@@ -131,7 +131,7 @@ class DoublePendulumEnv(BaseEnv):
 		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_world_and_agent.values(), rngs)]
 		return GraphState(eps=starting_eps, step=starting_step, nodes=FrozenDict(new_nodes))
 
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
+	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> RexResetReturn:
 		"""Reset environment."""
 		new_graph_state = self._get_graph_state(rng, graph_state)
 
@@ -140,9 +140,10 @@ class DoublePendulumEnv(BaseEnv):
 
 		# Get observation
 		obs = self._get_obs(step_state)
-		return graph_state, obs
+		info = {}
+		return graph_state, obs, info
 
-	def step(self, graph_state: GraphState, action: jp.ndarray) -> Tuple[GraphState, float, bool, Dict]:
+	def step(self, graph_state: GraphState, action: jp.ndarray) -> RexStepReturn:
 		"""Perform step transition in environment."""
 		# Update step_state (if necessary)
 		new_step_state = self.agent.get_step_state(graph_state)
@@ -173,14 +174,15 @@ class DoublePendulumEnv(BaseEnv):
 		cost -= 0.6*(th / (1 + 10 * abs(delta_goal)))**2
 
 		# Termination condition
-		done = graph_state.step - step_state.state.starting_step >= self.max_steps
+		done = (graph_state.step - step_state.state.starting_step) >= self.max_steps
+		truncated = (graph_state.step - step_state.state.starting_step) >= self.max_steps
 		info = {"TimeLimit.truncated": done}
 
 		# update graph_state
 		new_ss = step_state.replace(state=step_state.state.replace(reward=-cost))
 		graph_state = graph_state.replace(nodes=graph_state.nodes.copy({self.agent.name: new_ss}))
 
-		return graph_state, obs, -cost, done, info
+		return graph_state, obs, -cost, truncated, done, info
 
 	def _get_obs(self, step_state: StepState) -> Any:
 		"""Get observation from environment."""

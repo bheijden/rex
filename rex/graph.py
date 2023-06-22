@@ -97,10 +97,10 @@ class Graph(BaseGraph):
             inputs = {}
             for i in node.inputs:
                 window = i.window
-                seq = 0*jp.arange(-window, 0, dtype=jp.int32)-1
+                seq = 0 * jp.arange(-window, 0, dtype=jp.int32) - 1
                 ts_sent = 0 * jp.arange(-window, 0, dtype=jp.float32)
                 ts_recv = 0 * jp.arange(-window, 0, dtype=jp.float32)
-                _msgs = [outputs[i.output.name]]*window
+                _msgs = [outputs[i.output.name]] * window
                 inputs[i.input_name] = InputState.from_outputs(seq, ts_sent, ts_recv, _msgs)
             new_nodes[name] = graph_state.nodes[name].replace(rng=rngs_new[name], inputs=FrozenDict(inputs))
         return graph_state.replace(nodes=FrozenDict(new_nodes))
@@ -172,4 +172,3 @@ class Graph(BaseGraph):
 
     def max_starting_step(self, max_steps: int, graph_state: GraphState = None) -> int:
         return 0
-

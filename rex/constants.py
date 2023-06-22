@@ -17,7 +17,7 @@ CLOCK_MODES = {PHASE: "simulated-clock", FREQUENCY: "wall-clock"}
 
 # Real-time factor modes
 FAST_AS_POSSIBLE = 0
-REAL_TIME = 1.
+REAL_TIME = 1.0
 RTF_MODES = {FAST_AS_POSSIBLE: "fast-as-possible", REAL_TIME: "real-time"}
 
 # Synchronization modes
@@ -38,4 +38,3 @@ WARN = 30
 ERROR = 40
 FATAL = 50
 LOG_LEVELS = {SILENT: "silent", DEBUG: "debug", INFO: "info", WARN: "warning", ERROR: "error", FATAL: "fatal"}
-

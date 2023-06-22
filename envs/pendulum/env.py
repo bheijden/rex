@@ -7,7 +7,7 @@ from flax.core import FrozenDict
 from rex.proto import log_pb2
 from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, WARN
 from rex.graph import BaseGraph
-from rex.base import StepState, GraphState
+from rex.base import StepState, GraphState, RexStepReturn, RexResetReturn
 from rex.env import BaseEnv
 from rex.node import Node
 from rex.agent import Agent as BaseAgent
@@ -130,7 +130,7 @@ class PendulumEnv(BaseEnv):
 		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_world_and_agent.values(), rngs)]
 		return GraphState(step=jp.int32(0), nodes=FrozenDict(new_nodes))
 
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
+	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> RexResetReturn:
 		"""Reset environment."""
 		new_graph_state = self._get_graph_state(rng, graph_state)
 
@@ -139,9 +139,10 @@ class PendulumEnv(BaseEnv):
 
 		# Get observation
 		obs = self._get_obs(step_state)
-		return graph_state, obs
+		info = {}
+		return graph_state, obs, info
 
-	def step(self, graph_state: GraphState, action: jp.ndarray) -> Tuple[GraphState, jp.ndarray, float, bool, Dict]:
+	def step(self, graph_state: GraphState, action: jp.ndarray) -> RexStepReturn:
 		"""Perform step transition in environment."""
 		# Update step_state (if necessary)
 		step_state = self.agent.get_step_state(graph_state)
@@ -167,9 +168,10 @@ class PendulumEnv(BaseEnv):
 
 		# Determine done flag
 		done = self._is_terminal(graph_state)
+		truncated = graph_state.step >= self.max_steps
 		info = {"TimeLimit.truncated": graph_state.step >= self.max_steps}
 
-		return graph_state, obs, -cost, done, info
+		return graph_state, obs, -cost, truncated, done, info
 
 	def _is_terminal(self, graph_state: GraphState) -> bool:
 		return graph_state.step >= self.max_steps

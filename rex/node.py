@@ -18,8 +18,26 @@ from flax.core import FrozenDict
 from flax import serialization
 
 from rex.base import GraphState, StepState, InputState, State, Output as BaseOutput, Params, Empty
-from rex.constants import READY, RUNNING, STOPPING, STOPPED, RUNNING_STATES, PHASE, FREQUENCY, SIMULATED, \
-    FAST_AS_POSSIBLE, SYNC, ASYNC, BUFFER, DEBUG, INFO, WARN, ERROR, WALL_CLOCK, LATEST
+from rex.constants import (
+    READY,
+    RUNNING,
+    STOPPING,
+    STOPPED,
+    RUNNING_STATES,
+    PHASE,
+    FREQUENCY,
+    SIMULATED,
+    FAST_AS_POSSIBLE,
+    SYNC,
+    ASYNC,
+    BUFFER,
+    DEBUG,
+    INFO,
+    WARN,
+    ERROR,
+    WALL_CLOCK,
+    LATEST,
+)
 from rex.input import Input
 from rex.output import Output
 from rex.utils import log, NODE_COLOR, NODE_LOG_LEVEL
@@ -28,7 +46,16 @@ import rex.proto.log_pb2 as log_pb2
 
 
 class BaseNode:
-    def __init__(self, name: str, rate: float, delay_sim: Distribution = None, delay: float = None, advance: bool = True, stateful: bool = True, scheduling: int = PHASE):
+    def __init__(
+        self,
+        name: str,
+        rate: float,
+        delay_sim: Distribution = None,
+        delay: float = None,
+        advance: bool = True,
+        stateful: bool = True,
+        scheduling: int = PHASE,
+    ):
         self.name = name
         self.rate = rate
         self.advance = advance
@@ -37,7 +64,7 @@ class BaseNode:
         self.inputs: List[Input] = []
 
         # Initialize output
-        delay_sim = delay_sim if delay_sim is not None else Gaussian(0., 0.)
+        delay_sim = delay_sim if delay_sim is not None else Gaussian(0.0, 0.0)
         self.output = Output(self, delay, delay_sim)
 
         # The following attributes are used to keep track of the state of the node
@@ -61,7 +88,7 @@ class BaseNode:
         self._phase_dist = None
         self._sync = None
         self._clock = None
-        self._real_time_factor = 1.
+        self._real_time_factor = 1.0
 
         # Log
         self._discarded = 0
@@ -71,7 +98,7 @@ class BaseNode:
 
         # Set starting ts
         self._ts_start = Future()
-        self._set_ts_start(0.)
+        self._set_ts_start(0.0)
 
         self.q_tick: Deque[int] = None
         self.q_ts_scheduled: Deque[Tuple[int, float]] = None
@@ -82,10 +109,14 @@ class BaseNode:
         # Only used if no step and reset fn are provided
         self._i = 0
 
-        if not 1/rate > self.output.phase:
-            self.log("WARNING", f"The sampling time ({1/rate=:.6f} s) is smaller than"
-                                f" the output phase ({self.output.phase=:.6f} s)."
-                                " This may lead to large (accumulating) delays.", WARN)
+        if not 1 / rate > self.output.phase:
+            self.log(
+                "WARNING",
+                f"The sampling time ({1/rate=:.6f} s) is smaller than"
+                f" the output phase ({self.output.phase=:.6f} s)."
+                " This may lead to large (accumulating) delays.",
+                WARN,
+            )
 
     def __getstate__(self):
         """Used for pickling
@@ -93,8 +124,15 @@ class BaseNode:
         Does not pickle the connections, because it is not pickleable.
         """
         args = ()
-        kwargs = dict(name=self.name, rate=self.rate, delay_sim=self.output.delay_sim, delay=self.output.delay,
-                      advance=self.advance, stateful=self.stateful, scheduling=self.scheduling)
+        kwargs = dict(
+            name=self.name,
+            rate=self.rate,
+            delay_sim=self.output.delay_sim,
+            delay=self.output.delay,
+            advance=self.advance,
+            stateful=self.stateful,
+            scheduling=self.scheduling,
+        )
         inputs = self.inputs
         return args, kwargs, inputs
 
@@ -127,9 +165,15 @@ class BaseNode:
     def color(self):
         return NODE_COLOR.get(self, "green")
 
-    def record(self, node: bool = False, outputs: bool = False,
-               rngs: bool = False, states: bool = False, params: bool = False,
-               step_states: bool = False) -> log_pb2.NodeRecord:
+    def record(
+        self,
+        node: bool = False,
+        outputs: bool = False,
+        rngs: bool = False,
+        states: bool = False,
+        params: bool = False,
+        step_states: bool = False,
+    ) -> log_pb2.NodeRecord:
         """Returns a NodeRecord proto log.
 
         Recording all the data can be very memory intensive. It is recommended to only record the data you need. In particular,
@@ -151,7 +195,9 @@ class BaseNode:
 
         # If records were discarded, warn the user that the record is incomplete.
         if self._discarded > 0:
-            self.log("WARNING", f"Discarded {self._discarded} records. Incomplete records may lead to errors when tracing.", WARN)
+            self.log(
+                "WARNING", f"Discarded {self._discarded} records. Incomplete records may lead to errors when tracing.", WARN
+            )
 
         # Get timing record
         if self._record is None:
@@ -214,11 +260,13 @@ class BaseNode:
         # Recalculate phase once per episode.
         if self._phase is None:
             try:
-                return max([0.] + [i.phase*1.002 for i in self.inputs if not i.skip])
+                return max([0.0] + [i.phase * 1.002 for i in self.inputs if not i.skip])
                 # return max([0.] + [i.phase for i in self.inputs if i.blocking and not i.skip])
             except RecursionError as e:
-                msg = "The constructed graph is not DAG. To break an algebraic loop, " \
-                      "either skip a connection or make the connection non-blocking."
+                msg = (
+                    "The constructed graph is not DAG. To break an algebraic loop, "
+                    "either skip a connection or make the connection non-blocking."
+                )
                 log(self.name, "red", ERROR, "ERROR", msg)
                 # exit()
                 raise e
@@ -236,9 +284,17 @@ class BaseNode:
     def info(self) -> log_pb2.NodeInfo:
         cls_str = self.__class__.__module__ + "/" + self.__class__.__qualname__
 
-        info = log_pb2.NodeInfo(name=self.name, cls=cls_str, rate=self.rate, stateful=self.stateful,
-                                advance=self.advance, phase=self.phase, delay_sim=self.output.delay_sim.info,
-                                delay=self.output.delay, scheduling=self.scheduling)
+        info = log_pb2.NodeInfo(
+            name=self.name,
+            cls=cls_str,
+            rate=self.rate,
+            stateful=self.stateful,
+            advance=self.advance,
+            phase=self.phase,
+            delay_sim=self.output.delay_sim.info,
+            delay=self.output.delay,
+            scheduling=self.scheduling,
+        )
         info.inputs.extend([i.info for i in self.inputs])
         return info
 
@@ -255,8 +311,14 @@ class BaseNode:
         - Use pickling and unpickling if you want to use the node for simulation (e.g. step, reset, etc...).
         """
         # Initializes a node from a NodeInfo proto log
-        node = BaseNode(name=info.name, rate=info.rate, delay_sim=GMM.from_info(info.delay_sim), delay=info.delay,
-                        advance=info.advance, stateful=info.stateful)
+        node = BaseNode(
+            name=info.name,
+            rate=info.rate,
+            delay_sim=GMM.from_info(info.delay_sim),
+            delay=info.delay,
+            advance=info.advance,
+            stateful=info.stateful,
+        )
         return node
 
     def unpickle(self, nodes: Dict[str, "Node"]):
@@ -283,13 +345,15 @@ class BaseNode:
             output_node = nodes[output_name]
 
             # Connects a node to another node from an InputInfo proto log
-            self.connect(output_node,
-                         blocking=info.blocking,
-                         skip=info.skip,
-                         delay_sim=GMM.from_info(info.delay_sim),
-                         delay=info.delay,
-                         jitter=info.jitter,
-                         name=info.name)
+            self.connect(
+                output_node,
+                blocking=info.blocking,
+                skip=info.skip,
+                delay_sim=GMM.from_info(info.delay_sim),
+                delay=info.delay,
+                jitter=info.jitter,
+                name=info.name,
+            )
 
     def log(self, id: str, value: Optional[Any] = None, log_level: Optional[int] = None):
         log_level = log_level if isinstance(log_level, int) else self.log_level
@@ -338,18 +402,29 @@ class BaseNode:
 
             wc_passed_target = ts / self._real_time_factor
             wc_passed = time.time() - ts_start
-            wc_sleep = max(0., wc_passed_target-wc_passed)
+            wc_sleep = max(0.0, wc_passed_target - wc_passed)
             time.sleep(wc_sleep)
 
-    def connect(self, node: "Node", blocking: bool, delay_sim: Distribution = None, delay: float = None, window: int = 1, skip: bool = False,
-                jitter: int = LATEST, name: Optional[str] = None):
+    def connect(
+        self,
+        node: "Node",
+        blocking: bool,
+        delay_sim: Distribution = None,
+        delay: float = None,
+        window: int = 1,
+        skip: bool = False,
+        jitter: int = LATEST,
+        name: Optional[str] = None,
+    ):
         # Use zero deterministic delay if no simulated delay distribution is specified
-        delay_sim = delay_sim if delay_sim is not None else Gaussian(0., 0.)
+        delay_sim = delay_sim if delay_sim is not None else Gaussian(0.0, 0.0)
 
         # Create new input
         name = name if isinstance(name, str) else node.output.name
         assert name not in [i.input_name for i in self.inputs], "Cannot use the same input name for more than one input."
-        assert node.name not in [i.output.node.name for i in self.inputs], "Cannot use the same output source for more than one input."
+        assert node.name not in [
+            i.output.node.name for i in self.inputs
+        ], "Cannot use the same output source for more than one input."
         i = Input(self, node.output, window, blocking, skip, jitter, delay, delay_sim, name)
         self.inputs.append(i)
 
@@ -361,26 +436,32 @@ class BaseNode:
         raise NotImplementedError
 
     def _reset(self, graph_state: GraphState, clock: int = SIMULATED, real_time_factor: Union[int, float] = FAST_AS_POSSIBLE):
-        assert self.unpickled, "Node must be fully unpickled before it can be reset. " \
-                               "This may mean that the node has some additional unpickling routines to do." \
-                               "For example, some node attributes may need to be set after the node has been unpickled."
+        assert self.unpickled, (
+            "Node must be fully unpickled before it can be reset. "
+            "This may mean that the node has some additional unpickling routines to do."
+            "For example, some node attributes may need to be set after the node has been unpickled."
+        )
         assert self._state in [STOPPED, READY], f"{self.name} must first be stopped, before it can be reset"
-        assert real_time_factor > 0 or clock == SIMULATED, "Real time factor must be greater than zero if clock is not simulated"
+        assert (
+            real_time_factor > 0 or clock == SIMULATED
+        ), "Real time factor must be greater than zero if clock is not simulated"
 
         # Determine whether to run synchronously or asynchronously
         self._sync = SYNC if clock == SIMULATED else ASYNC
-        assert not (clock in [WALL_CLOCK] and self._sync in [SYNC]), "You can only simulate synchronously, if the clock=`SIMULATED`."
+        assert not (
+            clock in [WALL_CLOCK] and self._sync in [SYNC]
+        ), "You can only simulate synchronously, if the clock=`SIMULATED`."
 
         # Save run configuration
-        self._clock = clock                         #: Simulate timesteps
-        self._real_time_factor = real_time_factor   #: Scaling of simulation speed w.r.t wall clock
+        self._clock = clock  #: Simulate timesteps
+        self._real_time_factor = real_time_factor  #: Scaling of simulation speed w.r.t wall clock
 
         # Up the episode counter (must happen before resetting outputs & inputs)
         self._eps += 1
 
         # Reset every run
         self._tick = 0
-        self._phase_scheduled = 0.     #: Structural phase shift that the step scheduler takes into account
+        self._phase_scheduled = 0.0  #: Structural phase shift that the step scheduler takes into account
         self._phase, self._phase_dist = None, None
         self._phase = self.phase
         self._phase_dist = self.phase_dist
@@ -428,15 +509,21 @@ class BaseNode:
 
         # Create logging record
         self._set_ts_start(start)
-        self._record = log_pb2.NodeRecord(info=self.info, sync=self._sync, clock=self._clock,
-                                          real_time_factor=self._real_time_factor, ts_start=start, rng=self.output._dist_state.rng.tolist())
+        self._record = log_pb2.NodeRecord(
+            info=self.info,
+            sync=self._sync,
+            clock=self._clock,
+            real_time_factor=self._real_time_factor,
+            ts_start=start,
+            rng=self.output._dist_state.rng.tolist(),
+        )
 
         # Start all inputs and output
         [i.start(record=self._record.inputs.add()) for i in self.inputs]
         self.output.start()
 
         # Set first last_output_ts equal to phase (as if we just finished our previous output).
-        self.q_ts_output_prev.append(0.)
+        self.q_ts_output_prev.append(0.0)
 
         # NOTE: Deadlocks may occur when num_tokens is chosen too low for cyclical graphs, where a low rate node
         #       depends (blocking) on a high rate node, while the high rate node depends (skipped, non-blocking)
@@ -450,7 +537,7 @@ class BaseNode:
         #     num_tokens = 4
         # else:
         #     num_tokens = 2
-        self.q_tick.extend((True,)*num_tokens)
+        self.q_tick.extend((True,) * num_tokens)
 
         # Push scheduled ts
         _f = self._submit(self.push_scheduled_ts)
@@ -534,7 +621,7 @@ class BaseNode:
 
             # Grab blocking delays from queues and calculate max delay
             ts_max = [i.q_ts_max.popleft() for i in self.inputs if i.blocking]
-            ts_max = max(ts_max) if len(ts_max) > 0 else 0.
+            ts_max = max(ts_max) if len(ts_max) > 0 else 0.0
 
             # Grab next scheduled step ts (without considering phase_scheduling shift)
             tick, ts_scheduled = self.q_ts_scheduled.popleft()
@@ -554,9 +641,9 @@ class BaseNode:
 
             # Update structural scheduling phase shift
             if self.scheduling in [FREQUENCY]:
-                self._phase_scheduled += max(0, phase_last-phase_scheduled)
+                self._phase_scheduled += max(0, phase_last - phase_scheduled)
             else:  # self.scheduling in [PHASE]
-                self._phase_scheduled = 0.
+                self._phase_scheduled = 0.0
 
             # Calculate starting timestamp for the step call
             ts_step = ts_scheduled + phase
@@ -565,15 +652,23 @@ class BaseNode:
             delay = self.output.sample_delay() if self._clock in [SIMULATED] else None
 
             # Create step record
-            record_step = log_pb2.StepRecord(tick=tick, ts_scheduled=ts_scheduled, ts_max=ts_max, ts_output_prev=ts_output_prev,
-                                             ts_step=ts_step, phase=phase, phase_scheduled=phase_scheduled,
-                                             phase_inputs=phase_inputs, phase_last=phase_last)
+            record_step = log_pb2.StepRecord(
+                tick=tick,
+                ts_scheduled=ts_scheduled,
+                ts_max=ts_max,
+                ts_output_prev=ts_output_prev,
+                ts_step=ts_step,
+                phase=phase,
+                phase_scheduled=phase_scheduled,
+                phase_inputs=phase_inputs,
+                phase_last=phase_last,
+            )
             self.q_ts_step.append((tick, ts_step, delay, record_step))
 
             # Predetermine output timestamp when we simulate the clock
             if self._clock in [SIMULATED]:
                 # Determine output timestamp
-                ts_output = ts_step+delay
+                ts_output = ts_step + delay
                 _, ts_output_wc = self.now()
                 header = log_pb2.Header(eps=self._eps, seq=tick, ts=log_pb2.Time(sc=ts_output, wc=ts_output_wc))
                 self.output.push_ts_output(ts_output, header)
@@ -635,12 +730,14 @@ class BaseNode:
             new_step_state, output = self.step(step_state)
 
             # Log output
-            if output is not None and len(self._record_outputs) < self._max_records:  # Agent returns None when we are stopping/resetting.
+            if (
+                output is not None and len(self._record_outputs) < self._max_records
+            ):  # Agent returns None when we are stopping/resetting.
                 self._record_outputs.append(output)
 
             # Update step_state (increment sequence number)
             if new_step_state is not None:
-                self._step_state = new_step_state.replace(seq=jp.int32(tick)+1)
+                self._step_state = new_step_state.replace(seq=jp.int32(tick) + 1)
 
             # Determine output timestamp
             if self._clock in [SIMULATED]:
@@ -667,7 +764,7 @@ class BaseNode:
             record_step.sent.CopyFrom(header)
             record_step.delay = delay_sc
             record_step.ts_output = ts_output_sc
-            record_step.comp_delay.CopyFrom(log_pb2.Time(sc=ts_output_sc-ts_step_sc, wc=ts_output_wc-ts_step_wc))
+            record_step.comp_delay.CopyFrom(log_pb2.Time(sc=ts_output_sc - ts_step_sc, wc=ts_output_wc - ts_step_wc))
 
             # Push output
             if output is not None:  # Agent returns None when we are stopping/resetting.
@@ -677,15 +774,17 @@ class BaseNode:
             if len(self._record.steps) < self._max_records:
                 self._record.steps.append(record_step)
             elif self._discarded == 0:
-                self.log("recording", "Reached max number of records (timings, outputs, step_state). So no longer recording.",
-                         log_level=WARN)
+                self.log(
+                    "recording",
+                    "Reached max number of records (timings, outputs, step_state). So no longer recording.",
+                    log_level=WARN,
+                )
                 self._discarded += 1
             else:
                 self._discarded += 1
 
             # Only schedule next step if we are running
             if self._state in [RUNNING]:
-
                 # Add token to tick queue (ticks are incremented in push_scheduled_ts function)
                 self.q_tick.append(True)
 
@@ -702,7 +801,9 @@ class Node(BaseNode):
         """Default state of the node."""
         return Empty()
 
-    def default_inputs(self, rng: jp.ndarray, graph_state: GraphState = None) -> FrozenDict[str, InputState]: #Dict[str, InputState]:
+    def default_inputs(
+        self, rng: jp.ndarray, graph_state: GraphState = None
+    ) -> FrozenDict[str, InputState]:  # Dict[str, InputState]:
         """Default inputs of the node."""
         rngs = jumpy.random.split(rng, num=len(self.inputs))
         inputs = dict()
@@ -732,4 +833,3 @@ class Node(BaseNode):
     @property
     def unwrapped(self):
         return self
-

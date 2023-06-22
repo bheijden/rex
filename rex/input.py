@@ -9,7 +9,24 @@ from jax import jit
 import jax.random as rnd
 
 from rex.base import InputState
-from rex.constants import READY, RUNNING, STOPPING, STOPPED, RUNNING_STATES, DEBUG, WARN, ERROR, SIMULATED, WALL_CLOCK, ASYNC, SYNC, FAST_AS_POSSIBLE, ASYNC, LATEST, BUFFER
+from rex.constants import (
+    READY,
+    RUNNING,
+    STOPPING,
+    STOPPED,
+    RUNNING_STATES,
+    DEBUG,
+    WARN,
+    ERROR,
+    SIMULATED,
+    WALL_CLOCK,
+    ASYNC,
+    SYNC,
+    FAST_AS_POSSIBLE,
+    ASYNC,
+    LATEST,
+    BUFFER,
+)
 from rex.distributions import Distribution, DistState
 from rex.proto import log_pb2 as log_pb2
 from rex.utils import log
@@ -20,15 +37,26 @@ if TYPE_CHECKING:
 
 
 class Input:
-    def __init__(self, node: "BaseNode", output: "Output", window: int, blocking: bool, skip: bool, jitter: int, delay: float, delay_sim: Distribution, name: str):
+    def __init__(
+        self,
+        node: "BaseNode",
+        output: "Output",
+        window: int,
+        blocking: bool,
+        skip: bool,
+        jitter: int,
+        delay: float,
+        delay_sim: Distribution,
+        name: str,
+    ):
         self.node = node
         self.output = output
         self.input_name = name
         self.window = window
-        self.blocking = blocking    #: Connection type
+        self.blocking = blocking  #: Connection type
         self.delay_sim = delay_sim  #: Communication delay
-        self.skip = skip            #: Skip first dependency
-        self.jitter = jitter        #: Jitter mode
+        self.skip = skip  #: Skip first dependency
+        self.jitter = jitter  #: Jitter mode
         self.delay = delay if delay is not None else delay_sim.high
         assert self.delay >= 0, "Phase should be non-negative."
         self._state = STOPPED
@@ -67,8 +95,17 @@ class Input:
     def __getstate__(self):
         """Used for pickling"""
         args = ()
-        kwargs = dict(node=self.node.name, output=self.output.name, window=self.window, blocking=self.blocking, skip=self.skip,
-                      jitter=self.jitter, delay=self.delay, delay_sim=self.delay_sim, name=self.input_name)
+        kwargs = dict(
+            node=self.node.name,
+            output=self.output.name,
+            window=self.window,
+            blocking=self.blocking,
+            skip=self.skip,
+            jitter=self.jitter,
+            delay=self.delay,
+            delay_sim=self.delay_sim,
+            name=self.input_name,
+        )
         return args, kwargs
 
     def __setstate__(self, state):
@@ -127,9 +164,19 @@ class Input:
 
     @property
     def info(self) -> log_pb2.InputInfo:
-        return log_pb2.InputInfo(name=self.input_name, output=self.output.name, rate=self.output.rate, window=self.window, blocking=self.blocking,
-                                 skip=self.skip, jitter=self.jitter, phase=self.phase, phase_dist=self.phase_dist.info,
-                                 delay_sim=self.delay_sim.info, delay=self.delay)
+        return log_pb2.InputInfo(
+            name=self.input_name,
+            output=self.output.name,
+            rate=self.output.rate,
+            window=self.window,
+            blocking=self.blocking,
+            skip=self.skip,
+            jitter=self.jitter,
+            phase=self.phase,
+            phase_dist=self.phase_dist.info,
+            delay_sim=self.delay_sim.info,
+            delay=self.delay,
+        )
 
     def unpickle(self, nodes: Dict[str, "BaseNode"]):
         """Unpickle the input after the node and output are unpickled."""
@@ -146,6 +193,7 @@ class Input:
         # Node is only fully unpickled once the node and output are replaced with actual objects
         from rex.node import BaseNode
         from rex.output import Output
+
         if isinstance(self.node, BaseNode) and isinstance(self.output, Output):
             self._unpickled = True
 
@@ -172,9 +220,14 @@ class Input:
             log(f"{self.node.name}/{self.name}", "red", ERROR, "ERROR", error_msg)
 
     def reset(self, rng: jnp.ndarray, input_state: InputState):
-        assert self.unpickled, "Input must be fully unpickled before being reset. " \
-                               "This means that self.node and self.output must be replaced with actual nodes."
-        assert self._state in [STOPPED, READY], f"Input {self.name} of {self.node.name} must first be stopped, before it can be reset."
+        assert self.unpickled, (
+            "Input must be fully unpickled before being reset. "
+            "This means that self.node and self.output must be replaced with actual nodes."
+        )
+        assert self._state in [
+            STOPPED,
+            READY,
+        ], f"Input {self.name} of {self.node.name} must first be stopped, before it can be reset."
 
         # Empty queues
         self._input_state = input_state
@@ -182,7 +235,7 @@ class Input:
         self._phase_dist = self.phase_dist
         self._phase = self.phase
         self._record = None
-        self._prev_recv_sc = 0.  # Ensures the FIFO property for incoming messages.
+        self._prev_recv_sc = 0.0  # Ensures the FIFO property for incoming messages.
         self._dist_state = self._jit_reset(rng)
         self.q_msgs = deque()
         self.q_ts_input = deque()
@@ -200,7 +253,9 @@ class Input:
         self.log(RUNNING_STATES[self._state], log_level=DEBUG)
 
     def start(self, record: log_pb2.InputRecord):
-        assert self._state in [READY], f"Input {self.name} of {self.node.name} must first be reset, before it can start running."
+        assert self._state in [
+            READY
+        ], f"Input {self.name} of {self.node.name} must first be reset, before it can start running."
 
         # Set running state
         self._state = RUNNING
@@ -337,7 +392,7 @@ class Input:
 
             # Determine max timestamp of grouped message for blocking connection
             input_ts = [self.q_ts_input.popleft()[1] for _i in range(num_msgs)]
-            ts_max = max([0.] + input_ts)
+            ts_max = max([0.0] + input_ts)
             self.q_ts_max.append(ts_max)
 
             # Push push_phase_shift (must be called from node thread)
@@ -347,7 +402,9 @@ class Input:
     def push_selection(self):
         has_expected = len(self.q_expected_select) > 0
         if has_expected:
-            has_recv_all_expected = len(self.q_msgs) >= self.q_expected_select[0][1]  # self.q_expected[0]=(ts_next_step, exp_num_msgs)
+            has_recv_all_expected = (
+                len(self.q_msgs) >= self.q_expected_select[0][1]
+            )  # self.q_expected[0]=(ts_next_step, exp_num_msgs)
             if has_recv_all_expected:
                 ts_next_step, num_msgs = self.q_expected_select.popleft()
                 log_msg = f"blocking={self.blocking} | step_ts={ts_next_step: .2f} | num_msgs={num_msgs}"
@@ -381,7 +438,7 @@ class Input:
                     grouped.append((seq, ts_sent, ts_recv, msg))
 
                 # Only add messages that will not get pushed out immediately.
-                for (seq, ts_sent, ts_recv, msg) in grouped[-self.window:]:
+                for seq, ts_sent, ts_recv, msg in grouped[-self.window :]:
                     # self._input_state.push(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=msg)
                     # todo: makes a copy of the message. Is this necessary?
                     self._input_state = self._input_state.push(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=msg)
@@ -512,4 +569,3 @@ class Input:
 
             # See if we can prepare tuple for next step
             self.push_selection()
-

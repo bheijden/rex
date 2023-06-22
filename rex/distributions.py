@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import jumpy.numpy as jp
 import flax.struct as struct
 from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
+
 tfd = tfp.distributions
 
 
@@ -33,11 +34,11 @@ class Gaussian:
         percentile = max(percentile, 1e-7)
         assert percentile > 0, "There must be a truncating percentile > 0."
         self._mean = mean
-        self._var = std ** 2
+        self._var = std**2
         self._std = std
         self._percentile = percentile
-        self._low = 0.
-        self._high = tfd.Normal(loc=mean, scale=std).quantile(1-percentile).tolist()
+        self._low = 0.0
+        self._high = tfd.Normal(loc=mean, scale=std).quantile(1 - percentile).tolist()
         assert self._high < onp.inf, "The maximum value must be bounded"
         if std > 0:
             self._dist = tfd.TruncatedNormal(loc=mean, scale=std, low=self._low, high=self._high)
@@ -51,7 +52,7 @@ class Gaussian:
         """Summation of two distributions"""
         if isinstance(other, Gaussian):
             mean = self.mean + other.mean
-            std = (self.var + other.var) ** (1/2)
+            std = (self.var + other.var) ** (1 / 2)
             percentile = max(self.percentile, other.percentile)
             return Gaussian(mean, std, percentile=percentile)
         elif isinstance(other, GMM):
@@ -144,17 +145,25 @@ class GMM:
 
         # Check if distributions are from the same family
         deterministic = [v == 0 for v in self.stds]
-        assert all(deterministic) or not any(deterministic), "Either all distributions must be deterministic (ie std=0) or stochastic (var>0)"
+        assert all(deterministic) or not any(
+            deterministic
+        ), "Either all distributions must be deterministic (ie std=0) or stochastic (var>0)"
 
         if all(deterministic):
-            self._dist = tfd.MixtureSameFamily(mixture_distribution=tfd.Categorical(probs=self._weights),
-                                               components_distribution=tfd.Deterministic(loc=self.means))
+            self._dist = tfd.MixtureSameFamily(
+                mixture_distribution=tfd.Categorical(probs=self._weights),
+                components_distribution=tfd.Deterministic(loc=self.means),
+            )
         else:
-            self._dist = tfd.MixtureSameFamily(mixture_distribution=tfd.Categorical(probs=self._weights),
-                                               components_distribution=tfd.TruncatedNormal(loc=self.means,
-                                                                                           scale=self.stds,
-                                                                                           low=[g.low for g in self._gaussians],
-                                                                                           high=[g.high for g in self._gaussians]))
+            self._dist = tfd.MixtureSameFamily(
+                mixture_distribution=tfd.Categorical(probs=self._weights),
+                components_distribution=tfd.TruncatedNormal(
+                    loc=self.means,
+                    scale=self.stds,
+                    low=[g.low for g in self._gaussians],
+                    high=[g.high for g in self._gaussians],
+                ),
+            )
 
     def __repr__(self):
         msg = " | ".join([f"{w: .2f}*N({m: .4f}, {v: .4f})" for w, m, v in zip(self.weights, self.means, self.stds)])
@@ -172,10 +181,10 @@ class GMM:
         gaussians, weights = [], []
         for w, m, v, p in zip(self.weights, self.means, self.vars, self.percentiles):
             for ow, om, ov, op in zip(other.weights, other.means, other.vars, other.percentiles):
-                weights.append(w*ow)
+                weights.append(w * ow)
                 # if p != op:
                 #     print(f"WARNING: Percentiles do not match. {p} != {op}. Gaussian with higher percentile will be used.")
-                gaussians.append(Gaussian(m + om, (v + ov) ** (1/2), percentile=max(p, op)))
+                gaussians.append(Gaussian(m + om, (v + ov) ** (1 / 2), percentile=max(p, op)))
         return GMM(gaussians, weights)
 
     def __getstate__(self):
@@ -202,7 +211,9 @@ class GMM:
             return self.means
         else:
             shape = x.shape if isinstance(x, (jax.Array, onp.ndarray)) else ()
-            qs = mixture_distribution_quantiles(self._dist, jp.array(x).reshape(-1), N_grid_points=int(1e3), grid_min=self.low, grid_max=self.high)
+            qs = mixture_distribution_quantiles(
+                self._dist, jp.array(x).reshape(-1), N_grid_points=int(1e3), grid_min=self.low, grid_max=self.high
+            )
             return qs.reshape(shape)
 
     def reset(self, rng: jp.ndarray) -> DistState:
@@ -296,11 +307,11 @@ class Recorded:
             num_samples = 1
         else:
             # Sum all elements in tuple
-            num_samples = reduce(lambda x, y: x*y, shape, 1)
+            num_samples = reduce(lambda x, y: x * y, shape, 1)
 
         # Add samples at the end to make sure we have enough
         num_seqs = 1 + num_samples // self._samples.shape[0]
-        all_samples = jnp.concatenate([self._samples]*num_seqs + [self._samples[:num_samples]], axis=0)
+        all_samples = jnp.concatenate([self._samples] * num_seqs + [self._samples[:num_samples]], axis=0)
 
         # Get samples
         start = state.state.index
@@ -326,7 +337,7 @@ def mixture_distribution_quantiles(dist, probs, N_grid_points: int = int(1e3), g
     cdf_grid = dist.cdf(full_grid)  # this is fully parallelized and even uses GPU
     grid_check = (cdf_grid.min(axis=0).max() <= min(probs)) & (max(probs) <= cdf_grid.max(axis=0).min())
     if not grid_check:
-        raise RuntimeError('Grid does not span full CDF range needed for interpolation!')
+        raise RuntimeError("Grid does not span full CDF range needed for interpolation!")
 
     probs_row_grid = np.transpose(np.tile(np.array(probs), (cdf_grid.shape[0], 1)))
 
@@ -340,4 +351,3 @@ def mixture_distribution_quantiles(dist, probs, N_grid_points: int = int(1e3), g
         arr=cdf_grid,
     )
     return quantiles_grid
-

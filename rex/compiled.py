@@ -35,7 +35,6 @@ def update_output(buffer: GraphBuffer, output: Output, seq: int32) -> Output:
 
 
 def make_update_state(name: str):
-
     def _update_state(graph_state: GraphState, timing: Dict, step_state: StepState, output: Any) -> GraphState:
         # Define node's step state update
         new_nodes = dict()
@@ -56,7 +55,6 @@ def make_update_state(name: str):
 
 
 def make_update_inputs(name: str, inputs_data: Dict[str, Dict[str, str]]):
-
     def _update_inputs(graph_state: GraphState, timings_node: Dict) -> StepState:
         ss = graph_state.nodes[name]
         ts_step = timings_node["ts_step"]
@@ -145,7 +143,9 @@ def make_run_MCS(nodes: Dict[str, "Node"], MCS: nx.DiGraph, generations: List[Li
         slice_sizes = jax.tree_map(lambda _tb: list(_tb.shape[1:]), timings)
 
         # Slice timings
-        timings_mcs = jax.tree_map(lambda _tb, _size: rjp.dynamic_slice(_tb, [step] + [0*s for s in _size], [1] + _size)[0], timings, slice_sizes)
+        timings_mcs = jax.tree_map(
+            lambda _tb, _size: rjp.dynamic_slice(_tb, [step] + [0 * s for s in _size], [1] + _size)[0], timings, slice_sizes
+        )
 
         # Run generations
         # NOTE! len(generations)+1 = len(timings_mcs) --> last generation is the root.
@@ -157,8 +157,9 @@ def make_run_MCS(nodes: Dict[str, "Node"], MCS: nx.DiGraph, generations: List[Li
     return _run_MCS
 
 
-def make_graph_reset(MCS: nx.DiGraph, generations: List[List[str]], run_MCS: Callable,
-                     default_timings: Timings, default_buffer: GraphBuffer):
+def make_graph_reset(
+    MCS: nx.DiGraph, generations: List[List[str]], run_MCS: Callable, default_timings: Timings, default_buffer: GraphBuffer
+):
     # Determine root node (always in the last generation)
     root_slot = generations[-1][0]
     root = MCS.nodes[root_slot]["name"]
@@ -208,6 +209,7 @@ def make_graph_reset(MCS: nx.DiGraph, generations: List[List[str]], run_MCS: Cal
         next_ss = update_input_fns[root](_next_graph_state, next_timing)
         next_graph_state = _next_graph_state.replace(nodes=_next_graph_state.nodes.copy({root: next_ss}))
         return next_graph_state, next_ss
+
     return _graph_reset
 
 
@@ -231,7 +233,7 @@ def make_graph_step(MCS: nx.DiGraph, generations: List[List[str]], run_MCS: Call
         #       Therefore, we increment it before running the subgraph so that we index into the timings of the next step.
         #       Hence, graph_state.step indicates what subgraphs have run.
         max_step = new_graph_state.buffer.timings[-1][root_slot]["run"].shape[0]
-        next_step = jp.clip(new_graph_state.step+1, jp.int32(0), max_step - 1)
+        next_step = jp.clip(new_graph_state.step + 1, jp.int32(0), max_step - 1)
         graph_state = new_graph_state.replace(step=next_step)
 
         # Run chunk of next step.
@@ -252,7 +254,9 @@ class CompiledGraph(BaseGraph):
         self._MCS = MCS
         self._default_timings = default_timings
         # self._default_outputs = get_outputs_from_timings(MCS, default_timings, self.nodes_and_root) if default_timings is not None else None
-        self._default_buffer = get_graph_buffer(MCS, default_timings, self.nodes_and_root) if default_timings is not None else None
+        self._default_buffer = (
+            get_graph_buffer(MCS, default_timings, self.nodes_and_root) if default_timings is not None else None
+        )
 
         # Get generations
         generations = list(nx.topological_generations(MCS))
@@ -261,7 +265,9 @@ class CompiledGraph(BaseGraph):
         run_MCS = make_run_MCS(self.nodes_and_root, MCS, generations)
 
         # Make compiled reset function
-        self.__reset = make_graph_reset(MCS, generations, run_MCS, default_timings=self._default_timings, default_buffer=self._default_buffer)
+        self.__reset = make_graph_reset(
+            MCS, generations, run_MCS, default_timings=self._default_timings, default_buffer=self._default_buffer
+        )
 
         # Make compiled step function
         self.__step = make_graph_step(MCS, generations, run_MCS)
@@ -300,10 +306,12 @@ class CompiledGraph(BaseGraph):
             num_steps = next(iter(self._default_timings[-1].values()))["run"].shape[-1]
         else:
             num_steps = next(iter(graph_state.timings[-1].values()))["run"].shape[-1]
-        return num_steps-1
+        return num_steps - 1
 
     def max_starting_step(self, max_steps: int, graph_state: GraphState = None):
         max_steps_graph = self.max_steps(graph_state=graph_state)
         max_starting_steps = max_steps_graph - max_steps
-        assert max_starting_steps >= 0, f"max_steps ({max_steps}) must be smaller than the max number of compiled steps in the graph ({max_steps_graph})"
+        assert (
+            max_starting_steps >= 0
+        ), f"max_steps ({max_steps}) must be smaller than the max number of compiled steps in the graph ({max_steps_graph})"
         return max_starting_steps

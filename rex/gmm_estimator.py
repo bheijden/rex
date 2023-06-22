@@ -114,12 +114,14 @@ from jax.scipy.stats import norm
 #     return loss_score
 
 
-def get_component_norm_pdfs(log_component_weights,
-                            component_mus,
-                            log_component_scales,
-                            xmin,
-                            xmax,
-                            num_points, ):
+def get_component_norm_pdfs(
+    log_component_weights,
+    component_mus,
+    log_component_scales,
+    xmin,
+    xmax,
+    num_points,
+):
     component_weights = normalize_weights(np.exp(log_component_weights))
     component_scales = np.exp(log_component_scales)
     x = np.linspace(xmin, xmax, num_points).reshape(-1, 1)
@@ -138,7 +140,7 @@ def plot_component_norm_pdfs(
     ax,
     animated: bool = False,
 ):
-    x, pdfs, pdf =get_component_norm_pdfs(log_component_weights, component_mus, log_component_scales, xmin, xmax, num_points)
+    x, pdfs, pdf = get_component_norm_pdfs(log_component_weights, component_mus, log_component_scales, xmin, xmax, num_points)
     artists = []
     for component in range(pdfs.shape[1]):
         a = ax.plot(x, pdfs[:, component], label=f"comp. {component}", animated=animated)[0]
@@ -153,7 +155,19 @@ import matplotlib.animation as animation
 from jax import lax
 
 
-def animate_training(params_for_plotting, data_mixture, num_frames, fig=None, ax=None, edgecolor: str = None, facecolor: str = None, bins: int = 40, xmin: float = None, xmax: float = None, num_points: int = 1000):
+def animate_training(
+    params_for_plotting,
+    data_mixture,
+    num_frames,
+    fig=None,
+    ax=None,
+    edgecolor: str = None,
+    facecolor: str = None,
+    bins: int = 40,
+    xmin: float = None,
+    xmax: float = None,
+    num_points: int = 1000,
+):
     """Animation function for mixture likelihood."""
     if fig is None:
         assert ax is None, "If fig is None, ax must also be None."
@@ -257,39 +271,18 @@ def component_probs_loglike(log_component_probs, log_concentration, num_componen
     return np.sum(stats.beta.logpdf(x=eval_draws, a=1, b=concentration))
 
 
-def joint_loglike(
-    log_component_weights,
-    log_concentration,
-    num_components,
-    component_mus,
-    log_component_scales,
-    data
-):
+def joint_loglike(log_component_weights, log_concentration, num_components, component_mus, log_component_scales, data):
     component_probs = np.exp(log_component_weights)
-    probs_ll = component_probs_loglike(
-        log_component_weights,
-        log_concentration,
-        num_components
-    )
+    probs_ll = component_probs_loglike(log_component_weights, log_concentration, num_components)
 
-    mix_ll = mixture_loglike(
-        log_component_weights,
-        component_mus,
-        log_component_scales,
-        data
-    )
+    mix_ll = mixture_loglike(log_component_weights, component_mus, log_component_scales, data)
 
     return probs_ll + mix_ll
 
 
 def make_joint_loss(num_components):
     def inner(params, data):
-        (
-            log_component_weights,
-            log_concentration,
-            component_mus,
-            log_component_scales
-        ) = params
+        (log_component_weights, log_concentration, component_mus, log_component_scales) = params
 
         ll = joint_loglike(
             log_component_weights,
@@ -300,6 +293,7 @@ def make_joint_loss(num_components):
             data,
         )
         return -ll
+
     return inner
 
 
@@ -308,6 +302,7 @@ from jax.example_libraries.optimizers import adam
 from jax import grad, jit
 from time import time
 from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
+
 tfd = tfp.distributions
 
 from rex.distributions import Gaussian, GMM, Recorded, Distribution, mixture_distribution_quantiles
@@ -322,11 +317,13 @@ class GMMEstimator:
         self.is_deterministic = True if self.data.std() < threshold else False
         self._mean = np.mean(data)
         self._std = np.std(data)
-        self._data_norm: np.ndarray = (data-data.mean())/max(data.std(), 1e-7) if not self.is_deterministic else data
+        self._data_norm: np.ndarray = (data - data.mean()) / max(data.std(), 1e-7) if not self.is_deterministic else data
 
     def fit(self, num_steps: int, num_components: int, step_size: float = 0.05, seed: int = 0):
         if self.is_deterministic:
-            print(f"{self.name} | Skip because close to deterministic | mean(data)={self.data.mean()} | std(data)={self.data.std()}.")
+            print(
+                f"{self.name} | Skip because close to deterministic | mean(data)={self.data.mean()} | std(data)={self.data.std()}."
+            )
             return
 
         # Store fit parameters
@@ -369,16 +366,20 @@ class GMMEstimator:
 
         # Store training history
         params_history_norm = self.adam_get_params(state_history_norm)
-        self.log_component_weights_history_norm, \
-        self.log_concentration_history_norm, \
-        self.component_mus_history_norm, \
-        self.log_component_scales_history_norm = params_history_norm
+        (
+            self.log_component_weights_history_norm,
+            self.log_concentration_history_norm,
+            self.component_mus_history_norm,
+            self.log_component_scales_history_norm,
+        ) = params_history_norm
 
         # Rescale mu & scale to original data# Rescale
-        self.log_component_weights_history, \
-        self.log_concentration_history, \
-        self.component_mus_history, \
-        self.log_component_scales_history = self._rescale(params_history_norm)
+        (
+            self.log_component_weights_history,
+            self.log_concentration_history,
+            self.component_mus_history,
+            self.log_component_scales_history,
+        ) = self._rescale(params_history_norm)
 
     def _rescale(self, params):
         log_component_weights, log_concentration, component_mus, log_component_scales = params
@@ -386,7 +387,17 @@ class GMMEstimator:
         log_component_scales = log_component_scales + np.log(self._std)
         return log_component_weights, log_concentration, component_mus, log_component_scales
 
-    def plot_hist(self, ax: plt.Axes = None, edgecolor: str = None, facecolor: str = None, bins=100, xmin: float = None, xmax: float = None, num_points: int = 1000, plot_dist: bool = True):
+    def plot_hist(
+        self,
+        ax: plt.Axes = None,
+        edgecolor: str = None,
+        facecolor: str = None,
+        bins=100,
+        xmin: float = None,
+        xmax: float = None,
+        num_points: int = 1000,
+        plot_dist: bool = True,
+    ):
         if ax is None:
             fig, ax = plt.subplots()
         ax.hist(self.data, bins=bins, density=True, label="data", edgecolor=edgecolor, facecolor=facecolor, alpha=0.5)
@@ -407,10 +418,12 @@ class GMMEstimator:
 
         assert self.final_state_norm is not None, "You must fit the model before plotting the loss."
         losses = []
-        for w, c, m, s in zip(self.log_component_weights_history_norm,
-                              self.log_concentration_history_norm,
-                              self.component_mus_history_norm,
-                              self.log_component_scales_history_norm):
+        for w, c, m, s in zip(
+            self.log_component_weights_history_norm,
+            self.log_concentration_history_norm,
+            self.component_mus_history_norm,
+            self.log_component_scales_history_norm,
+        ):
             prm = (w, c, m, s)
             l = self.joint_loss(prm, self._data_norm)
             losses.append(l)
@@ -436,18 +449,40 @@ class GMMEstimator:
         ax.stem(sorted_weights, markerfmt="o", linefmt=edgecolor, label="weights")
         return ax
 
-    def animate_training(self, num_frames: int = 30, fig: plt.Figure = None, ax: plt.Axes = None,
-                         edgecolor: str = None, facecolor: str = None, bins: int = 40,
-                         xmin: float = None, xmax: float = None, num_points: int = 1000) -> matplotlib.animation.FuncAnimation:
+    def animate_training(
+        self,
+        num_frames: int = 30,
+        fig: plt.Figure = None,
+        ax: plt.Axes = None,
+        edgecolor: str = None,
+        facecolor: str = None,
+        bins: int = 40,
+        xmin: float = None,
+        xmax: float = None,
+        num_points: int = 1000,
+    ) -> matplotlib.animation.FuncAnimation:
         assert self.final_state_norm is not None, "Must train model before animating."
         assert not self.is_deterministic, "Model must not be deterministic for animating."
 
-        params_for_plotting = [self.log_component_weights_history,
-                               self.component_mus_history,
-                               self.log_component_scales_history]
+        params_for_plotting = [
+            self.log_component_weights_history,
+            self.component_mus_history,
+            self.log_component_scales_history,
+        ]
 
-        anim = animate_training(params_for_plotting, self.data, num_frames, fig=fig, ax=ax, edgecolor=edgecolor,
-                                facecolor=facecolor, bins=bins, xmin=xmin, xmax=xmax, num_points=num_points)
+        anim = animate_training(
+            params_for_plotting,
+            self.data,
+            num_frames,
+            fig=fig,
+            ax=ax,
+            edgecolor=edgecolor,
+            facecolor=facecolor,
+            bins=bins,
+            xmin=xmin,
+            xmax=xmax,
+            num_points=num_points,
+        )
         return anim
 
     def get_dist(self, percentile: float = 0.01, include_data: bool = False) -> Distribution:
@@ -464,7 +499,7 @@ class GMMEstimator:
         w, s, m = w[indices], np.exp(log_s)[indices], m[indices]
 
         # Prune weights until percentile
-        prune_cum, prune_idx = 0., 0
+        prune_cum, prune_idx = 0.0, 0
         for i, val in enumerate(w):
             if prune_cum + val < percentile:
                 prune_idx += 1
@@ -476,16 +511,15 @@ class GMMEstimator:
 
         # Define non-truncated gmm
         cdist = tfd.Normal(loc=m, scale=s)
-        dist = tfd.MixtureSameFamily(mixture_distribution=tfd.Categorical(probs=w),
-                                     components_distribution=cdist)
+        dist = tfd.MixtureSameFamily(mixture_distribution=tfd.Categorical(probs=w), components_distribution=cdist)
 
         # Determine quantile
         q = mixture_distribution_quantiles(
             dist=dist,
-            probs=[1-percentile],
+            probs=[1 - percentile],
             N_grid_points=int(1e4),
-            grid_min=np.min(self.data)*0.9,
-            grid_max=np.max(self.data)*1.1,
+            grid_min=np.min(self.data) * 0.9,
+            grid_max=np.max(self.data) * 1.1,
         )[0]
         percentiles = 1 - cdist.cdf(q)  # Get percentile per component
 

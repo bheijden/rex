@@ -6,7 +6,7 @@ import abc
 from rex.spaces import Space
 from rex.utils import log, NODE_COLOR, NODE_LOG_LEVEL
 from rex.graph import BaseGraph
-from rex.base import GraphState, Params
+from rex.base import GraphState, Params, RexResetReturn, RexStepReturn
 from rex.constants import WARN, INFO
 
 
@@ -25,11 +25,11 @@ class BaseEnv:
         self.__dict__.update(state)
 
     @abc.abstractmethod
-    def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
+    def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> RexResetReturn:
         raise NotImplementedError
 
     @abc.abstractmethod
-    def step(self, graph_state: GraphState, action: Any) -> Tuple[GraphState, Any, float, bool, Dict]:
+    def step(self, graph_state: GraphState, action: Any) -> RexStepReturn:
         raise NotImplementedError
 
     def close(self):

@@ -27,7 +27,7 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
 
         # Reset environment (warmup)
         with timer(f"{name} | jit reset", log_level=WARN):
-            graph_state, obs = env_reset(jumpy.random.PRNGKey(seed))
+            graph_state, obs, info = env_reset(jumpy.random.PRNGKey(seed))
             gs_lst.append(graph_state)
             obs_lst.append(obs)
             ss_lst.append(graph_state.nodes["root"])

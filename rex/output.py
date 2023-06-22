@@ -127,13 +127,11 @@ class Output:
 
         # Only send output if we are running
         if self._state in [RUNNING]:
-
             # Push message to inputs
             [i._submit(i.push_input, msg, header) for i in self.inputs]
 
     def push_ts_output(self, ts_output: float, header: log_pb2.Header):
         # Only send output if we are running
         if self._state in [RUNNING]:
-
             # Push message to inputs
             [i._submit(i.push_ts_input, ts_output, header) for i in self.inputs]

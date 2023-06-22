@@ -8,7 +8,7 @@ from flax.core import FrozenDict
 
 from rex.graph import BaseGraph
 from rex.constants import WARN, LATEST, PHASE, FAST_AS_POSSIBLE, SIMULATED
-from rex.base import StepState, GraphState, Empty
+from rex.base import StepState, GraphState, Empty, RexStepReturn, RexResetReturn
 from rex.node import Node
 from rex.agent import Agent as BaseAgent
 from rex.env import BaseEnv
@@ -225,7 +225,7 @@ class EstimatorEnv(BaseEnv):
 		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_world_and_estimator.values(), rngs)]
 		return graph_state.replace(nodes=FrozenDict(new_nodes))
 
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
+	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> RexResetReturn:
 		"""Reset environment."""
 		new_graph_state = self._get_graph_state(rng, graph_state)
 
@@ -234,9 +234,10 @@ class EstimatorEnv(BaseEnv):
 
 		# Calculate loss
 		loss = self.loss_fn(graph_state)
-		return graph_state, loss
+		info = {}
+		return graph_state, loss, info
 
-	def step(self, graph_state: GraphState, action: Any) -> Tuple[GraphState, Any, float, bool, Dict]:
+	def step(self, graph_state: GraphState, action: Any) -> RexStepReturn:
 		"""Perform step transition in environment."""
 		# Update step_state (if necessary)
 		new_step_state = self.estimator.get_step_state(graph_state)
@@ -249,6 +250,7 @@ class EstimatorEnv(BaseEnv):
 
 		# Termination condition
 		done = graph_state.step >= self.graph.max_steps(graph_state)
+		truncated = graph_state.step >= self.graph.max_steps(graph_state)
 		info = {"TimeLimit.truncated": done}
 
-		return graph_state, loss, 0., done, info
+		return graph_state, loss, 0., truncated, done, info

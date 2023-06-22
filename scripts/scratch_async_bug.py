@@ -40,7 +40,7 @@ if __name__ == "__main__":
 	time.sleep(t_slp)
 	while not done:
 		print(f"START STEP {eps_steps}")
-		graph_state, obs, reward, done, info = env.step(graph_state, None)
+		graph_state, obs, reward, truncated, done, info = env.step(graph_state, None)
 		time.sleep(t_slp)
 		print(f"END STEP {eps_steps}")
 		eps_steps += 1

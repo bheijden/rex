@@ -1,15 +1,14 @@
 import jax
-import jumpy
-from typing import Any, Union, List, TypeVar, Dict, Union
+from typing import Any, Tuple, List, TypeVar, Dict, Union
 from flax import struct
 from flax.core import FrozenDict
 import jumpy.numpy as jp
 import rex.jumpy as rjp
 
 
-Output = TypeVar('Output')
-State = TypeVar('State')
-Params = TypeVar('Params')
+Output = TypeVar("Output")
+State = TypeVar("State")
+Params = TypeVar("Params")
 SeqsMapping = Dict[str, jp.ndarray]
 BufferSizes = Dict[str, List[int]]
 NodeTimings = Dict[str, Dict[str, Union[jp.ndarray, Dict[str, Dict[str, jp.ndarray]]]]]
@@ -17,19 +16,23 @@ Timings = List[NodeTimings]
 
 
 @struct.dataclass
-class Empty: pass
+class Empty:
+    pass
 
 
 @struct.dataclass
 class InputState:
     """A ring buffer that holds the inputs for a node's input channel."""
+
     seq: jp.ndarray
     ts_sent: jp.ndarray
     ts_recv: jp.ndarray
     data: Output  # --> must be a pytree where the shape of every leaf will become (size, *leafs.shape)
 
     @classmethod
-    def from_outputs(cls, seq: jp.ndarray, ts_sent: jp.ndarray, ts_recv: jp.ndarray, outputs: List[Any], is_data: bool = False) -> "InputState":
+    def from_outputs(
+        cls, seq: jp.ndarray, ts_sent: jp.ndarray, ts_recv: jp.ndarray, outputs: List[Any], is_data: bool = False
+    ) -> "InputState":
         """Create an InputState from a list of outputs.
 
         The oldest message should be first in the list.
@@ -70,7 +73,7 @@ class StepState:
     inputs: FrozenDict[str, InputState] = struct.field(pytree_node=True, default_factory=lambda: None)
     eps: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
     seq: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
-    ts: rjp.float32 = struct.field(pytree_node=True, default_factory=lambda: jp.float32(0.))
+    ts: rjp.float32 = struct.field(pytree_node=True, default_factory=lambda: jp.float32(0.0))
 
 
 @struct.dataclass
@@ -79,6 +82,7 @@ class GraphBuffer:
     outputs: A ring buffer that holds the outputs for every node's output channel.
     timings: The timings for a given episode (i.e. GraphState.timings[eps]).
     """
+
     outputs: FrozenDict[str, Output]
     timings: Timings
 
@@ -92,3 +96,6 @@ class GraphState:
     buffer: GraphBuffer = struct.field(pytree_node=True, default_factory=lambda: None)
 
 
+RexObs = Union[Dict[str, Any], jp.ndarray]
+RexResetReturn = Tuple[GraphState, RexObs, Dict]
+RexStepReturn = Tuple[GraphState, RexObs, float, bool, bool, Dict]

@@ -7,7 +7,7 @@ import time
 import uuid
 from copy import deepcopy
 
-import gym
+import gymnasium as gym
 import numpy as np
 import stable_baselines3 as sb3
 import torch as th

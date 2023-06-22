@@ -37,7 +37,7 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
 
         # Reset environment (warmup)
         with utils.timer(f"{name} | jit reset", log_level=WARN):
-            graph_state, obs = env_reset(rng)
+            graph_state, obs, info = env_reset(rng)
             gs_lst.append(graph_state)
             obs_lst.append(obs)
             ss_new = graph_state.nodes["agent"]
@@ -45,7 +45,7 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
 
         # Initial step (warmup)
         with utils.timer(f"{name} | jit step", log_level=WARN):
-            graph_state, obs, reward, done, info = env_step(graph_state, None)
+            graph_state, obs, reward, truncated, done, info = env_step(graph_state, None)
             obs_lst.append(obs)
             gs_lst.append(graph_state)
             # ss_new = graph_state.nodes["agent""].replace(rng=jp.array([0, 0], dtype=jp.int32))
@@ -56,7 +56,7 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
         tstart = time.time()
         eps_steps = 1
         while True:
-            graph_state, obs, reward, done, info = env_step(graph_state, None)
+            graph_state, obs, reward, truncated, done, info = env_step(graph_state, None)
             obs_lst.append(obs)
             gs_lst.append(graph_state)
             # ss_new = graph_state.nodes["agent""].replace(rng=jp.array([0, 0], dtype=jp.int32))
@@ -96,7 +96,7 @@ def test_compiler():
     # Initialize graph state
     timings = get_timings_from_network_record(trace_mcs)
     buffer = get_graph_buffer(MCS, timings, nodes)
-    init_gs = GraphState( timings=timings, buffer=buffer)
+    init_gs = GraphState(timings=timings, buffer=buffer)
 
     # Test graph
     _ = env.graph.max_eps()
@@ -113,8 +113,8 @@ def test_compiler():
     env_mcs = DummyEnv(graph=graph, max_steps=env.max_steps, name="env_mcs")
 
     # Test graph with timings & output buffers already set
-    _, obs = env_mcs.reset(rng=jumpy.random.PRNGKey(0), graph_state=init_gs)
-    _, obs = env_mcs.reset(rng=jumpy.random.PRNGKey(0))
+    _, obs, info = env_mcs.reset(rng=jumpy.random.PRNGKey(0), graph_state=init_gs)
+    _, obs, info = env_mcs.reset(rng=jumpy.random.PRNGKey(0))
 
     # Plot progress
     must_plot = False

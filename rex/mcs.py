@@ -127,9 +127,7 @@ class Deque:
 
 
 @lru_cache()
-def _is_node_attr_match(
-        motif_node_id: str, host_node_id: str, motif: nx.Graph, host: nx.Graph
-) -> bool:
+def _is_node_attr_match(motif_node_id: str, host_node_id: str, motif: nx.Graph, host: nx.Graph) -> bool:
     """
     Check if a node in the host graph matches the attributes in the motif.
 
@@ -145,13 +143,14 @@ def _is_node_attr_match(
     """
     motif_node = motif.nodes[motif_node_id]
     host_node = host.nodes[host_node_id]
-    return host_node["name"] == motif_node["name"] and host_node["sub_longest_path_length"] >= motif_node["sub_longest_path_length"]
+    return (
+        host_node["name"] == motif_node["name"]
+        and host_node["sub_longest_path_length"] >= motif_node["sub_longest_path_length"]
+    )
 
 
 @lru_cache()
-def _is_node_structural_match(
-    motif_node_id: str, host_node_id: str, motif: nx.Graph, host: nx.Graph
-) -> bool:
+def _is_node_structural_match(motif_node_id: str, host_node_id: str, motif: nx.Graph, host: nx.Graph) -> bool:
     """
     Check if the motif node here is a valid structural match.
 
@@ -173,10 +172,10 @@ def _is_node_structural_match(
 
 @lru_cache()
 def _is_edge_attr_match(
-        motif_edge_id: Tuple[str, str],
-        host_edge_id: Tuple[str, str],
-        motif: nx.Graph,
-        host: nx.Graph,
+    motif_edge_id: Tuple[str, str],
+    host_edge_id: Tuple[str, str],
+    motif: nx.Graph,
+    host: nx.Graph,
 ) -> bool:
     """
     Check if an edge in the host graph matches the attributes in the motif.
@@ -193,6 +192,7 @@ def _is_edge_attr_match(
     """
 
     return True
+
 
 def get_next_backbone_candidates(
     backbone: dict,
@@ -287,9 +287,7 @@ def get_next_backbone_candidates(
                     ]
                 )
             else:
-                motif_backbone_connections_count = sum(
-                    [1 for v in motif.adj[motif_node_id] if v in backbone]
-                )
+                motif_backbone_connections_count = sum([1 for v in motif.adj[motif_node_id] if v in backbone])
             # If this is the most highly connected node visited so far, then
             # set it as the next node to explore:
             if motif_backbone_connections_count > _greatest_backbone_count:
@@ -366,7 +364,7 @@ def get_next_backbone_candidates(
         # This is neato :) It means that there are multiple edges in the host
         # graph that we can use to downselect the number of candidate nodes.
         candidate_nodes_set = set()
-        for (source, _, target) in required_edges:
+        for source, _, target in required_edges:
             if directed:
                 if source is not None:
                     # this is a "from" edge:
@@ -384,9 +382,7 @@ def get_next_backbone_candidates(
                 # nodes set to ALL possible candidates.
                 candidate_nodes_set.update(candidate_nodes_from_this_edge)
             else:
-                candidate_nodes_set = candidate_nodes_set.intersection(
-                    candidate_nodes_from_this_edge
-                )
+                candidate_nodes_set = candidate_nodes_set.intersection(candidate_nodes_from_this_edge)
         candidate_nodes = list(candidate_nodes_set)
 
     elif len(required_edges) == 0:
@@ -442,14 +438,12 @@ def get_next_backbone_candidates(
     # to confirm that no spurious edges exist in the induced subgraph:
     isomorphism_candidates = []
     for result in monomorphism_candidates:
-        for (motif_u, motif_v) in itertools.product(result.keys(), result.keys()):
+        for motif_u, motif_v in itertools.product(result.keys(), result.keys()):
             # if the motif has this edge, then it doesn't rule any of the
             # above results out as an isomorphism.
             # if the motif does NOT have the edge, then NO RESULT may have
             # the equivalent edge in the host graph:
-            if not motif.has_edge(motif_u, motif_v) and host.has_edge(
-                result[motif_u], result[motif_v]
-            ):
+            if not motif.has_edge(motif_u, motif_v) and host.has_edge(result[motif_u], result[motif_v]):
                 # this is a violation.
                 break
         else:
@@ -620,7 +614,7 @@ def find_largest_motifs(
     interestingness = interestingness or uniform_node_interestingness(motif)
 
     # Make sure all nodes are included in the interestingness dict
-    interestingness = {n: interestingness.get(n, 0.) for n in motif.nodes}
+    interestingness = {n: interestingness.get(n, 0.0) for n in motif.nodes}
 
     # Sort the interestingness dict by value:
     interestingness = {k: v for k, v in sorted(interestingness.items(), reverse=True, key=lambda item: item[1])}

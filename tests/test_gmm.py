@@ -31,7 +31,7 @@ def test_gmm_estimator():
 		done, obs = False, env.reset()
 		while not done:
 			action = action_space.sample()
-			obs, reward, done, info = env.step(action)
+			obs, reward, truncated, done, info = env.step(action)
 		env.stop()
 
 		# Save record

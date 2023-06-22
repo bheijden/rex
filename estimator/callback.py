@@ -104,7 +104,7 @@ class LogCallback(BaseCallback):
 		num_epochs = config.num_epochs
 		num_steps = config.num_training_steps_per_epoch
 
-		mask = onp.zeros((num_epochs,), dtype=onp.bool)
+		mask = onp.zeros((num_epochs,), dtype=bool)
 		ts_epoch_sec = onp.zeros((num_epochs+1,), dtype=onp.int32)
 		ts_epoch_nsec = onp.zeros((num_epochs+1,), dtype=onp.int32)
 		fps = onp.zeros((num_epochs,), dtype=onp.float32)
@@ -367,7 +367,7 @@ class ParamFitCallback(BaseCallback):
 		# Prepare initial frame
 		num_epochs = config.num_epochs
 		num_steps = config.num_training_steps_per_epoch
-		mask = onp.zeros((num_epochs,), dtype=onp.bool)
+		mask = onp.zeros((num_epochs,), dtype=bool)
 		params = jax.tree_util.tree_map(lambda x: onp.zeros((num_epochs*num_steps+1,), dtype=onp.float32), config.params.get("world", None))
 		params = jax.tree_util.tree_map(lambda x, y: rjp.index_update(x, 0, y), params, config.params.get("world", None))
 		metric = ParamFitMetric(mask=mask, params=params)

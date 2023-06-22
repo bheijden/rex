@@ -115,7 +115,7 @@ if __name__ == "__main__":
     steps = 0
     while True:
         steps += 1
-        graph_state, obs, reward, done, info = env.step(graph_state, None)
+        graph_state, obs, reward, truncated, done, info = env.step(graph_state, None)
         if done:
             tend = time.time()
             env.stop()
@@ -172,7 +172,7 @@ if __name__ == "__main__":
     steps = 0
     while True:
         steps += 1
-        graph_state, obs, reward, done, info = env_mcs.step(graph_state, None)
+        graph_state, obs, reward, truncated, done, info = env_mcs.step(graph_state, None)
         if done:
             tend = time.time()
             env.stop()

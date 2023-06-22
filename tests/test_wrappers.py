@@ -25,11 +25,11 @@ def test_auto_reset_wrapper():
 	observation_space = env_traced.observation_space()
 
 	# Run environment
-	done, (graph_state, obs) = False, env_traced.reset(jumpy.random.PRNGKey(0))
+	done, (graph_state, obs, info) = False, env_traced.reset(jumpy.random.PRNGKey(0))
 	for _ in range(4):
 		while not done:
 			action = action_space.sample(jumpy.random.PRNGKey(0))
-			graph_state, obs, rewards, dones, info = env_traced.step(graph_state, action)
+			graph_state, obs, rewards, truncateds, dones, info = env_traced.step(graph_state, action)
 			done = dones.any()
 	env_traced.close()
 
@@ -54,7 +54,7 @@ def test_gym_wrapper():
 		done, obs = False, env.reset()
 		while not done:
 			action = action_space.sample()
-			obs, reward, done, info = env.step(action)
+			obs, reward, truncated, done, info = env.step(action)
 	env.close()
 
 
@@ -82,6 +82,12 @@ def test_vec_gym_wrapper():
 		done, obs = False, env.reset()
 		while not done:
 			action = jp.array([action_space.sample()] * env.num_envs)
-			obs, rewards, dones, info = env.step(action)
+			obs, rewards, truncateds, dones, info = env.step(action)
 			done = dones.any()
 	env.close()
+
+
+if __name__ == '__main__':
+	test_vec_gym_wrapper()
+	test_auto_reset_wrapper()
+	test_gym_wrapper()

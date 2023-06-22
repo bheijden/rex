@@ -26,38 +26,38 @@ from rex.multiprocessing import new_process
 
 def node_match(n1, n2):
     """A function that returns True iff node n1 in G1 and n2 in G2
-       should be considered equal during the isomorphism test. The
-       function will be called like::
+    should be considered equal during the isomorphism test. The
+    function will be called like::
 
-          node_match(G1.nodes[n1], G2.nodes[n2])
+       node_match(G1.nodes[n1], G2.nodes[n2])
 
-          G1: Supergraph
-          G2: Motif
+       G1: Supergraph
+       G2: Motif
 
-       That is, the function will receive the node attribute dictionaries
-       of the nodes under consideration. If None, then no attributes are
-       considered when testing for an isomorphism."""
+    That is, the function will receive the node attribute dictionaries
+    of the nodes under consideration. If None, then no attributes are
+    considered when testing for an isomorphism."""
     # todo: Test whether "sub_longest_path_length" is needed (maybe, vf2 already does this).
     return n1["name"] == n2["name"] and n1["sub_longest_path_length"] >= n2["sub_longest_path_length"]
 
 
 def edge_match(e1, e2):
-        """If G2 (motif) has an edge, G1 (supergraph) must have an edge.
+    """If G2 (motif) has an edge, G1 (supergraph) must have an edge.
 
-           A function that returns True iff the edge attribute dictionary for
-           the pair of nodes (u1, v1) in G1 and (u2, v2) in G2 should be
-           considered equal during the isomorphism test. The function will be
-           called like::
+    A function that returns True iff the edge attribute dictionary for
+    the pair of nodes (u1, v1) in G1 and (u2, v2) in G2 should be
+    considered equal during the isomorphism test. The function will be
+    called like::
 
-              edge_match(G1[u1][v1], G2[u2][v2])
+       edge_match(G1[u1][v1], G2[u2][v2])
 
-              G1: Supergraph
-              G2: Motif
+       G1: Supergraph
+       G2: Motif
 
-           That is, the function will receive the edge attribute dictionaries
-           of the edges under consideration. If None, then no attributes are
-           considered when testing for an isomorphism."""
-        return True
+    That is, the function will receive the edge attribute dictionaries
+    of the edges under consideration. If None, then no attributes are
+    considered when testing for an isomorphism."""
+    return True
 
 
 def get_node_y_position(G: nx.DiGraph) -> Dict[str, int]:
@@ -89,7 +89,7 @@ def set_node_colors(G: nx.DiGraph, cscheme: Dict[str, str]):
         G.nodes[node].update({"color": cscheme[d["name"]], "edgecolor": ecolor[d["name"]], "facecolor": fcolor[d["name"]]})
 
 
-def get_node_colors(G: nx.DiGraph) -> Dict[str, str]: #Tuple[Dict[str, str], Dict[str, str]]:
+def get_node_colors(G: nx.DiGraph) -> Dict[str, str]:  # Tuple[Dict[str, str], Dict[str, str]]:
     """Get the colors of the nodes in the graph."""
     node_data = get_node_data(G)
     cscheme = {k: v["color"] for k, v in node_data.items()}
@@ -105,7 +105,11 @@ def get_node_data(G: nx.DiGraph):
     for node in G.nodes:
         data = G.nodes[node]
         if ("pruned" not in data or not data["pruned"]) and data["name"] not in node_data:
-            node_data[data["name"]] = {k: val for k, val in data.items() if k in ["name", "inputs", "stateful", "color", "edgecolor", "facecolor", "alpha", "order"]}
+            node_data[data["name"]] = {
+                k: val
+                for k, val in data.items()
+                if k in ["name", "inputs", "stateful", "color", "edgecolor", "facecolor", "alpha", "order"]
+            }
     return deepcopy(node_data)
 
 
@@ -127,19 +131,21 @@ def create_graph(record: log_pb2.EpisodeRecord, excludes_inputs: List[str] = Non
     y = {name: i for i, name in enumerate(order)}
 
     # Prepare data
-    edge_data = {"color": oc.ecolor.used, "linestyle": "-", "alpha": 1.}
+    edge_data = {"color": oc.ecolor.used, "linestyle": "-", "alpha": 1.0}
     node_data = {}
     for record_node in record.node:
         inputs = {i.output: {"input_name": i.name, "window": i.window} for i in record_node.info.inputs}
         inputs = inputs if record_node.info.name not in excludes_inputs else {}
-        node_data[record_node.info.name] = {"name": record_node.info.name,
-                                            "inputs": inputs,
-                                            "stateful": record_node.info.stateful,
-                                            "order": y[record_node.info.name],
-                                            "color": cscheme[record_node.info.name],
-                                            "edgecolor": ecolor[record_node.info.name],
-                                            "facecolor": fcolor[record_node.info.name],
-                                            "alpha": 1.}
+        node_data[record_node.info.name] = {
+            "name": record_node.info.name,
+            "inputs": inputs,
+            "stateful": record_node.info.stateful,
+            "order": y[record_node.info.name],
+            "color": cscheme[record_node.info.name],
+            "edgecolor": ecolor[record_node.info.name],
+            "facecolor": fcolor[record_node.info.name],
+            "alpha": 1.0,
+        }
 
     # Get all nodes
     for record_node in record.node:
@@ -156,7 +162,8 @@ def create_graph(record: log_pb2.EpisodeRecord, excludes_inputs: List[str] = Non
                 "sub_generation": None,
                 "sub_longest_path_length": None,
                 "super": False,
-                "position": (record_step.ts_step, y[record_node.info.name])}
+                "position": (record_step.ts_step, y[record_node.info.name]),
+            }
             data.update(node_data[record_node.info.name])
             id = f'{data["name"]}_{data["seq"]}'
             G_full.add_node(id, **data)
@@ -164,15 +171,16 @@ def create_graph(record: log_pb2.EpisodeRecord, excludes_inputs: List[str] = Non
             # Add edge for stateful nodes
             if record_step.tick > 0:
                 pruned = not record_node.info.stateful
-                data = {"name": record_node.info.name,
-                        "output": record_node.info.name,
-                        "window": 1,
-                        "seq": record_step.tick - 1,
-                        "ts_sent": record_step.ts_output_prev,
-                        "ts_recv": record_step.ts_output_prev,
-                        "stateful": True,
-                        "pruned": pruned,
-                        }
+                data = {
+                    "name": record_node.info.name,
+                    "output": record_node.info.name,
+                    "window": 1,
+                    "seq": record_step.tick - 1,
+                    "ts_sent": record_step.ts_output_prev,
+                    "ts_recv": record_step.ts_output_prev,
+                    "stateful": True,
+                    "pruned": pruned,
+                }
                 data.update(**edge_data)
                 if pruned:
                     data.update(**{"color": oc.ecolor.pruned, "linestyle": "--", "alpha": 0.5})
@@ -188,15 +196,16 @@ def create_graph(record: log_pb2.EpisodeRecord, excludes_inputs: List[str] = Non
                 for i_msg, record_msg in enumerate(reversed(record_grouped.messages)):
                     pruned = True if i_msg >= window or record_node.info.name in excludes_inputs else False
 
-                    data = {"name": record_input.info.name,
-                            "output": record_input.info.output,
-                            "window": record_input.info.window,
-                            "seq": record_msg.sent.seq,
-                            "ts_sent": record_msg.sent.ts.sc,
-                            "ts_recv": record_msg.received.ts.sc,
-                            "stateful": False,
-                            "pruned": pruned,
-                            }
+                    data = {
+                        "name": record_input.info.name,
+                        "output": record_input.info.output,
+                        "window": record_input.info.window,
+                        "seq": record_msg.sent.seq,
+                        "ts_sent": record_msg.sent.ts.sc,
+                        "ts_recv": record_msg.received.ts.sc,
+                        "stateful": False,
+                        "pruned": pruned,
+                    }
                     data.update(**edge_data)
                     if pruned:
                         data.update(**{"color": oc.ecolor.pruned, "linestyle": "--", "alpha": 0.5})
@@ -222,14 +231,14 @@ def prune_graph(G: nx.DiGraph) -> nx.DiGraph:
 
 def prune_edges(G: nx.DiGraph) -> nx.DiGraph:
     G_pruned = G.copy(as_view=False)
-    remove_edges = [(u, v) for u, v, data in G_pruned.edges(data=True) if data['pruned']]
+    remove_edges = [(u, v) for u, v, data in G_pruned.edges(data=True) if data["pruned"]]
     G_pruned.remove_edges_from(remove_edges)
     return G_pruned
 
 
 def prune_nodes(G: nx.DiGraph) -> nx.DiGraph:
     G_pruned = G.copy(as_view=False)
-    remove_nodes = [n for n, data in G_pruned.nodes(data=True) if data['pruned']]
+    remove_nodes = [n for n, data in G_pruned.nodes(data=True) if data["pruned"]]
     G_pruned.remove_nodes_from(remove_nodes)
     return G_pruned
 
@@ -299,8 +308,7 @@ def split_generational(G: nx.DiGraph) -> Dict[str, nx.DiGraph]:
         is_root = False
         gen_has_root = False
         for n in gen:
-            assert not (is_root and G.nodes[n][
-                "root"]), "Multiple roots in a generation. Make sure the root node is stateful."
+            assert not (is_root and G.nodes[n]["root"]), "Multiple roots in a generation. Make sure the root node is stateful."
             is_root = G.nodes[n]["root"]
             gen_has_root = is_root or gen_has_root
 
@@ -355,7 +363,7 @@ def get_subgraphs(G: nx.DiGraph, split_mode: str = "generational") -> Dict[str, 
 
 
 def as_topological_subgraphs(G_subgraphs: Dict[str, nx.DiGraph]) -> Dict[str, nx.DiGraph]:
-    edge_data = {"color": oc.ecolor.used, "linestyle": "-", "alpha": 1.}
+    edge_data = {"color": oc.ecolor.used, "linestyle": "-", "alpha": 1.0}
     G_subgraphs_topo = {}
     for root, G_sub in G_subgraphs.items():
         # Create new subgraph without edges
@@ -461,7 +469,7 @@ def as_MCS(G: nx.DiGraph) -> nx.DiGraph:
     # todo: as_MCS should only have edges between nodes in the partite groups that exist in the unique patterns.
     node_data = get_node_data(G)
     order = sorted(node_data.keys(), key=lambda k: node_data[k]["order"])
-    edge_data = {"color": oc.ecolor.used, "linestyle": "-", "alpha": 1.}
+    edge_data = {"color": oc.ecolor.used, "linestyle": "-", "alpha": 1.0}
     generations = list(nx.topological_generations(G))
 
     # Sort all nodes in generation
@@ -479,11 +487,14 @@ def as_MCS(G: nx.DiGraph) -> nx.DiGraph:
             n_name = f"{name}_s{slots[name]}"
             # Add node
             position = (i_gen, i_node)
-            data = {"seq": slots[name], "position": position,
-                    "sub_longest_path_length": sub_longest_path_length,
-                    "sub_generation": i_gen,
-                    "generation": i_gen,
-                    "super": True}
+            data = {
+                "seq": slots[name],
+                "position": position,
+                "sub_longest_path_length": sub_longest_path_length,
+                "sub_generation": i_gen,
+                "generation": i_gen,
+                "super": True,
+            }
             data.update(node_data[name])
             nodes_super[i_gen][n_name] = data
             G_super.add_node(n_name, **data)
@@ -492,7 +503,7 @@ def as_MCS(G: nx.DiGraph) -> nx.DiGraph:
 
     # Add multi partite directed edges between all nodes of G_super directed in descending generation order
     for i_gen, u in enumerate(nodes_super):
-        for j_gen, v in enumerate(nodes_super[i_gen + 1:]):
+        for j_gen, v in enumerate(nodes_super[i_gen + 1 :]):
             for u_name in u:
                 for v_name in v:
                     # todo: must ensure that root is last in generation before filtering edges here.
@@ -507,9 +518,7 @@ def as_MCS(G: nx.DiGraph) -> nx.DiGraph:
 
 def emb(G1, G2):
     # G1 is a subgraph of G2
-    E = [e for e in G1.edges
-         if e[0] in G1 and e[1] in G2
-         or e[0] in G2 and e[1] in G1]
+    E = [e for e in G1.edges if e[0] in G1 and e[1] in G2 or e[0] in G2 and e[1] in G1]
     return E
 
 
@@ -526,14 +535,16 @@ def unify(G1, G2, E):
 def _get_MCS(G1, G2, max_evals: int = None):
     # todo: check if we cannot use isomorphism.vf2. Seems alot faster.
     queue = Deque(policy=QueuePolicy.BREADTHFIRST)
-    num_evals, is_monomorphism, largest_motif = find_largest_motifs(G2, G1,
-                                                                    queue_=queue,
-                                                                    max_evals=max_evals,
-                                                                    # interestingness={"observer_6": 1.0, "actuator_0": 0.9},
-                                                                    # is_node_structural_match=_is_node_structural_match,
-                                                                    # is_node_attr_match=_is_node_attr_match,
-                                                                    # is_edge_attr_match=_is_edge_attr_match
-                                                                    )
+    num_evals, is_monomorphism, largest_motif = find_largest_motifs(
+        G2,
+        G1,
+        queue_=queue,
+        max_evals=max_evals,
+        # interestingness={"observer_6": 1.0, "actuator_0": 0.9},
+        # is_node_structural_match=_is_node_structural_match,
+        # is_node_attr_match=_is_node_attr_match,
+        # is_edge_attr_match=_is_edge_attr_match
+    )
     # Do not modify G1 if it is a monomorphism
     if is_monomorphism:
         return num_evals, G1
@@ -548,7 +559,9 @@ def _get_MCS(G1, G2, max_evals: int = None):
     return num_evals, as_MCS(MCS)
 
 
-def get_minimum_common_supergraph(G_motifs: Dict[str, nx.DiGraph], max_evals_per_motif: int = None, max_total_evals: int = 100_000) -> nx.DiGraph:
+def get_minimum_common_supergraph(
+    G_motifs: Dict[str, nx.DiGraph], max_evals_per_motif: int = None, max_total_evals: int = 100_000
+) -> nx.DiGraph:
     """
     Find the minimum common (monomorphic) supergraph (MCS) of a list of graphs.
 
@@ -571,8 +584,11 @@ def get_minimum_common_supergraph(G_motifs: Dict[str, nx.DiGraph], max_evals_per
     for i_motif, (root_name, G_motif) in enumerate(G_motifs.items()):
         if G_motif is G_motifs_max:
             continue
-        max_evals_per_motif = min(max_evals_per_motif,
-                                  max_total_evals - num_evals) if max_evals_per_motif is not None else max_total_evals - num_evals
+        max_evals_per_motif = (
+            min(max_evals_per_motif, max_total_evals - num_evals)
+            if max_evals_per_motif is not None
+            else max_total_evals - num_evals
+        )
         prev_num_nodes = G_MCS.number_of_nodes()
         # Find the MCS
         num_evals_motif, G_MCS = _get_MCS(G_MCS, G_motif, max_evals=max_evals_per_motif)
@@ -581,10 +597,12 @@ def get_minimum_common_supergraph(G_motifs: Dict[str, nx.DiGraph], max_evals_per
         next_num_nodes = G_MCS.number_of_nodes()
         if num_evals >= max_total_evals:
             print(
-                f"max_total_evals={max_total_evals} exceeded. Stopping. MCS covers {i_motif + 1}/{len(G_motifs)} motifs. May be excessively large.")
+                f"max_total_evals={max_total_evals} exceeded. Stopping. MCS covers {i_motif + 1}/{len(G_motifs)} motifs. May be excessively large."
+            )
             break
         print(
-            f"motif=`{root_name}` | nodes+={next_num_nodes - prev_num_nodes} | num_nodes={next_num_nodes} | motif_evals={num_evals_motif} | total_evals={num_evals}")
+            f"motif=`{root_name}` | nodes+={next_num_nodes - prev_num_nodes} | num_nodes={next_num_nodes} | motif_evals={num_evals_motif} | total_evals={num_evals}"
+        )
     return G_MCS
 
 
@@ -608,7 +626,7 @@ def get_topological_supergraph(G_motifs: Dict[str, nx.DiGraph], **kwargs) -> nx.
     # Add len(G_motifs_max.number_of_nodes()) generations, where each generation has a slot for every node type.
     num_nodes = G_motifs_max.number_of_nodes()
     G_super = nx.DiGraph()
-    edge_data = {"color": oc.ecolor.used, "linestyle": "-", "alpha": 1.}
+    edge_data = {"color": oc.ecolor.used, "linestyle": "-", "alpha": 1.0}
     for i in range(num_nodes):
         for name, data in node_data.items():
             G_super.add_node(f"{name}_{i}", **data)
@@ -637,7 +655,7 @@ def _add_root_to_supergraph(G_MCS: nx.DiGraph, root_data: Dict) -> nx.DiGraph:
     G_with_root.add_node(root_data["name"], **root_data)
 
     # Add edges between root node and last generation
-    edge_data = {"color": oc.ecolor.used, "linestyle": "-", "alpha": 1.}
+    edge_data = {"color": oc.ecolor.used, "linestyle": "-", "alpha": 1.0}
     for node in last_gen:
         G_with_root.add_edge(node, root_data["name"], **edge_data)
 
@@ -645,7 +663,6 @@ def _add_root_to_supergraph(G_MCS: nx.DiGraph, root_data: Dict) -> nx.DiGraph:
 
 
 def validate_subgraphs(G_MCS: nx.DiGraph, G_subgraphs: Dict[str, nx.DiGraph], workers: int = None) -> Dict[str, bool]:
-
     def _validate_is_monomorphic(G_MCS, G_test) -> Dict[str, str]:
         matcher = isomorphism.DiGraphMatcher(G_MCS, G_test, node_match=node_match, edge_match=edge_match)
         return matcher.subgraph_is_monomorphic()
@@ -668,8 +685,9 @@ def validate_subgraphs(G_MCS: nx.DiGraph, G_subgraphs: Dict[str, nx.DiGraph], wo
     return is_monomorphic
 
 
-def get_subgraph_monomorphisms(G_MCS: nx.DiGraph, G_subgraphs: Dict[str, nx.DiGraph], workers: int = None) -> Dict[str, Dict[str, str]]:
-
+def get_subgraph_monomorphisms(
+    G_MCS: nx.DiGraph, G_subgraphs: Dict[str, nx.DiGraph], workers: int = None
+) -> Dict[str, Dict[str, str]]:
     def _get_monomorphism(G_MCS, G_test) -> Dict[str, str]:
         matcher = isomorphism.DiGraphMatcher(G_MCS, G_test, node_match=node_match, edge_match=edge_match)
         return next(matcher.subgraph_monomorphisms_iter())
@@ -691,10 +709,21 @@ def get_subgraph_monomorphisms(G_MCS: nx.DiGraph, G_subgraphs: Dict[str, nx.DiGr
     return monomorphisms
 
 
-def get_network_record(records: Union[log_pb2.EpisodeRecord, List[log_pb2.EpisodeRecord]], root: str, seq: int = None, split_mode: str = "generational",
-                       supergraph_mode: str = "MCS",
-                       cscheme: Dict[str, str] = None, order: List[str] = None, max_evals_per_motif: int = None, excludes_inputs: List[str] = None, workers: int = None,
-                       max_total_evals: int = 100_000, log_level: int = INFO, validate: bool = True) -> Tuple[log_pb2.NetworkRecord, nx.DiGraph, List[nx.DiGraph], List[Dict[str, nx.DiGraph]]]:
+def get_network_record(
+    records: Union[log_pb2.EpisodeRecord, List[log_pb2.EpisodeRecord]],
+    root: str,
+    seq: int = None,
+    split_mode: str = "generational",
+    supergraph_mode: str = "MCS",
+    cscheme: Dict[str, str] = None,
+    order: List[str] = None,
+    max_evals_per_motif: int = None,
+    excludes_inputs: List[str] = None,
+    workers: int = None,
+    max_total_evals: int = 100_000,
+    log_level: int = INFO,
+    validate: bool = True,
+) -> Tuple[log_pb2.NetworkRecord, nx.DiGraph, List[nx.DiGraph], List[Dict[str, nx.DiGraph]]]:
     excludes_inputs = excludes_inputs or []
 
     # Convert to list of records
@@ -711,7 +740,7 @@ def get_network_record(records: Union[log_pb2.EpisodeRecord, List[log_pb2.Episod
     # Assert that all records have at least seq number of root steps.
     num_seqs = [len(r.steps) for r in root_records]
     min_seqs = min(num_seqs)
-    seq = seq if seq is not None and seq > 0 else min_seqs-1
+    seq = seq if seq is not None and seq > 0 else min_seqs - 1
     assert min_seqs > seq, f"Not all episode records ('{num_seqs}') have at least seq={seq} number of root steps."
 
     # Get all subgraphs
@@ -753,14 +782,24 @@ def get_network_record(records: Union[log_pb2.EpisodeRecord, List[log_pb2.Episod
 
     # Determine minimum common supergraph
     with timer(f"Determining {supergraph_mode}", log_level=log_level):
-        G_MCS = get_supergraph(G_motifs, supergraph_mode=supergraph_mode, max_total_evals=max_total_evals, max_evals_per_motif=max_evals_per_motif)
+        G_MCS = get_supergraph(
+            G_motifs, supergraph_mode=supergraph_mode, max_total_evals=max_total_evals, max_evals_per_motif=max_evals_per_motif
+        )
         G_MCS_root = _add_root_to_supergraph(G_MCS, node_data[root])
-    log(name="tracer", color="white", log_level=log_level, id="supergraph", msg=f"num_nodes={G_MCS.number_of_nodes()} | num_edges={G_MCS.number_of_edges()}")
+    log(
+        name="tracer",
+        color="white",
+        log_level=log_level,
+        id="supergraph",
+        msg=f"num_nodes={G_MCS.number_of_nodes()} | num_edges={G_MCS.number_of_edges()}",
+    )
 
     # Verify that all subgraphs are monomorphic with the supergraph
     if validate:
         with timer("Check subgraph monomorphism", log_level=log_level):
-            assert all(validate_subgraphs(G_MCS, G_subgraphs, workers=workers).values()), "Not all subgraphs are monomorphic with the supergraph."
+            assert all(
+                validate_subgraphs(G_MCS, G_subgraphs, workers=workers).values()
+            ), "Not all subgraphs are monomorphic with the supergraph."
 
     # Save traced network record
     record_network = log_pb2.NetworkRecord()
@@ -786,18 +825,29 @@ def _get_timings_template(G_MCS: nx.DiGraph, num_root_steps: int) -> Timings:
             data = G_MCS.nodes[n]
             inputs = {}
             for v in data["inputs"].values():
-                inputs[v["input_name"]] = {"seq": onp.vstack([onp.array([-1] * v["window"], dtype=onp.int32)] * num_root_steps),
-                                           "ts_sent": onp.vstack(
-                                               [onp.array([0.] * v["window"], dtype=onp.float32)] * num_root_steps),
-                                           "ts_recv": onp.vstack(
-                                               [onp.array([0.] * v["window"], dtype=onp.float32)] * num_root_steps)}
-            t_slot = {"run": onp.repeat(False, num_root_steps), "ts_step": onp.repeat(0., num_root_steps),
-                      "seq": onp.repeat(0, num_root_steps), "inputs": inputs}
+                inputs[v["input_name"]] = {
+                    "seq": onp.vstack([onp.array([-1] * v["window"], dtype=onp.int32)] * num_root_steps),
+                    "ts_sent": onp.vstack([onp.array([0.0] * v["window"], dtype=onp.float32)] * num_root_steps),
+                    "ts_recv": onp.vstack([onp.array([0.0] * v["window"], dtype=onp.float32)] * num_root_steps),
+                }
+            t_slot = {
+                "run": onp.repeat(False, num_root_steps),
+                "ts_step": onp.repeat(0.0, num_root_steps),
+                "seq": onp.repeat(0, num_root_steps),
+                "inputs": inputs,
+            }
             t_gen[n] = t_slot
     return timings
 
 
-def get_timings(G_MCS: nx.DiGraph, G: nx.DiGraph, monomorphisms: Dict[str, Dict[str, str]], num_root_steps: int, root: str, workers: int = None):
+def get_timings(
+    G_MCS: nx.DiGraph,
+    G: nx.DiGraph,
+    monomorphisms: Dict[str, Dict[str, str]],
+    num_root_steps: int,
+    root: str,
+    workers: int = None,
+):
     # Get supergraph timings
     timings = _get_timings_template(G_MCS, num_root_steps)
     # Fill in timings for each subgraph
@@ -841,10 +891,17 @@ def get_timings(G_MCS: nx.DiGraph, G: nx.DiGraph, monomorphisms: Dict[str, Dict[
     return timings
 
 
-def get_timings_from_network_record(network_record: log_pb2.NetworkRecord, G: List[nx.DiGraph] = None, G_subgraphs: List[Dict[str, nx.DiGraph]] = None,
-                                    log_level: int = INFO, workers: int = None) -> Timings:
+def get_timings_from_network_record(
+    network_record: log_pb2.NetworkRecord,
+    G: List[nx.DiGraph] = None,
+    G_subgraphs: List[Dict[str, nx.DiGraph]] = None,
+    log_level: int = INFO,
+    workers: int = None,
+) -> Timings:
     assert G is None or len(G) == len(network_record.episode), "Number of graphs does not match number of steps."
-    assert G_subgraphs is None or len(G_subgraphs) == len(network_record.episode), "Number of subgraphs does not match number of steps."
+    assert G_subgraphs is None or len(G_subgraphs) == len(
+        network_record.episode
+    ), "Number of subgraphs does not match number of steps."
 
     # Prepare graphs
     G = G or [None] * len(network_record.episode)
@@ -889,7 +946,9 @@ def get_timings_from_network_record(network_record: log_pb2.NetworkRecord, G: Li
         monomorphisms_eps = {i: {v: monomorphisms[k] for k, v in key_map.items()} for i, key_map in keys_subgraphs.items()}
         timings = []
         for i, mono in monomorphisms_eps.items():
-            t = get_timings(G_MCS, G[i], mono, num_root_steps=network_record.seq+1, root=network_record.root, workers=workers)
+            t = get_timings(
+                G_MCS, G[i], mono, num_root_steps=network_record.seq + 1, root=network_record.root, workers=workers
+            )
             timings.append(t)
 
         # Stack timings
@@ -897,14 +956,16 @@ def get_timings_from_network_record(network_record: log_pb2.NetworkRecord, G: Li
     return timings
 
 
-def get_outputs_from_timings(G_MCS: nx.DiGraph, timings: Timings, nodes: Dict[str, "Node"], extra_padding: int = 0) -> Dict[str, Output]:
+def get_outputs_from_timings(
+    G_MCS: nx.DiGraph, timings: Timings, nodes: Dict[str, "Node"], extra_padding: int = 0
+) -> Dict[str, Output]:
     """Get output buffer from timings."""
     # get seq state
     timings = get_timings_after_root_split(G_MCS, timings)
 
     # Get output buffer sizes (+1, to add default output)
     num_outputs = {k: v["seq"].max() for k, v in timings.items()}
-    buffer_size = {k: v+1+extra_padding for k, v in num_outputs.items()}
+    buffer_size = {k: v + 1 + extra_padding for k, v in num_outputs.items()}
 
     # Fill output buffer
     output_buffer = {}
@@ -1011,8 +1072,10 @@ def get_masked_timings(G_MCS: nx.DiGraph, timings: Timings) -> NodeTimings:
     for i_gen, gen in enumerate(masked_timings_slot):
         for key, t in gen.items():
             # Repeat mask in extra dimensions of arr (for number of gens, and mask all but the current i_gen)
-            t = {k: jax.tree_util.tree_map(lambda x: onp.repeat(x[:, :, :, None], len(timings), axis=3), v) for k, v in
-                 t.items()}
+            t = {
+                k: jax.tree_util.tree_map(lambda x: onp.repeat(x[:, :, :, None], len(timings), axis=3), v)
+                for k, v in t.items()
+            }
 
             # Update mask to be True for all other gens
             for j in range(len(timings)):
@@ -1041,7 +1104,9 @@ def get_buffer_sizes_from_timings(G_MCS: nx.DiGraph, timings: Timings) -> Buffer
 
     # Get min buffer size for each node
     name_mapping = {n: {v["input_name"]: o for o, v in data["inputs"].items()} for n, data in node_data.items()}
-    min_buffer_sizes = {k: {input_name: output_name for input_name, output_name in inputs.items()} for k, inputs in name_mapping.items()}
+    min_buffer_sizes = {
+        k: {input_name: output_name for input_name, output_name in inputs.items()} for k, inputs in name_mapping.items()
+    }
     node_buffer_sizes = {n: [] for n in node_data.keys()}
     for n, inputs in name_mapping.items():
         t = masked_timings[n]
@@ -1077,7 +1142,9 @@ def get_buffer_sizes_from_timings(G_MCS: nx.DiGraph, timings: Timings) -> Buffer
     return node_buffer_sizes
 
 
-def get_graph_buffer(G_MCS: nx.DiGraph, timings: Timings, nodes: Dict[str, "Node"], sizes: BufferSizes = None, extra_padding: int = 0) -> GraphBuffer:
+def get_graph_buffer(
+    G_MCS: nx.DiGraph, timings: Timings, nodes: Dict[str, "Node"], sizes: BufferSizes = None, extra_padding: int = 0
+) -> GraphBuffer:
     # Get buffer sizes if not provided
     if sizes is None:
         sizes = get_buffer_sizes_from_timings(G_MCS, timings)
@@ -1135,7 +1202,7 @@ def get_seqs_mapping(G_MCS: nx.DiGraph, timings: Timings, buffer: GraphBuffer) -
         sorted_seqs = onp.take_along_axis(buffer_seqs, idx_seqs, axis=-1)
 
         # NOTE! updated seqs = True if seq is updated AFTER this step is executed
-        updated_seqs = (sorted_seqs != onp.roll(sorted_seqs, shift=1, axis=1))  # Roll in gen axis
+        updated_seqs = sorted_seqs != onp.roll(sorted_seqs, shift=1, axis=1)  # Roll in gen axis
         updated_seqs[:, 0, :] = False  # First step is never updated
 
         # Reshape to step shape

@@ -19,7 +19,7 @@ if __name__ == "__main__":
 
 	# Define nodes
 	import envs.pendulum.ode as ode
-	nodes = ode.build_pendulum(rate=dict(world=20.0))
+	nodes = ode.build_pendulum(rates=dict(world=20.0))
 	# import envs.pendulum.real as real
 	# nodes = real.build_pendulum(rate=dict(world=20.0))
 
@@ -50,7 +50,7 @@ if __name__ == "__main__":
 		done, obs = False, env.reset()
 		while not done:
 			action = action_space.sample()
-			obs, reward, done, info = env.step(action)
+			obs, reward, truncated, done, info = env.step(action)
 		tend = time.time()
 		print(f"ASYNC | steps={max_steps} | t_s={(tstart - tend): 2.4f} sec | fps={max_steps / (tend - tstart): 2.4f}")
 	env.close()
@@ -111,7 +111,7 @@ if __name__ == "__main__":
 		cum_reward = 0.
 		while not done:
 			action, _states = model.predict(obs, deterministic=True)
-			obs, reward, dones, info = env.step(action)
+			obs, reward, truncateds, dones, info = env.step(action)
 			cum_reward += reward
 			done = dones.any()
 		tend = time.time()

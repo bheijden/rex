@@ -59,7 +59,7 @@ def single_loss(env: BaseEnv, graph_state: GraphState, seqs_step: SeqsMapping, p
 	gs = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes), eps=eps, step=step, buffer=buffer)
 
 	# Reset env
-	gs, loss_init = env.reset(rng, gs)
+	gs, loss_init, _info = env.reset(rng, gs)
 
 	# Return buffer after first step (likely has most accurate output estimates).
 	new_buffer = gs.buffer
@@ -67,7 +67,7 @@ def single_loss(env: BaseEnv, graph_state: GraphState, seqs_step: SeqsMapping, p
 	# Perform steps
 	def _step(carry, x):
 		gs, loss_step, loss = carry
-		new_gs, new_loss_step, _, done, info = env.step(gs, loss_step)
+		new_gs, new_loss_step, _, truncated, done, info = env.step(gs, loss_step)
 		# Only add dynamic loss to total loss
 		new_loss = (1-done)*(new_loss_step.loss) + loss
 		new_carry = (new_gs, new_loss_step, new_loss)
@@ -391,7 +391,7 @@ def init_graph_state(env: BaseEnv, nodes: Dict[str, Node], record: log_pb2.Netwo
 	# Define initial graph state
 	ndict = dict(sensor=ss_sensor, estimator=ss_est)
 	init_gs = GraphState(nodes=FrozenDict(ndict), timings=timings, buffer=buffer)
-	init_gs, _ = env.reset(jumpy.random.PRNGKey(0), init_gs)
+	init_gs, _, _ = env.reset(jumpy.random.PRNGKey(0), init_gs)
 
 	return init_gs, outputs
 

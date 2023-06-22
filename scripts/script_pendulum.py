@@ -39,7 +39,7 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
 
 		# Reset environment
 		with timer(f"{name} | jit reset", log_level=WARN):
-			graph_state, obs = env_reset(rng)
+			graph_state, obs, info = env_reset(rng)
 
 		# Initial step (warmup)
 		with timer(f"{name} | jit step", log_level=WARN):
@@ -54,7 +54,7 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
 			ss_lst = []
 
 			# Reset
-			graph_state, obs = env_reset(rng)
+			graph_state, obs, info = env_reset(rng)
 			gs_lst.append(graph_state)
 			obs_lst.append(obs)
 			ss_lst.append(graph_state.nodes["root"])

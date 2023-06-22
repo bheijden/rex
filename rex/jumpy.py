@@ -87,12 +87,12 @@ F = TypeVar("F", bound=Callable)
 
 
 def scan(
-        f: Callable[[Carry, X], Tuple[Carry, Y]],
-        init: Carry,
-        xs: X,
-        length: int = None,
-        reverse: bool = False,
-        unroll: int = 1,
+    f: Callable[[Carry, X], Tuple[Carry, Y]],
+    init: Carry,
+    xs: X,
+    length: int = None,
+    reverse: bool = False,
+    unroll: int = 1,
 ) -> Tuple[Carry, Y]:
     """Scan a function over leading array axes while carrying along state."""
     if jumpy.core.is_jitted():
@@ -111,9 +111,7 @@ def scan(
         return carry, stacked_y
 
 
-def dynamic_slice(
-        operand: X, start_indices: Sequence[int], slice_sizes: Sequence[int]
-) -> X:
+def dynamic_slice(operand: X, start_indices: Sequence[int], slice_sizes: Sequence[int]) -> X:
     """Dynamic slice of ``operand`` with per-dimension ``start_indices`` and ``slice_sizes``.
 
     Has the semantics of the following Python::
@@ -127,14 +125,15 @@ def dynamic_slice(
         # if jumpy.is_jax_installed:
         #     return jax.lax.dynamic_slice(operand, start_indices, slice_sizes)
         # else:
-        slices = tuple(
-            slice(start, start + size) for start, size in zip(start_indices, slice_sizes)
-        )
+        slices = tuple(slice(start, start + size) for start, size in zip(start_indices, slice_sizes))
         return operand[slices]
 
 
 def dynamic_update_slice(
-        operand: X, update: X, start_indices: Sequence[int], copy: bool = True,
+    operand: X,
+    update: X,
+    start_indices: Sequence[int],
+    copy: bool = True,
 ) -> X:
     """Dynamic update of ``operand`` with ``update`` at per-dimension ``start_indices``.
 
@@ -148,9 +147,7 @@ def dynamic_update_slice(
     else:
         if copy:
             operand = onp.copy(operand)
-        slices = tuple(
-            slice(start, start + size) for start, size in zip(start_indices, update.shape)
-        )
+        slices = tuple(slice(start, start + size) for start, size in zip(start_indices, update.shape))
         operand[slices] = update
         return operand
 
@@ -168,7 +165,7 @@ def index_update(x: jp.ndarray, idx: jp.ndarray, y: jp.ndarray, copy: bool = Tru
 
 def tree_take(tree: Any, i: Union[jp.ndarray, Sequence[int], int], axis: int = 0, mode: str = None) -> Any:
     """Returns tree sliced by i."""
-    np = jumpy.core.which_np(*([i]+jax.tree_util.tree_flatten(tree)[0]))
+    np = jumpy.core.which_np(*([i] + jax.tree_util.tree_flatten(tree)[0]))
     # if isinstance(i, (list, tuple)):
     #     i = np.array(i, dtype=int)
     if np is jnp:

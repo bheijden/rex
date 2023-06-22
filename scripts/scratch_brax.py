@@ -24,7 +24,7 @@ class BraxWrapper(Wrapper):
         return observation_space.shape[0]
 
     def reset(self, rng: jp.ndarray) -> State:
-        graph_state, obs = self.env.reset(rng)
+        graph_state, obs, info = self.env.reset(rng)
         info = {}
         metrics = {}
         reward, done = jnp.array(1.0), jnp.array(False, dtype=jp.float32)
@@ -32,7 +32,7 @@ class BraxWrapper(Wrapper):
 
     def step(self, state: State, action: jp.ndarray):
         graph_state = state.qp
-        next_graph_state, obs, reward, done, info = self.env.step(graph_state, action)
+        next_graph_state, obs, reward, truncated, done, info = self.env.step(graph_state, action)
         done = jnp.array(done, dtype=jp.float32)
         reward = jnp.array(reward)
         return state.replace(qp=next_graph_state, obs=obs, reward=reward, done=done)

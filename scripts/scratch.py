@@ -61,7 +61,7 @@ class RolloutWrapper(object):
         """Rollout a pendulum episode with lax.scan."""
         # Reset the environment
         rng_reset, rng_policy, rng_episode = jumpy.random.split(rng_input, num=3)
-        state, obs = self.env.reset(rng_reset)
+        state, obs, info = self.env.reset(rng_reset)
 
         if self.model_forward is not None:
             policy_state = self.model_forward.policy.actor_state
@@ -79,7 +79,7 @@ class RolloutWrapper(object):
                 # action = self.model_forward.policy.select_action(policy_state, obs)
             else:
                 action = self.env.action_space().sample(rng_net)
-            next_state, next_obs, reward, done, info = self.env.step(state, action)
+            next_state, next_obs, reward, truncated, done, info = self.env.step(state, action)
             new_cum_reward = cum_reward + reward * valid_mask
             new_valid_mask = valid_mask * (1 - done)
             carry = [
@@ -116,7 +116,7 @@ class RolloutWrapper(object):
     def input_shape(self):
         """Get the shape of the observation."""
         rng = jax.random.PRNGKey(0)
-        obs, state = self.env.reset(rng, self.env_params)
+        obs, state, info = self.env.reset(rng, self.env_params)
         return obs.shape
 
 

@@ -65,4 +65,3 @@ class Agent(Node):
                 self._q_act.popleft()
                 self._must_reset = True
         return None, None  # Do not return anything if we must reset
-

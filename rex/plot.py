@@ -37,15 +37,17 @@ def get_subplots(tree, figsize=(10, 10), sharex=False, sharey=False, major="row"
     return fig, tree_axes
 
 
-def plot_input_thread(ax: "matplotlib.Axes",
-                      record: log_pb2.InputRecord,
-                      ystart: float,
-                      dy: float,
-                      name: str = None,
-                      xstart: float = None,
-                      dx: float = None,
-                      ecolor: AttrDict = None,
-                      fcolor: AttrDict = None) -> float:
+def plot_input_thread(
+    ax: "matplotlib.Axes",
+    record: log_pb2.InputRecord,
+    ystart: float,
+    dy: float,
+    name: str = None,
+    xstart: float = None,
+    dx: float = None,
+    ecolor: AttrDict = None,
+    fcolor: AttrDict = None,
+) -> float:
     # Get color scheme
     if ecolor is None:
         from rex.open_colors import ecolor
@@ -53,7 +55,7 @@ def plot_input_thread(ax: "matplotlib.Axes",
         from rex.open_colors import fcolor
 
     # Calculate xy-coordinates
-    xstart = 0. if xstart is None else xstart
+    xstart = 0.0 if xstart is None else xstart
     if dx is None:
         for g in reversed(record.grouped):
             if len(g.messages) > 0:
@@ -69,8 +71,9 @@ def plot_input_thread(ax: "matplotlib.Axes",
             recv.append((m.sent.ts.sc, m.delay))
 
     # Plot
-    ax.broken_barh(phase_in, (ystart, dy), facecolors=fcolor.phase_input, edgecolor=ecolor.phase_input, hatch="",
-                   label="phase (expected)")
+    ax.broken_barh(
+        phase_in, (ystart, dy), facecolors=fcolor.phase_input, edgecolor=ecolor.phase_input, hatch="", label="phase (expected)"
+    )
     ax.broken_barh(recv, (ystart, dy), facecolors=fcolor.communication, edgecolor=ecolor.communication, label="communication")
 
     # Set ticks
@@ -84,15 +87,17 @@ def plot_input_thread(ax: "matplotlib.Axes",
     return ystart + dy
 
 
-def plot_event_thread(ax: "matplotlib.Axes",
-                      record: log_pb2.NodeRecord,
-                      ystart: float,
-                      dy: float,
-                      name: str = None,
-                      xstart: float = None,
-                      dx: float = None,
-                      ecolor: AttrDict = None,
-                      fcolor: AttrDict = None) -> float:
+def plot_event_thread(
+    ax: "matplotlib.Axes",
+    record: log_pb2.NodeRecord,
+    ystart: float,
+    dy: float,
+    name: str = None,
+    xstart: float = None,
+    dx: float = None,
+    ecolor: AttrDict = None,
+    fcolor: AttrDict = None,
+) -> float:
     name = name if isinstance(name, str) else record.info.name
 
     # Get color scheme
@@ -104,7 +109,7 @@ def plot_event_thread(ax: "matplotlib.Axes",
     # Calculate xy-coordinates
     ystart_delay = ystart + 3 * dy / 4
     dy_delay = -dy / 2
-    xstart = 0. if xstart is None else xstart
+    xstart = 0.0 if xstart is None else xstart
     dx = record.steps[-1].ts_output - xstart if dx is None else dx
     assert dx > 0, "dx must be > 0."
 
@@ -116,7 +121,7 @@ def plot_event_thread(ax: "matplotlib.Axes",
     step_delay = []
     step_advanced = []
     phase_scheduled = []
-    last_phase_scheduled = 0.
+    last_phase_scheduled = 0.0
     for step in record.steps:
         if step.ts_step > xstart + dx:
             break
@@ -136,12 +141,24 @@ def plot_event_thread(ax: "matplotlib.Axes",
     ax.broken_barh(step_sleep, (ystart, dy), facecolors=fcolor.sleep, edgecolor=ecolor.sleep, label="sleep")
     ax.broken_barh(phase, (ystart, dy), facecolors=fcolor.phase, edgecolor=ecolor.phase, hatch="", label="phase (expected)")
     ax.broken_barh(step_comp, (ystart, dy), facecolors=fcolor.computation, edgecolor=ecolor.computation, label="computation")
-    ax.broken_barh(phase_scheduled, (ystart_delay, dy_delay), facecolors=fcolor.phase, edgecolor=ecolor.phase, hatch="////",
-                   label="phase (scheduled)")
-    ax.broken_barh(step_advanced, (ystart_delay, dy_delay), facecolors=fcolor.advanced, edgecolor=ecolor.advanced,
-                   label="phase (advanced)")
-    ax.broken_barh(step_delay, (ystart_delay, dy_delay), facecolors=fcolor.delay, edgecolor=ecolor.delay,
-                   label="phase (delayed)")
+    ax.broken_barh(
+        phase_scheduled,
+        (ystart_delay, dy_delay),
+        facecolors=fcolor.phase,
+        edgecolor=ecolor.phase,
+        hatch="////",
+        label="phase (scheduled)",
+    )
+    ax.broken_barh(
+        step_advanced,
+        (ystart_delay, dy_delay),
+        facecolors=fcolor.advanced,
+        edgecolor=ecolor.advanced,
+        label="phase (advanced)",
+    )
+    ax.broken_barh(
+        step_delay, (ystart_delay, dy_delay), facecolors=fcolor.delay, edgecolor=ecolor.delay, label="phase (delayed)"
+    )
 
     # Plot scheduled ts
     ymin = ystart + dy if dy < 0 else ystart
@@ -162,12 +179,16 @@ class HandlerPatchCollection:
     def legend_artist(self, legend, orig_handle, fontsize, handlebox):
         x0, y0 = handlebox.xdescent, handlebox.ydescent
         width, height = handlebox.width, handlebox.height
-        p = mpatches.Rectangle([x0, y0], width, height,
-                               facecolor=orig_handle.get_facecolor(),
-                               edgecolor=orig_handle.get_edgecolor(),
-                               hatch=orig_handle.get_hatch(),
-                               lw=orig_handle.get_linewidth(),
-                               transform=handlebox.get_transform())
+        p = mpatches.Rectangle(
+            [x0, y0],
+            width,
+            height,
+            facecolor=orig_handle.get_facecolor(),
+            edgecolor=orig_handle.get_edgecolor(),
+            hatch=orig_handle.get_hatch(),
+            lw=orig_handle.get_linewidth(),
+            transform=handlebox.get_transform(),
+        )
         handlebox.add_artist(p)
         return p
 
@@ -178,21 +199,23 @@ Legend.update_default_handler_map({mc.PatchCollection: HandlerPatchCollection()}
 
 def broken_bar(ax: "matplotlib.Axes", ranges: List[Tuple[float, float, float, float]], **kwargs):
     patches = []
-    for (x, dx, y, dy) in ranges:
-        patches.append(matplotlib.patches.Rectangle((x, y),dx, dy))
+    for x, dx, y, dy in ranges:
+        patches.append(matplotlib.patches.Rectangle((x, y), dx, dy))
     pc = mc.PatchCollection(patches, **kwargs)
     ax.add_collection(pc)
     return pc
 
 
-def plot_grouped(ax: "matplotlib.Axes",
-                 record: log_pb2.NodeRecord,
-                 name: str = None,
-                 xstart: float = None,
-                 dx: float = None,
-                 ecolor: AttrDict = None,
-                 fcolor: AttrDict = None,
-                 max_num: int = None):
+def plot_grouped(
+    ax: "matplotlib.Axes",
+    record: log_pb2.NodeRecord,
+    name: str = None,
+    xstart: float = None,
+    dx: float = None,
+    ecolor: AttrDict = None,
+    fcolor: AttrDict = None,
+    max_num: int = None,
+):
     # Get input record
     name = name if isinstance(name, str) else record.inputs[0].info.name
     record_in = [i for i in record.inputs if name == i.info.name]
@@ -206,7 +229,7 @@ def plot_grouped(ax: "matplotlib.Axes",
         from rex.open_colors import fcolor
 
     # Calculate xy-coordinates
-    xstart = 0. if xstart is None else xstart
+    xstart = 0.0 if xstart is None else xstart
     dx = record.steps[-1].ts_output - xstart if dx is None else dx
     assert dx > 0, "dx must be > 0."
 
@@ -224,7 +247,7 @@ def plot_grouped(ax: "matplotlib.Axes",
     step_scheduled = []
     step_comp = []
     step_sleep = []
-    last_ts_step = 0.
+    last_ts_step = 0.0
     last_delay = None
     for i, (step, g) in enumerate(zip(record.steps, record_in.grouped)):
         # Process step info
@@ -242,7 +265,7 @@ def plot_grouped(ax: "matplotlib.Axes",
         # Process messages
         if not i + 1 < len(record.steps):
             continue
-        next_step = record.steps[i+1].ts_step
+        next_step = record.steps[i + 1].ts_step
         y, dy = step.ts_step, next_step - step.ts_step
 
         offset = max_num + 1
@@ -277,18 +300,20 @@ def plot_grouped(ax: "matplotlib.Axes",
 record_types = Union[log_pb2.NodeRecord, log_pb2.InputRecord]
 
 
-def plot_delay(ax: "matplotlib.Axes",
-               records: Union[List[record_types], record_types],
-               dist: "Distribution" = None,
-               name: str = None,
-               low: float = None,
-               high: float = None,
-               clock: int = SIMULATED,
-               num: int = 1000,
-               ecolor: AttrDict = None,
-               fcolor: AttrDict = None,
-               plot_dist: bool = True,
-               **kde_kwargs):
+def plot_delay(
+    ax: "matplotlib.Axes",
+    records: Union[List[record_types], record_types],
+    dist: "Distribution" = None,
+    name: str = None,
+    low: float = None,
+    high: float = None,
+    clock: int = SIMULATED,
+    num: int = 1000,
+    ecolor: AttrDict = None,
+    fcolor: AttrDict = None,
+    plot_dist: bool = True,
+    **kde_kwargs,
+):
     name = name if isinstance(name, str) else "distribution"
     records = records if isinstance(records, list) else [records]
     assert len(records) > 0, "The provided record is empty."
@@ -354,22 +379,25 @@ def plot_delay(ax: "matplotlib.Axes",
 
     # Plot kde/histogram
     import seaborn as sns
+
     sns.histplot(delay, ax=ax, stat="density", label="data", color=edgecolor, fill=facecolor)
     # sns.kdeplot(delay, ax=ax, warn_singular=False, clip=[low, high], color=edgecolor, fill=facecolor, label="kde estimate",
     #             **kde_kwargs) # todo: TURN ON AGAIN!
 
 
-def plot_step_timing(ax: "matplotlib.Axes",
-                     record: log_pb2.NodeRecord,
-                     kind: Union[List[str], str],
-                     name: str = None,
-                     low: float = None,
-                     high: float = None,
-                     ecolor: AttrDict = None,
-                     fcolor: AttrDict = None,
-                     plot_hist: bool = True,
-                     plot_kde: bool = True,
-                     **kde_kwargs):
+def plot_step_timing(
+    ax: "matplotlib.Axes",
+    record: log_pb2.NodeRecord,
+    kind: Union[List[str], str],
+    name: str = None,
+    low: float = None,
+    high: float = None,
+    ecolor: AttrDict = None,
+    fcolor: AttrDict = None,
+    plot_hist: bool = True,
+    plot_kde: bool = True,
+    **kde_kwargs,
+):
     name = name if isinstance(name, str) else "data"
     kind = kind if isinstance(kind, list) else [kind]
     assert all([k in ["advanced", "ontime", "delayed"] for k in kind])
@@ -391,7 +419,7 @@ def plot_step_timing(ax: "matplotlib.Axes",
         elif round(dt, 6) < 0:
             advanced.append(min(0, dt))
         else:
-            ontime.append(0.)
+            ontime.append(0.0)
 
     # Determine colors
     if "ontime" in kind or len(kind) > 1:
@@ -421,31 +449,41 @@ def plot_step_timing(ax: "matplotlib.Axes",
 
     # Plot kde/histogram
     import seaborn as sns
+
     if plot_hist:
         sns.histplot(data, ax=ax, stat="density", label=name, color=edgecolor, fill=facecolor)
     if plot_kde:
-        sns.kdeplot(data, ax=ax, warn_singular=False, clip=[low, high], color=edgecolor, fill=facecolor,
-                    label="kde estimate",
-                    **kde_kwargs)
+        sns.kdeplot(
+            data,
+            ax=ax,
+            warn_singular=False,
+            clip=[low, high],
+            color=edgecolor,
+            fill=facecolor,
+            label="kde estimate",
+            **kde_kwargs,
+        )
 
 
-def plot_computation_graph(ax: "matplotlib.Axes",
-                           G: nx.DiGraph,
-                           root: str = None,
-                           seq: int = -1,
-                           xmax: float = None,
-                           order: List[str] = None,
-                           cscheme: Dict[str, str] = None,
-                           node_labeltype: str = "seq",
-                           node_size: int = 300,
-                           node_fontsize=10,
-                           edge_linewidth=2.0,
-                           node_linewidth=1.5,
-                           arrowsize=10,
-                           arrowstyle="->",
-                           connectionstyle="arc3",
-                           draw_nodelabels=True,
-                           draw_pruned=True):
+def plot_computation_graph(
+    ax: "matplotlib.Axes",
+    G: nx.DiGraph,
+    root: str = None,
+    seq: int = -1,
+    xmax: float = None,
+    order: List[str] = None,
+    cscheme: Dict[str, str] = None,
+    node_labeltype: str = "seq",
+    node_size: int = 300,
+    node_fontsize=10,
+    edge_linewidth=2.0,
+    node_linewidth=1.5,
+    arrowsize=10,
+    arrowstyle="->",
+    connectionstyle="arc3",
+    draw_nodelabels=True,
+    draw_pruned=True,
+):
     """
 
     :param ax:
@@ -499,12 +537,12 @@ def plot_computation_graph(ax: "matplotlib.Axes",
 
     edges = G.edges(data=True)
     nodes = G.nodes(data=True)
-    edge_color = [data['color'] for u, v, data in edges]
-    edge_alpha = [data['alpha'] for u, v, data in edges]
-    edge_style = [data['linestyle'] for u, v, data in edges]
-    node_alpha = [data['alpha'] for n, data in nodes]
-    node_ecolor = [data['edgecolor'] for n, data in nodes]
-    node_fcolor = [data['facecolor'] for n, data in nodes]
+    edge_color = [data["color"] for u, v, data in edges]
+    edge_alpha = [data["alpha"] for u, v, data in edges]
+    edge_style = [data["linestyle"] for u, v, data in edges]
+    node_alpha = [data["alpha"] for n, data in nodes]
+    node_ecolor = [data["edgecolor"] for n, data in nodes]
+    node_fcolor = [data["facecolor"] for n, data in nodes]
 
     # Get labels
     if node_labeltype == "seq":
@@ -518,11 +556,29 @@ def plot_computation_graph(ax: "matplotlib.Axes",
     pos = {n: data["position"] for n, data in nodes}
 
     # Draw graph
-    nx.draw_networkx_nodes(G, ax=ax, pos=pos, node_color=node_fcolor, alpha=node_alpha, edgecolors=node_ecolor,
-                           node_size=node_size, linewidths=node_linewidth)
-    nx.draw_networkx_edges(G, ax=ax, pos=pos, edge_color=edge_color, alpha=edge_alpha, style=edge_style,
-                           arrowsize=arrowsize, arrowstyle=arrowstyle, connectionstyle=connectionstyle,
-                           width=edge_linewidth, node_size=node_size)
+    nx.draw_networkx_nodes(
+        G,
+        ax=ax,
+        pos=pos,
+        node_color=node_fcolor,
+        alpha=node_alpha,
+        edgecolors=node_ecolor,
+        node_size=node_size,
+        linewidths=node_linewidth,
+    )
+    nx.draw_networkx_edges(
+        G,
+        ax=ax,
+        pos=pos,
+        edge_color=edge_color,
+        alpha=edge_alpha,
+        style=edge_style,
+        arrowsize=arrowsize,
+        arrowstyle=arrowstyle,
+        connectionstyle=connectionstyle,
+        width=edge_linewidth,
+        node_size=node_size,
+    )
 
     # Draw labels
     if draw_nodelabels:
@@ -545,24 +601,24 @@ def plot_computation_graph(ax: "matplotlib.Axes",
 
 
 def plot_topological_order(
-        ax: "matplotlib.Axes",
-        G: nx.DiGraph,
-        root: str,
-        seq: int = -1,
-        xmax: float = None,
-        order: List[str] = None,
-        cscheme: Dict[str, str] = None,
-        node_labeltype: str = "seq",
-        node_size: int = 250,
-        node_fontsize=10,
-        edge_linewidth=2.0,
-        node_linewidth: float = 1.5,
-        arrowsize: int = 10,
-        arrowstyle: str = "->",
-        connectionstyle: str = "arc3,rad=0.1",
-        draw_nodelabels: bool = True,
-        draw_excess: bool = True,
-        draw_root_excess: bool = True,
+    ax: "matplotlib.Axes",
+    G: nx.DiGraph,
+    root: str,
+    seq: int = -1,
+    xmax: float = None,
+    order: List[str] = None,
+    cscheme: Dict[str, str] = None,
+    node_labeltype: str = "seq",
+    node_size: int = 250,
+    node_fontsize=10,
+    edge_linewidth=2.0,
+    node_linewidth: float = 1.5,
+    arrowsize: int = 10,
+    arrowstyle: str = "->",
+    connectionstyle: str = "arc3,rad=0.1",
+    draw_nodelabels: bool = True,
+    draw_excess: bool = True,
+    draw_root_excess: bool = True,
 ):
     """Plot topological order of a trace record.
 
@@ -640,12 +696,12 @@ def plot_topological_order(
     # Get edge and node properties
     edges = G.edges(data=True)
     nodes = G.nodes(data=True)
-    edge_color = [data['color'] for u, v, data in edges]
-    edge_alpha = [data['alpha'] for u, v, data in edges]
-    edge_style = [data['linestyle'] for u, v, data in edges]
-    node_alpha = [data['alpha'] for n, data in nodes]
-    node_ecolor = [data['edgecolor'] for n, data in nodes]
-    node_fcolor = [data['facecolor'] for n, data in nodes]
+    edge_color = [data["color"] for u, v, data in edges]
+    edge_alpha = [data["alpha"] for u, v, data in edges]
+    edge_style = [data["linestyle"] for u, v, data in edges]
+    node_alpha = [data["alpha"] for n, data in nodes]
+    node_ecolor = [data["edgecolor"] for n, data in nodes]
+    node_fcolor = [data["facecolor"] for n, data in nodes]
 
     # Get labels
     if node_labeltype == "seq":
@@ -659,11 +715,29 @@ def plot_topological_order(
     pos = {n: data["position"] for n, data in nodes}
 
     # Draw graph
-    nx.draw_networkx_nodes(G, ax=ax, pos=pos, node_color=node_fcolor, alpha=node_alpha, edgecolors=node_ecolor,
-                           node_size=node_size, linewidths=node_linewidth)
-    nx.draw_networkx_edges(G, ax=ax, pos=pos, edge_color=edge_color, alpha=edge_alpha, style=edge_style,
-                           arrowsize=arrowsize, arrowstyle=arrowstyle, connectionstyle=connectionstyle,
-                           width=edge_linewidth, node_size=node_size)
+    nx.draw_networkx_nodes(
+        G,
+        ax=ax,
+        pos=pos,
+        node_color=node_fcolor,
+        alpha=node_alpha,
+        edgecolors=node_ecolor,
+        node_size=node_size,
+        linewidths=node_linewidth,
+    )
+    nx.draw_networkx_edges(
+        G,
+        ax=ax,
+        pos=pos,
+        edge_color=edge_color,
+        alpha=edge_alpha,
+        style=edge_style,
+        arrowsize=arrowsize,
+        arrowstyle=arrowstyle,
+        connectionstyle=connectionstyle,
+        width=edge_linewidth,
+        node_size=node_size,
+    )
 
     # Draw labels
     if draw_nodelabels:
@@ -685,27 +759,29 @@ def plot_topological_order(
     ax.tick_params(left=False, bottom=True, labelleft=True, labelbottom=True)
 
 
-def plot_depth_order(ax: "matplotlib.Axes",
-                     G: nx.DiGraph,
-                     root: str,
-                     MCS: nx.DiGraph,
-                     seq: int = -1,
-                     split_mode: str = "generational",
-                     supergraph_mode: str = "MCS",
-                     xmax: float = None,
-                     order: List[str] = None,
-                     cscheme: Dict[str, str] = None,
-                     node_labeltype: str = "seq",
-                     node_size: int = 300,
-                     node_fontsize=10,
-                     edge_linewidth=2.0,
-                     node_linewidth=1.5,
-                     arrowsize=10,
-                     arrowstyle="->",
-                     connectionstyle="arc3,rad=0.1",
-                     draw_nodelabels=True,
-                     draw_excess=True,
-                     workers: int = None):
+def plot_depth_order(
+    ax: "matplotlib.Axes",
+    G: nx.DiGraph,
+    root: str,
+    MCS: nx.DiGraph,
+    seq: int = -1,
+    split_mode: str = "generational",
+    supergraph_mode: str = "MCS",
+    xmax: float = None,
+    order: List[str] = None,
+    cscheme: Dict[str, str] = None,
+    node_labeltype: str = "seq",
+    node_size: int = 300,
+    node_fontsize=10,
+    edge_linewidth=2.0,
+    node_linewidth=1.5,
+    arrowsize=10,
+    arrowstyle="->",
+    connectionstyle="arc3,rad=0.1",
+    draw_nodelabels=True,
+    draw_excess=True,
+    workers: int = None,
+):
     """
     :param ax:
     :param G: Computation graph.
@@ -788,7 +864,7 @@ def plot_depth_order(ax: "matplotlib.Axes",
     for i_root, (root_seq, mapping) in enumerate(monomorphisms.items()):
         # swapped = {v: k for k, v in mapping.items()}
         for i_gen, gen in enumerate(generations):
-            x = i_root*num_gens + i_gen
+            x = i_root * num_gens + i_gen
             for node in gen:
                 y = MCS.nodes[node]["position"][1]
                 position = (x, y)
@@ -808,12 +884,12 @@ def plot_depth_order(ax: "matplotlib.Axes",
     # Get edge and node properties
     edges = G.edges(data=True)
     nodes = G.nodes(data=True)
-    edge_color = [data['color'] for u, v, data in edges]
-    edge_alpha = [data['alpha'] for u, v, data in edges]
-    edge_style = [data['linestyle'] for u, v, data in edges]
-    node_alpha = [data['alpha'] for n, data in nodes]
-    node_ecolor = [data['edgecolor'] for n, data in nodes]
-    node_fcolor = [data['facecolor'] for n, data in nodes]
+    edge_color = [data["color"] for u, v, data in edges]
+    edge_alpha = [data["alpha"] for u, v, data in edges]
+    edge_style = [data["linestyle"] for u, v, data in edges]
+    node_alpha = [data["alpha"] for n, data in nodes]
+    node_ecolor = [data["edgecolor"] for n, data in nodes]
+    node_fcolor = [data["facecolor"] for n, data in nodes]
 
     # Get labels
     if node_labeltype == "seq":
@@ -827,11 +903,29 @@ def plot_depth_order(ax: "matplotlib.Axes",
     pos = {n: data["position"] for n, data in G.nodes(data=True)}
 
     # Draw graph
-    nx.draw_networkx_nodes(G, ax=ax, pos=pos, node_color=node_fcolor, alpha=node_alpha, edgecolors=node_ecolor,
-                           node_size=node_size, linewidths=node_linewidth)
-    nx.draw_networkx_edges(G, ax=ax, pos=pos, edge_color=edge_color, alpha=edge_alpha, style=edge_style,
-                           arrowsize=arrowsize, arrowstyle=arrowstyle, connectionstyle=connectionstyle,
-                           width=edge_linewidth, node_size=node_size)
+    nx.draw_networkx_nodes(
+        G,
+        ax=ax,
+        pos=pos,
+        node_color=node_fcolor,
+        alpha=node_alpha,
+        edgecolors=node_ecolor,
+        node_size=node_size,
+        linewidths=node_linewidth,
+    )
+    nx.draw_networkx_edges(
+        G,
+        ax=ax,
+        pos=pos,
+        edge_color=edge_color,
+        alpha=edge_alpha,
+        style=edge_style,
+        arrowsize=arrowsize,
+        arrowstyle=arrowstyle,
+        connectionstyle=connectionstyle,
+        width=edge_linewidth,
+        node_size=node_size,
+    )
 
     # Draw labels
     if draw_nodelabels:
@@ -853,17 +947,19 @@ def plot_depth_order(ax: "matplotlib.Axes",
     ax.tick_params(left=False, bottom=True, labelleft=True, labelbottom=True)
 
 
-def plot_graph(ax: "matplotlib.Axes",
-               record: log_pb2.EpisodeRecord,
-               cscheme: Dict[str, str] = None,
-               pos: Dict[str, Tuple[float, float]] = None,
-               node_size: int = 2000,
-               node_fontsize=10,
-               edge_linewidth=3.0,
-               node_linewidth=2.0,
-               arrowsize=10,
-               arrowstyle="->",
-               connectionstyle="arc3,rad=0.2"):
+def plot_graph(
+    ax: "matplotlib.Axes",
+    record: log_pb2.EpisodeRecord,
+    cscheme: Dict[str, str] = None,
+    pos: Dict[str, Tuple[float, float]] = None,
+    node_size: int = 2000,
+    node_fontsize=10,
+    edge_linewidth=3.0,
+    node_linewidth=2.0,
+    arrowsize=10,
+    arrowstyle="->",
+    connectionstyle="arc3,rad=0.2",
+):
     # Add color of nodes that are not in the cscheme
     cscheme = cscheme if isinstance(cscheme, dict) else {}
     for n in record.node:
@@ -887,26 +983,44 @@ def plot_graph(ax: "matplotlib.Axes",
         edgecolor = ecolor[n.info.name]
         facecolor = fcolor[n.info.name]
         name = f"{n.info.name}\n{n.info.rate} Hz"  # \n{n.info.delay:.3f} s\n{n.info.phase: .3f} s"
-        G.add_node(n.info.name, name=name, rate=n.info.rate, advance=n.info.advance, phase=n.info.phase, delay=n.info.delay,
-                   edgecolor=edgecolor,
-                   facecolor=facecolor, alpha=1.0)
+        G.add_node(
+            n.info.name,
+            name=name,
+            rate=n.info.rate,
+            advance=n.info.advance,
+            phase=n.info.phase,
+            delay=n.info.delay,
+            edgecolor=edgecolor,
+            facecolor=facecolor,
+            alpha=1.0,
+        )
         for i in n.inputs:
             linestyle = "-" if i.info.blocking else "--"
             color = oc.ecolor.skip if i.info.skip else oc.ecolor.normal
-            G.add_edge(i.info.output, n.info.name, name=i.info.name, blocking=i.info.blocking, skip=i.info.skip,
-                       delay=i.info.delay,
-                       window=i.info.window, jitter=i.info.jitter, phase=i.info.phase, color=color, linestyle=linestyle,
-                       alpha=1.0)
+            G.add_edge(
+                i.info.output,
+                n.info.name,
+                name=i.info.name,
+                blocking=i.info.blocking,
+                skip=i.info.skip,
+                delay=i.info.delay,
+                window=i.info.window,
+                jitter=i.info.jitter,
+                phase=i.info.phase,
+                color=color,
+                linestyle=linestyle,
+                alpha=1.0,
+            )
 
     # Get edge and node properties
     edges = G.edges(data=True)
     nodes = G.nodes(data=True)
-    edge_color = [data['color'] for u, v, data in edges]
-    edge_alpha = [data['alpha'] for u, v, data in edges]
-    edge_style = [data['linestyle'] for u, v, data in edges]
-    node_alpha = [data['alpha'] for n, data in nodes]
-    node_ecolor = [data['edgecolor'] for n, data in nodes]
-    node_fcolor = [data['facecolor'] for n, data in nodes]
+    edge_color = [data["color"] for u, v, data in edges]
+    edge_alpha = [data["alpha"] for u, v, data in edges]
+    edge_style = [data["linestyle"] for u, v, data in edges]
+    node_alpha = [data["alpha"] for n, data in nodes]
+    node_ecolor = [data["edgecolor"] for n, data in nodes]
+    node_fcolor = [data["facecolor"] for n, data in nodes]
 
     # Get labels
     # edge_labels = {(u, v): f"{data['delay']:.3f}" for u, v, data in edges}
@@ -916,11 +1030,30 @@ def plot_graph(ax: "matplotlib.Axes",
     pos = nx.spring_layout(G, pos=pos, fixed=fixed_pos)
 
     # Draw graph
-    nx.draw_networkx_nodes(G, ax=ax, pos=pos, node_color=node_fcolor, alpha=node_alpha, edgecolors=node_ecolor,
-                           node_size=node_size, linewidths=node_linewidth, node_shape="s")
-    nx.draw_networkx_edges(G, ax=ax, pos=pos, edge_color=edge_color, alpha=edge_alpha, style=edge_style,
-                           arrowsize=arrowsize, arrowstyle=arrowstyle, connectionstyle=connectionstyle,
-                           width=edge_linewidth, node_size=node_size)
+    nx.draw_networkx_nodes(
+        G,
+        ax=ax,
+        pos=pos,
+        node_color=node_fcolor,
+        alpha=node_alpha,
+        edgecolors=node_ecolor,
+        node_size=node_size,
+        linewidths=node_linewidth,
+        node_shape="s",
+    )
+    nx.draw_networkx_edges(
+        G,
+        ax=ax,
+        pos=pos,
+        edge_color=edge_color,
+        alpha=edge_alpha,
+        style=edge_style,
+        arrowsize=arrowsize,
+        arrowstyle=arrowstyle,
+        connectionstyle=connectionstyle,
+        width=edge_linewidth,
+        node_size=node_size,
+    )
 
     # Draw labels
     nx.draw_networkx_labels(G, pos, node_labels, font_size=node_fontsize)

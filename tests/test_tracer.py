@@ -14,11 +14,11 @@ def test_tracer(split_mode, supergraph_mode):
 
 	# Simulate
 	tstart = time.time()
-	graph_state, obs = env.reset(jumpy.random.PRNGKey(0))
+	graph_state, obs, info = env.reset(jumpy.random.PRNGKey(0))
 	steps = 0
 	while True:
 		steps += 1
-		graph_state, obs, reward, done, info = env.step(graph_state, None)
+		graph_state, obs, reward, truncated, done, info = env.step(graph_state, None)
 		if done:
 			tend = time.time()
 			env.stop()

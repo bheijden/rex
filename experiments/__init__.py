@@ -301,11 +301,11 @@ def eval_env(env: BaseEnv,
     episode_rewards = []
     for _ in range(n_eval_episodes):
         episode_rewards.append(0.0)
-        steps, done, obs = 0, False, env.reset()
+        steps, done, (obs, info) = 0, False, env.reset()
         tstart = time.time()
         while not done:
             action = policy(obs)
-            obs, reward, done, _ = env.step(action)
+            obs, reward, truncated, done, _ = env.step(action)
             steps += 1
             episode_rewards[-1] += reward
             if done:
@@ -476,7 +476,7 @@ class SysIdPolicy:
         return self._action, None
 
 
-import gym
+import gymnasium as gym
 
 
 class RecordEnv:
@@ -488,7 +488,8 @@ class RecordEnv:
         return BaseEnv.load(file)
 
 
-if RecordEnv.id not in gym.envs.registration.registry.env_specs:
+# if RecordEnv.id not in gym.envs.registration.registry.env_specs:
+if RecordEnv.id not in gym.envs.registration.registry:
     gym.envs.register(id=RecordEnv.id,
                       entry_point="experiments:RecordEnv",
                       order_enforce=False)
@@ -742,7 +743,7 @@ class RolloutWrapper(object):
         """Rollout a pendulum episode with lax.scan."""
         # Reset the environment
         rng_reset, rng_policy, rng_episode = jax.random.split(rng_input, num=3)
-        state, obs = self.env.reset(rng_reset)
+        state, obs, info = self.env.reset(rng_reset)
 
         if self.model_forward is not None:
             policy_state = self.model_forward.policy.actor_state
@@ -762,7 +763,7 @@ class RolloutWrapper(object):
                 action = self.model_forward.policy.unscale_action(scaled_action)
             else:
                 action = self.env.action_space().sample(rng_net)
-            next_state, next_obs, reward, done, info = self.env.step(state, action)
+            next_state, next_obs, reward, truncated, done, info = self.env.step(state, action)
             new_cum_reward = cum_reward + reward * valid_mask
             new_valid_mask = valid_mask * (1 - done)
             carry = [
@@ -799,7 +800,7 @@ class RolloutWrapper(object):
     def input_shape(self):
         """Get the shape of the observation."""
         rng = jax.random.PRNGKey(0)
-        obs, state = self.env.reset(rng, self.env_params)
+        obs, state, info = self.env.reset(rng, self.env_params)
         return obs.shape
 
 

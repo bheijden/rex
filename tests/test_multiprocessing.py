@@ -92,7 +92,7 @@ def test_mp_with_rex_nodes():
 	sensor = nodes["sensor"]
 
 	# Grab initial step state
-	graph_state, obs = env.reset(jumpy.random.PRNGKey(0))
+	graph_state, obs, info = env.reset(jumpy.random.PRNGKey(0))
 	env.stop()
 	step_state = graph_state.nodes[sensor.name]
 

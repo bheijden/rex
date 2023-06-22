@@ -62,7 +62,7 @@ if __name__ == "__main__":
 
         # Reset environment (warmup)
         with timer("jit reset", log_level=WARN):
-            graph_state, obs = env_reset(seed)
+            graph_state, obs, info = env_reset(seed)
 
         # Initial step (warmup)
         with timer("jit step", log_level=WARN):
@@ -77,7 +77,7 @@ if __name__ == "__main__":
             if done:
                 step = graph_state.step
                 tend = time.time()
-                graph_state, obs = env_reset(seed)
+                graph_state, obs, info = env_reset(seed)
                 treset = time.time()
                 print(f"agent_steps={eps_steps} | chunk_index={step} | t={(treset - tstart): 2.4f} sec | t_r={(treset - tend): 2.4f} sec | fps={eps_steps / (tend - tstart): 2.4f} | fps={eps_steps / (treset - tstart): 2.4f} (incl. reset)")
                 tstart = treset

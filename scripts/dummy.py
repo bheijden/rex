@@ -10,7 +10,7 @@ from flax.core import FrozenDict
 from rex.distributions import Gaussian
 from rex.proto import log_pb2
 from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, LATEST, BUFFER
-from rex.base import InputState, StepState, GraphState
+from rex.base import InputState, StepState, GraphState, RexResetReturn, RexStepReturn
 from rex.env import BaseEnv
 from rex.node import Node
 from rex.agent import Agent
@@ -27,11 +27,11 @@ def build_dummy_compiled_env() -> Tuple["DummyEnv", "DummyEnv", Dict[str, Node]]
 	action_space = env.action_space()
 
 	# Run environment
-	done, (graph_state, obs) = False, env.reset(jumpy.random.PRNGKey(0))
+	done, (graph_state, obs, info) = False, env.reset(jumpy.random.PRNGKey(0))
 	for _ in range(1):
 		while not done:
 			action = action_space.sample(jumpy.random.PRNGKey(0))
-			graph_state, obs, reward, done, info = env.step(graph_state, action)
+			graph_state, obs, reward, truncated, done, info = env.step(graph_state, action)
 	env.stop()
 
 	# Get episode record with timings
@@ -222,7 +222,7 @@ class DummyEnv(BaseEnv):
 		# ***DO SOMETHING WITH graph_state TO RESET ALL NODES***
 		return graph_state.replace(nodes=FrozenDict(new_nodes))
 
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> Tuple[GraphState, Any]:
+	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> RexResetReturn:
 		"""Reset environment."""
 		new_graph_state = self._get_graph_state(rng, graph_state)
 
@@ -231,11 +231,12 @@ class DummyEnv(BaseEnv):
 
 		# ***DO SOMETHING WITH StepState TO GET OBSERVATION***
 		obs = self._get_obs(step_state)
+		info = {}
 		# ***DO SOMETHING WITH StepState TO GET OBSERVATION***
 
-		return graph_state, obs
+		return graph_state, obs, info
 
-	def step(self, graph_state: GraphState, action: Any) -> Tuple[GraphState, InputState, float, bool, Dict]:
+	def step(self, graph_state: GraphState, action: Any) -> RexStepReturn:
 		"""Perform step transition in environment."""
 		# ***PREPROCESS action TO GET AgentOutput***
 		# Unpack StepState
@@ -268,11 +269,12 @@ class DummyEnv(BaseEnv):
 		# ***DO SOMETHING WITH StepState TO GET OBS/reward/done/info***
 		obs = self._get_obs(step_state)
 		reward = 0.
+		truncated = False
 		done = self._is_terminal(graph_state)
 		info = {}
 		# ***DO SOMETHING WITH StepState TO GET OBS/reward/done/info***
 
-		return graph_state, obs, reward, done, info
+		return graph_state, obs, reward, truncated, done, info
 
 	def observation_space(self, params: DummyParams = None):
 		"""Observation space of the environment."""

@@ -95,7 +95,7 @@ if RUN_PER_STEP:
     def env_step(_rng, _gs, _obs,):
         new_rng, rng_net = jax.random.split(_rng, 2)
         action = cenv.action_space().sample(rng_net)
-        new_gs, new_obs, reward, done, info = cenv.step(_gs, action)
+        new_gs, new_obs, reward, truncated, done, info = cenv.step(_gs, action)
         return new_rng, new_gs, new_obs, reward, done, info
 
     nenvs = 20

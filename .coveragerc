@@ -4,6 +4,7 @@ omit =
     tests/*
     examples/*
     scripts/*
+    jumpy/*
     envs/*
     estimator/*
     experiments/*
