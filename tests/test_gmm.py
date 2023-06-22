@@ -98,7 +98,7 @@ def test_gmm_estimator():
 	# Animate root training
 	est_step: Dict[str, GMMEstimator]
 	anim_step = est_step["agent"].animate_training(fig=fig_step, ax=axes_step["agent"], edgecolor=ecolor.computation, facecolor=fcolor.computation)
-	anim_step.save("gmm_step.mp4")
+	anim_step.save("gmm_step.gif")
 
 	# est_inputs: Dict[str, Dict[str, GMMEstimator]]
 	# anim_inputs = est_inputs["world"]["actuator"].animate_training(fig=fig_step, ax=axes_inputs["world"]["actuator"], edgecolor=ecolor.communication, facecolor=fcolor.communication)
