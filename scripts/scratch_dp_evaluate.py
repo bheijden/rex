@@ -13,6 +13,7 @@ from rex.constants import LATEST, BUFFER, SILENT, DEBUG, INFO, WARN, SYNC, ASYNC
 utils.set_log_level(WARN)
 
 import experiments as exp
+import sbx
 import stable_baselines3 as sb3
 import envs.double_pendulum as dpend
 
@@ -38,9 +39,9 @@ DELAY_FN = lambda d: d.high*0.75
 USE_DELAYS = True   # todo: TOGGLE WITH/WITHOUT DELAYS HERE
 
 # Load models
-MODEL_CLS = sb3.SAC  # sbx.SAC
+MODEL_CLS = sbx.PPO  # sbx.SAC
 MODEL_MODULE = dpend.models
-MODEL_PRELOAD = "sb_sac_model"
+MODEL_PRELOAD = "sbx_sac_model"
 
 # Training
 SEED = 0
@@ -85,22 +86,22 @@ record_pre = exp.eval_env(gym_env, policy, n_eval_episodes=NUM_EVAL_PRE, verbose
 # Logging inputs
 import os, datetime, itertools, wandb
 
-MUST_LOG = True
+MUST_LOG = False
 os.environ["WANDB_SILENT"] = "true"
 DATA_DIR = "/home/r2ci/supergraph/data"
 PROJECT = "supergraph"
 SYNC_MODE = "offline"
 GROUP = f"double-pendulum-evaluation-{datetime.datetime.today().strftime('%Y-%m-%d-%H%M')}"
 
+PLATFORM = ["gpu", "cpu"]
 SUPERGRAPH_MODE = ["MCS", "generational", "topological"]
 ROLLOUTS_NUM_ENVS = [1, 3500]
-PLATFORM = ["gpu", "cpu"]
 settings = list(itertools.product(PLATFORM, SUPERGRAPH_MODE, ROLLOUTS_NUM_ENVS))  # Right-most is varied first
 
 if MUST_LOG:
     wandb.setup()
 
-for platform, supergraph_type, nenvs  in settings:
+for platform, supergraph_type, nenvs in settings:
     cenv = exp.make_compiled_env(env, record_pre.episode, max_steps=MAX_STEPS, eval_env=False,
                                  supergraph_mode=supergraph_type, progress_bar=True)
     size = len(cenv.graph.S)
@@ -166,7 +167,7 @@ for platform, supergraph_type, nenvs  in settings:
                 # cenv = exp.make_compiled_env(env, record_pre.episode, max_steps=MAX_STEPS, eval_env=False, supergraph_mode=SUPERGRAPH_MODE, progress_bar=True)
 
                 # Rollouts
-                rw = exp.RolloutWrapper(cenv)
+                rw = exp.RolloutWrapper(cenv, model_forward=model)
 
                 # Rn rollouts
                 # nenvs = ROLLOUTS_NUM_ENVS

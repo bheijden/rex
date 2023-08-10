@@ -11,7 +11,7 @@ import rex.jumpy as rjp
 import numpy as onp
 import time
 
-from rex.tracer import get_timings_after_root_split, get_chronological_timings
+from rex.supergraph import get_timings_after_root_split, get_chronological_timings
 from rex.plot import get_subplots
 from rex.open_colors import ewheel, fwheel
 from rex.base import Empty
@@ -240,9 +240,9 @@ class StateFitCallback(BaseCallback):
 		self._nodes = config.env.unwrapped.graph.nodes_and_root
 		# NOTE: we add [0] to indicate the initial state (before step [0]).
 		timings = config.graph_state.timings
-		timings_root = get_timings_after_root_split(config.env.graph.MCS, timings)
+		timings_root = get_timings_after_root_split(config.env.graph.S, timings)
 		self._ts_world = onp.concatenate(([0], timings_root["world"]["ts_step"][self._eps]))
-		timings_chron = get_chronological_timings(config.env.graph.MCS, timings, self._eps)
+		timings_chron = get_chronological_timings(config.env.graph.S, timings, self._eps)
 		self._ts_actuator = timings_chron["actuator"]["ts_step"]
 		self._ts_sensor = timings_chron["sensor"]["ts_step"]
 

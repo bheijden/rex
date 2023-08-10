@@ -3,7 +3,7 @@ import numpy as onp
 import networkx as nx
 import jax
 
-import rex.tracer as tracer
+import rex.supergraph
 from rex.utils import AttrDict
 from rex.constants import SIMULATED
 from rex.distributions import GMM, Gaussian
@@ -514,21 +514,21 @@ def plot_computation_graph(
     assert all([v != "red" for v in cscheme.values()]), "Color red is reserved for excluded nodes."
 
     # Set edge and node properties
-    tracer.set_node_order(G, order)
-    tracer.set_node_colors(G, cscheme)
-    y = tracer.get_node_y_position(G)
-    cscheme = tracer.get_node_colors(G)
+    rex.supergraph.set_node_order(G, order)
+    rex.supergraph.set_node_colors(G, cscheme)
+    y = rex.supergraph.get_node_y_position(G)
+    cscheme = rex.supergraph.get_node_colors(G)
 
     # Generate node color scheme
     ecolor, fcolor = oc.cscheme_fn(cscheme)
 
     # Trace root
     if root is not None:
-        G = tracer.trace_root(G, root, seq)
+        G = rex.supergraph.trace_root(G, root, seq)
 
     # Prune
     if not draw_pruned:
-        G = tracer.prune_graph(G)
+        G = rex.supergraph.prune_graph(G)
 
     # Only plot nodes up to xmax
     if xmax is not None:
@@ -600,351 +600,351 @@ def plot_computation_graph(
     ax.tick_params(left=False, bottom=True, labelleft=True, labelbottom=True)
 
 
-def plot_topological_order(
-    ax: "matplotlib.Axes",
-    G: nx.DiGraph,
-    root: str,
-    seq: int = -1,
-    xmax: float = None,
-    order: List[str] = None,
-    cscheme: Dict[str, str] = None,
-    node_labeltype: str = "seq",
-    node_size: int = 250,
-    node_fontsize=10,
-    edge_linewidth=2.0,
-    node_linewidth: float = 1.5,
-    arrowsize: int = 10,
-    arrowstyle: str = "->",
-    connectionstyle: str = "arc3,rad=0.1",
-    draw_nodelabels: bool = True,
-    draw_excess: bool = True,
-    draw_root_excess: bool = True,
-):
-    """Plot topological order of a trace record.
-
-    Args:
-    :param ax: Matplotlib axes.
-    :param G: Computation graph.
-    :param root: Root node to trace in the computation graph.
-    :param seq: Sequence number of the traced root step.
-    :param xmax: Maximum x position of the graph.
-    :param order: Node order.
-    :param cscheme: Color scheme.
-    :param node_labeltype: Node label type. Can be "seq" or "ts".
-    :param node_size: Node size.
-    :param node_fontsize: Node font size.
-    :param edge_linewidth: Edge line width.
-    :param node_linewidth: Node line width.
-    :param arrowsize: Arrow size.
-    :param arrowstyle: Arrow style.
-    :param connectionstyle: Connection style.
-    :param draw_nodelabels: Draw node labels with ts/tick (=True) or not (=False).
-    :param draw_excess: Draw excess step calls (=True) or not (=False).
-    :param draw_root_excess: Draw excess step calls for root (=True) or not (=False).
-    """
-    # Make a copy of the graph
-    G = G.copy(as_view=False)
-
-    # Set cscheme
-    order = order or []
-    cscheme = cscheme or {}
-    assert all([v != "red" for v in cscheme.values()]), "Color red is reserved for excluded nodes."
-
-    # Set edge and node properties
-    tracer.set_node_colors(G, cscheme)
-    tracer.set_node_order(G, order)
-    y = tracer.get_node_y_position(G)
-    cscheme = tracer.get_node_colors(G)
-
-    # Generate node color scheme
-    ecolor, fcolor = oc.cscheme_fn(cscheme)
-
-    # Trace root
-    G = tracer.trace_root(G, root, seq)
-    G = tracer.prune_graph(G)
-
-    # Get node data
-    node_data = tracer.get_node_data(G)
-
-    # Topological sort
-    topo = list(nx.topological_sort(G))
-
-    # Set x positions according to topological order
-    data_excess = {"alpha": 0.5, "edgecolor": oc.ecolor.pruned, "facecolor": oc.fcolor.pruned}
-    for idx, n in enumerate(topo):
-        d = G.nodes[n]
-        G.nodes[n].update({"position": (idx, y[d["name"]])})
-        if draw_excess:
-            if d["name"] == root and not draw_root_excess:
-                continue
-            for key, val in node_data.items():
-                if key == root and not draw_root_excess:
-                    continue
-                if d["name"] == key:
-                    continue
-                position = (idx, y[key])
-                excess = {"pruned": False, "position": position, "ts_step": d["ts_step"]}
-                excess.update(val)
-                excess.update(data_excess)
-                G.add_node(f"{key}_excess_{idx}", **excess)
-
-    # Only plot nodes up to xmax
-    if xmax is not None:
-        draw_nodes = [n for n in G.nodes if G.nodes[n]["ts_step"] <= xmax]
-        G = G.subgraph(draw_nodes)
-
-    # Get edge and node properties
-    edges = G.edges(data=True)
-    nodes = G.nodes(data=True)
-    edge_color = [data["color"] for u, v, data in edges]
-    edge_alpha = [data["alpha"] for u, v, data in edges]
-    edge_style = [data["linestyle"] for u, v, data in edges]
-    node_alpha = [data["alpha"] for n, data in nodes]
-    node_ecolor = [data["edgecolor"] for n, data in nodes]
-    node_fcolor = [data["facecolor"] for n, data in nodes]
-
-    # Get labels
-    if node_labeltype == "seq":
-        node_labels = {n: data["seq"] if "seq" in data else "" for n, data in nodes}
-    elif node_labeltype == "ts":
-        node_labels = {n: f"{data['ts_step']:.3f}" if "ts_step" in data else "" for n, data in nodes}
-    else:
-        raise NotImplementedError("label_type must be 'seq' or 'ts'")
-
-    # Get positions
-    pos = {n: data["position"] for n, data in nodes}
-
-    # Draw graph
-    nx.draw_networkx_nodes(
-        G,
-        ax=ax,
-        pos=pos,
-        node_color=node_fcolor,
-        alpha=node_alpha,
-        edgecolors=node_ecolor,
-        node_size=node_size,
-        linewidths=node_linewidth,
-    )
-    nx.draw_networkx_edges(
-        G,
-        ax=ax,
-        pos=pos,
-        edge_color=edge_color,
-        alpha=edge_alpha,
-        style=edge_style,
-        arrowsize=arrowsize,
-        arrowstyle=arrowstyle,
-        connectionstyle=connectionstyle,
-        width=edge_linewidth,
-        node_size=node_size,
-    )
-
-    # Draw labels
-    if draw_nodelabels:
-        nx.draw_networkx_labels(G, pos, node_labels, ax=ax, font_size=node_fontsize)
-
-    # Add empty plot with correct color and label for each node
-    ax.plot([], [], color=oc.ecolor.used, label="dependency")
-    for (name, e), (_, f) in zip(ecolor.items(), fcolor.items()):
-        ax.scatter([], [], edgecolor=e, facecolor=f, label=name)
-
-    # Add excess with correct color and label to legend
-    if draw_excess:
-        ax.scatter([], [], edgecolor=oc.ecolor.excluded, facecolor=oc.fcolor.excluded, alpha=0.5, label="excess step")
-
-    # Set ticks
-    yticks = list(y.values())
-    ylabels = list(y.keys())
-    ax.set_yticks(yticks, labels=ylabels)
-    ax.tick_params(left=False, bottom=True, labelleft=True, labelbottom=True)
-
-
-def plot_depth_order(
-    ax: "matplotlib.Axes",
-    G: nx.DiGraph,
-    root: str,
-    MCS: nx.DiGraph,
-    seq: int = -1,
-    split_mode: str = "generational",
-    supergraph_mode: str = "MCS",
-    xmax: float = None,
-    order: List[str] = None,
-    cscheme: Dict[str, str] = None,
-    node_labeltype: str = "seq",
-    node_size: int = 300,
-    node_fontsize=10,
-    edge_linewidth=2.0,
-    node_linewidth=1.5,
-    arrowsize=10,
-    arrowstyle="->",
-    connectionstyle="arc3,rad=0.1",
-    draw_nodelabels=True,
-    draw_excess=True,
-    workers: int = None,
-):
-    """
-    :param ax:
-    :param G: Computation graph.
-    :param root: Root node to trace in the computation graph.
-    :param MCS: minimum common supergraph.
-    :param seq: Sequence number of the traced root step.
-    :param split_mode: Split mode for the subgraphs graph.
-    :param supergraph_mode: The type of supergraph for the subgraphs graph.
-    :param xmax: Maximum time to plot the computation graph for.
-    :param order: Order in which the nodes are placed in y-direction.
-    :param cscheme: Color scheme for the nodes.
-    :param node_labeltype:
-    :param node_size:
-    :param node_fontsize:
-    :param edge_linewidth:
-    :param node_linewidth:
-    :param arrowsize:
-    :param arrowstyle:
-    :param connectionstyle:
-    :param draw_nodelabels: Draw node labels with ts/tick (=True) or not (=False).
-    :param draw_excess: Draw excess step calls (=True) or not (=False).
-    :param workers: Number of workers to use for parallelization.
-    :return:
-    """
-    # Create copy of graphs
-    G = G.copy(as_view=False)
-    MCS = MCS.copy(as_view=False)
-
-    # Set cscheme & order
-    order = order or []
-    cscheme = cscheme or {}
-    assert all([v != "red" for v in cscheme.values()]), "Color red is reserved for excluded nodes."
-
-    # Determine root node (always in the last generation)
-    generations = list(nx.topological_generations(MCS))
-    num_gens = len(generations)
-    root_slot = generations[-1][0]
-    assert MCS.nodes[root_slot]["name"] == root, f"Root node {root} not found in last generation of MCS."
-
-    # Set edge and node properties
-    tracer.set_node_order(G, order)
-    tracer.set_node_colors(G, cscheme)
-    cscheme = tracer.get_node_colors(G)
-
-    # Generate node color scheme
-    ecolor, fcolor = oc.cscheme_fn(cscheme)
-
-    # Trace root node (not pruned yet)
-    G = tracer.trace_root(G, root=root, seq=seq)
-
-    # Prune unused nodes (not in computation graph of traced root)
-    G = tracer.prune_graph(G)
-
-    # Get subgraphs
-    G_subgraphs = tracer.get_subgraphs(G, split_mode=split_mode)
-
-    # If supergraph_mode is "topological"
-    if supergraph_mode == "topological":
-        G_subgraphs = tracer.as_topological_subgraphs(G_subgraphs)
-
-    # Set MCS properties
-    tracer.set_node_order(MCS, order)
-    tracer.set_node_colors(MCS, cscheme)
-    MCS = tracer.as_MCS(MCS)
-
-    # Get monomorphisms
-    monomorphisms = tracer.get_subgraph_monomorphisms(MCS, G_subgraphs, workers=workers)
-
-    # Add root node to mapping (root is always the only node in the last generation)
-    root_slot = f"{root}_s0"
-    assert root_slot in MCS, "Root node not found in MCS."
-    monomorphisms = {k: {**v, root_slot: k} for k, v in monomorphisms.items()}
-
-    # Sort monomorphisms by root sequence number
-    monomorphisms = {k: v for k, v in sorted(monomorphisms.items(), key=lambda key_val: G.nodes[key_val[0]]["seq"])}
-
-    # Set node positions
-    node_data = tracer.get_node_data(MCS)
-    data_excess = {"alpha": 0.5, "edgecolor": oc.ecolor.pruned, "facecolor": oc.fcolor.pruned}
-    for i_root, (root_seq, mapping) in enumerate(monomorphisms.items()):
-        # swapped = {v: k for k, v in mapping.items()}
-        for i_gen, gen in enumerate(generations):
-            x = i_root * num_gens + i_gen
-            for node in gen:
-                y = MCS.nodes[node]["position"][1]
-                position = (x, y)
-                if node in mapping:
-                    G.nodes[mapping[node]].update({"position": position})
-                elif draw_excess:
-                    excess = {"pruned": False, "position": position, "ts_step": G.nodes[root_seq]["ts_step"]}
-                    excess.update(node_data[MCS.nodes[node]["name"]])
-                    excess.update(data_excess)
-                    G.add_node(f"{node}_excess_{x}", **excess)
-
-    # Only plot nodes up to xmax
-    if xmax is not None:
-        draw_nodes = [n for n in G.nodes if G.nodes[n]["ts_step"] <= xmax]
-        G = G.subgraph(draw_nodes)
-
-    # Get edge and node properties
-    edges = G.edges(data=True)
-    nodes = G.nodes(data=True)
-    edge_color = [data["color"] for u, v, data in edges]
-    edge_alpha = [data["alpha"] for u, v, data in edges]
-    edge_style = [data["linestyle"] for u, v, data in edges]
-    node_alpha = [data["alpha"] for n, data in nodes]
-    node_ecolor = [data["edgecolor"] for n, data in nodes]
-    node_fcolor = [data["facecolor"] for n, data in nodes]
-
-    # Get labels
-    if node_labeltype == "seq":
-        node_labels = {n: data["seq"] if "seq" in data else "" for n, data in nodes}
-    elif node_labeltype == "ts":
-        node_labels = {n: f"{data['ts_step']:.3f}" if "ts_step" in data else "" for n, data in nodes}
-    else:
-        raise NotImplementedError("label_type must be 'seq' or 'ts'")
-
-    # Get positions
-    pos = {n: data["position"] for n, data in G.nodes(data=True)}
-
-    # Draw graph
-    nx.draw_networkx_nodes(
-        G,
-        ax=ax,
-        pos=pos,
-        node_color=node_fcolor,
-        alpha=node_alpha,
-        edgecolors=node_ecolor,
-        node_size=node_size,
-        linewidths=node_linewidth,
-    )
-    nx.draw_networkx_edges(
-        G,
-        ax=ax,
-        pos=pos,
-        edge_color=edge_color,
-        alpha=edge_alpha,
-        style=edge_style,
-        arrowsize=arrowsize,
-        arrowstyle=arrowstyle,
-        connectionstyle=connectionstyle,
-        width=edge_linewidth,
-        node_size=node_size,
-    )
-
-    # Draw labels
-    if draw_nodelabels:
-        nx.draw_networkx_labels(G, pos, node_labels, ax=ax, font_size=node_fontsize)
-
-    # Add empty plot with correct color and label for each node
-    ax.plot([], [], color=oc.ecolor.used, label="dependency")
-    for (name, e), (_, f) in zip(ecolor.items(), fcolor.items()):
-        ax.scatter([], [], edgecolor=e, facecolor=f, label=name)
-
-    if draw_excess:
-        ax.scatter([], [], edgecolor=oc.ecolor.excluded, facecolor=oc.fcolor.excluded, alpha=0.5, label="excess step")
-
-    # Set ticks
-    yticks = list(range(max([len(gen) for gen in generations])))
-    ylabels = ["" for _ in yticks]
-    ax.set_yticks(yticks, labels=ylabels)
-    # ax.set_yticks(yticks)
-    ax.tick_params(left=False, bottom=True, labelleft=True, labelbottom=True)
+# def plot_topological_order(
+#     ax: "matplotlib.Axes",
+#     G: nx.DiGraph,
+#     root: str,
+#     seq: int = -1,
+#     xmax: float = None,
+#     order: List[str] = None,
+#     cscheme: Dict[str, str] = None,
+#     node_labeltype: str = "seq",
+#     node_size: int = 250,
+#     node_fontsize=10,
+#     edge_linewidth=2.0,
+#     node_linewidth: float = 1.5,
+#     arrowsize: int = 10,
+#     arrowstyle: str = "->",
+#     connectionstyle: str = "arc3,rad=0.1",
+#     draw_nodelabels: bool = True,
+#     draw_excess: bool = True,
+#     draw_root_excess: bool = True,
+# ):
+#     """Plot topological order of a trace record.
+#
+#     Args:
+#     :param ax: Matplotlib axes.
+#     :param G: Computation graph.
+#     :param root: Root node to trace in the computation graph.
+#     :param seq: Sequence number of the traced root step.
+#     :param xmax: Maximum x position of the graph.
+#     :param order: Node order.
+#     :param cscheme: Color scheme.
+#     :param node_labeltype: Node label type. Can be "seq" or "ts".
+#     :param node_size: Node size.
+#     :param node_fontsize: Node font size.
+#     :param edge_linewidth: Edge line width.
+#     :param node_linewidth: Node line width.
+#     :param arrowsize: Arrow size.
+#     :param arrowstyle: Arrow style.
+#     :param connectionstyle: Connection style.
+#     :param draw_nodelabels: Draw node labels with ts/tick (=True) or not (=False).
+#     :param draw_excess: Draw excess step calls (=True) or not (=False).
+#     :param draw_root_excess: Draw excess step calls for root (=True) or not (=False).
+#     """
+#     # Make a copy of the graph
+#     G = G.copy(as_view=False)
+#
+#     # Set cscheme
+#     order = order or []
+#     cscheme = cscheme or {}
+#     assert all([v != "red" for v in cscheme.values()]), "Color red is reserved for excluded nodes."
+#
+#     # Set edge and node properties
+#     rex.supergraph.set_node_colors(G, cscheme)
+#     rex.supergraph.set_node_order(G, order)
+#     y = rex.supergraph.get_node_y_position(G)
+#     cscheme = rex.supergraph.get_node_colors(G)
+#
+#     # Generate node color scheme
+#     ecolor, fcolor = oc.cscheme_fn(cscheme)
+#
+#     # Trace root
+#     G = rex.supergraph.trace_root(G, root, seq)
+#     G = rex.supergraph.prune_graph(G)
+#
+#     # Get node data
+#     node_data = rex.supergraph.get_node_data(G)
+#
+#     # Topological sort
+#     topo = list(nx.topological_sort(G))
+#
+#     # Set x positions according to topological order
+#     data_excess = {"alpha": 0.5, "edgecolor": oc.ecolor.pruned, "facecolor": oc.fcolor.pruned}
+#     for idx, n in enumerate(topo):
+#         d = G.nodes[n]
+#         G.nodes[n].update({"position": (idx, y[d["kind"]])})
+#         if draw_excess:
+#             if d["kind"] == root and not draw_root_excess:
+#                 continue
+#             for key, val in node_data.items():
+#                 if key == root and not draw_root_excess:
+#                     continue
+#                 if d["kind"] == key:
+#                     continue
+#                 position = (idx, y[key])
+#                 excess = {"pruned": False, "position": position, "ts_step": d["ts_step"]}
+#                 excess.update(val)
+#                 excess.update(data_excess)
+#                 G.add_node(f"{key}_excess_{idx}", **excess)
+#
+#     # Only plot nodes up to xmax
+#     if xmax is not None:
+#         draw_nodes = [n for n in G.nodes if G.nodes[n]["ts_step"] <= xmax]
+#         G = G.subgraph(draw_nodes)
+#
+#     # Get edge and node properties
+#     edges = G.edges(data=True)
+#     nodes = G.nodes(data=True)
+#     edge_color = [data["color"] for u, v, data in edges]
+#     edge_alpha = [data["alpha"] for u, v, data in edges]
+#     edge_style = [data["linestyle"] for u, v, data in edges]
+#     node_alpha = [data["alpha"] for n, data in nodes]
+#     node_ecolor = [data["edgecolor"] for n, data in nodes]
+#     node_fcolor = [data["facecolor"] for n, data in nodes]
+#
+#     # Get labels
+#     if node_labeltype == "seq":
+#         node_labels = {n: data["seq"] if "seq" in data else "" for n, data in nodes}
+#     elif node_labeltype == "ts":
+#         node_labels = {n: f"{data['ts_step']:.3f}" if "ts_step" in data else "" for n, data in nodes}
+#     else:
+#         raise NotImplementedError("label_type must be 'seq' or 'ts'")
+#
+#     # Get positions
+#     pos = {n: data["position"] for n, data in nodes}
+#
+#     # Draw graph
+#     nx.draw_networkx_nodes(
+#         G,
+#         ax=ax,
+#         pos=pos,
+#         node_color=node_fcolor,
+#         alpha=node_alpha,
+#         edgecolors=node_ecolor,
+#         node_size=node_size,
+#         linewidths=node_linewidth,
+#     )
+#     nx.draw_networkx_edges(
+#         G,
+#         ax=ax,
+#         pos=pos,
+#         edge_color=edge_color,
+#         alpha=edge_alpha,
+#         style=edge_style,
+#         arrowsize=arrowsize,
+#         arrowstyle=arrowstyle,
+#         connectionstyle=connectionstyle,
+#         width=edge_linewidth,
+#         node_size=node_size,
+#     )
+#
+#     # Draw labels
+#     if draw_nodelabels:
+#         nx.draw_networkx_labels(G, pos, node_labels, ax=ax, font_size=node_fontsize)
+#
+#     # Add empty plot with correct color and label for each node
+#     ax.plot([], [], color=oc.ecolor.used, label="dependency")
+#     for (name, e), (_, f) in zip(ecolor.items(), fcolor.items()):
+#         ax.scatter([], [], edgecolor=e, facecolor=f, label=name)
+#
+#     # Add excess with correct color and label to legend
+#     if draw_excess:
+#         ax.scatter([], [], edgecolor=oc.ecolor.excluded, facecolor=oc.fcolor.excluded, alpha=0.5, label="excess step")
+#
+#     # Set ticks
+#     yticks = list(y.values())
+#     ylabels = list(y.keys())
+#     ax.set_yticks(yticks, labels=ylabels)
+#     ax.tick_params(left=False, bottom=True, labelleft=True, labelbottom=True)
+#
+#
+# def plot_depth_order(
+#     ax: "matplotlib.Axes",
+#     G: nx.DiGraph,
+#     root: str,
+#     MCS: nx.DiGraph,
+#     seq: int = -1,
+#     split_mode: str = "generational",
+#     supergraph_mode: str = "MCS",
+#     xmax: float = None,
+#     order: List[str] = None,
+#     cscheme: Dict[str, str] = None,
+#     node_labeltype: str = "seq",
+#     node_size: int = 300,
+#     node_fontsize=10,
+#     edge_linewidth=2.0,
+#     node_linewidth=1.5,
+#     arrowsize=10,
+#     arrowstyle="->",
+#     connectionstyle="arc3,rad=0.1",
+#     draw_nodelabels=True,
+#     draw_excess=True,
+#     workers: int = None,
+# ):
+#     """
+#     :param ax:
+#     :param G: Computation graph.
+#     :param root: Root node to trace in the computation graph.
+#     :param MCS: minimum common supergraph.
+#     :param seq: Sequence number of the traced root step.
+#     :param split_mode: Split mode for the subgraphs graph.
+#     :param supergraph_mode: The type of supergraph for the subgraphs graph.
+#     :param xmax: Maximum time to plot the computation graph for.
+#     :param order: Order in which the nodes are placed in y-direction.
+#     :param cscheme: Color scheme for the nodes.
+#     :param node_labeltype:
+#     :param node_size:
+#     :param node_fontsize:
+#     :param edge_linewidth:
+#     :param node_linewidth:
+#     :param arrowsize:
+#     :param arrowstyle:
+#     :param connectionstyle:
+#     :param draw_nodelabels: Draw node labels with ts/tick (=True) or not (=False).
+#     :param draw_excess: Draw excess step calls (=True) or not (=False).
+#     :param workers: Number of workers to use for parallelization.
+#     :return:
+#     """
+#     # Create copy of graphs
+#     G = G.copy(as_view=False)
+#     MCS = MCS.copy(as_view=False)
+#
+#     # Set cscheme & order
+#     order = order or []
+#     cscheme = cscheme or {}
+#     assert all([v != "red" for v in cscheme.values()]), "Color red is reserved for excluded nodes."
+#
+#     # Determine root node (always in the last generation)
+#     generations = list(nx.topological_generations(MCS))
+#     num_gens = len(generations)
+#     root_slot = generations[-1][0]
+#     assert MCS.nodes[root_slot]["kind"] == root, f"Root node {root} not found in last generation of MCS."
+#
+#     # Set edge and node properties
+#     rex.supergraph.set_node_order(G, order)
+#     rex.supergraph.set_node_colors(G, cscheme)
+#     cscheme = rex.supergraph.get_node_colors(G)
+#
+#     # Generate node color scheme
+#     ecolor, fcolor = oc.cscheme_fn(cscheme)
+#
+#     # Trace root node (not pruned yet)
+#     G = rex.supergraph.trace_root(G, root=root, seq=seq)
+#
+#     # Prune unused nodes (not in computation graph of traced root)
+#     G = rex.supergraph.prune_graph(G)
+#
+#     # Get subgraphs
+#     G_subgraphs = rex.supergraph.get_subgraphs(G, split_mode=split_mode)
+#
+#     # If supergraph_mode is "topological"
+#     if supergraph_mode == "topological":
+#         G_subgraphs = rex.supergraph.as_topological_subgraphs(G_subgraphs)
+#
+#     # Set MCS properties
+#     rex.supergraph.set_node_order(MCS, order)
+#     rex.supergraph.set_node_colors(MCS, cscheme)
+#     MCS = rex.supergraph.as_MCS(MCS)
+#
+#     # Get monomorphisms
+#     monomorphisms = rex.supergraph.get_subgraph_monomorphisms(MCS, G_subgraphs, workers=workers)
+#
+#     # Add root node to mapping (root is always the only node in the last generation)
+#     root_slot = f"{root}_s0"
+#     assert root_slot in MCS, "Root node not found in MCS."
+#     monomorphisms = {k: {**v, root_slot: k} for k, v in monomorphisms.items()}
+#
+#     # Sort monomorphisms by root sequence number
+#     monomorphisms = {k: v for k, v in sorted(monomorphisms.items(), key=lambda key_val: G.nodes[key_val[0]]["seq"])}
+#
+#     # Set node positions
+#     node_data = rex.supergraph.get_node_data(MCS)
+#     data_excess = {"alpha": 0.5, "edgecolor": oc.ecolor.pruned, "facecolor": oc.fcolor.pruned}
+#     for i_root, (root_seq, mapping) in enumerate(monomorphisms.items()):
+#         # swapped = {v: k for k, v in mapping.items()}
+#         for i_gen, gen in enumerate(generations):
+#             x = i_root * num_gens + i_gen
+#             for node in gen:
+#                 y = MCS.nodes[node]["position"][1]
+#                 position = (x, y)
+#                 if node in mapping:
+#                     G.nodes[mapping[node]].update({"position": position})
+#                 elif draw_excess:
+#                     excess = {"pruned": False, "position": position, "ts_step": G.nodes[root_seq]["ts_step"]}
+#                     excess.update(node_data[MCS.nodes[node]["kind"]])
+#                     excess.update(data_excess)
+#                     G.add_node(f"{node}_excess_{x}", **excess)
+#
+#     # Only plot nodes up to xmax
+#     if xmax is not None:
+#         draw_nodes = [n for n in G.nodes if G.nodes[n]["ts_step"] <= xmax]
+#         G = G.subgraph(draw_nodes)
+#
+#     # Get edge and node properties
+#     edges = G.edges(data=True)
+#     nodes = G.nodes(data=True)
+#     edge_color = [data["color"] for u, v, data in edges]
+#     edge_alpha = [data["alpha"] for u, v, data in edges]
+#     edge_style = [data["linestyle"] for u, v, data in edges]
+#     node_alpha = [data["alpha"] for n, data in nodes]
+#     node_ecolor = [data["edgecolor"] for n, data in nodes]
+#     node_fcolor = [data["facecolor"] for n, data in nodes]
+#
+#     # Get labels
+#     if node_labeltype == "seq":
+#         node_labels = {n: data["seq"] if "seq" in data else "" for n, data in nodes}
+#     elif node_labeltype == "ts":
+#         node_labels = {n: f"{data['ts_step']:.3f}" if "ts_step" in data else "" for n, data in nodes}
+#     else:
+#         raise NotImplementedError("label_type must be 'seq' or 'ts'")
+#
+#     # Get positions
+#     pos = {n: data["position"] for n, data in G.nodes(data=True)}
+#
+#     # Draw graph
+#     nx.draw_networkx_nodes(
+#         G,
+#         ax=ax,
+#         pos=pos,
+#         node_color=node_fcolor,
+#         alpha=node_alpha,
+#         edgecolors=node_ecolor,
+#         node_size=node_size,
+#         linewidths=node_linewidth,
+#     )
+#     nx.draw_networkx_edges(
+#         G,
+#         ax=ax,
+#         pos=pos,
+#         edge_color=edge_color,
+#         alpha=edge_alpha,
+#         style=edge_style,
+#         arrowsize=arrowsize,
+#         arrowstyle=arrowstyle,
+#         connectionstyle=connectionstyle,
+#         width=edge_linewidth,
+#         node_size=node_size,
+#     )
+#
+#     # Draw labels
+#     if draw_nodelabels:
+#         nx.draw_networkx_labels(G, pos, node_labels, ax=ax, font_size=node_fontsize)
+#
+#     # Add empty plot with correct color and label for each node
+#     ax.plot([], [], color=oc.ecolor.used, label="dependency")
+#     for (name, e), (_, f) in zip(ecolor.items(), fcolor.items()):
+#         ax.scatter([], [], edgecolor=e, facecolor=f, label=name)
+#
+#     if draw_excess:
+#         ax.scatter([], [], edgecolor=oc.ecolor.excluded, facecolor=oc.fcolor.excluded, alpha=0.5, label="excess step")
+#
+#     # Set ticks
+#     yticks = list(range(max([len(gen) for gen in generations])))
+#     ylabels = ["" for _ in yticks]
+#     ax.set_yticks(yticks, labels=ylabels)
+#     # ax.set_yticks(yticks)
+#     ax.tick_params(left=False, bottom=True, labelleft=True, labelbottom=True)
 
 
 def plot_graph(
@@ -985,7 +985,7 @@ def plot_graph(
         name = f"{n.info.name}\n{n.info.rate} Hz"  # \n{n.info.delay:.3f} s\n{n.info.phase: .3f} s"
         G.add_node(
             n.info.name,
-            name=name,
+            kind=name,
             rate=n.info.rate,
             advance=n.info.advance,
             phase=n.info.phase,
@@ -1024,7 +1024,7 @@ def plot_graph(
 
     # Get labels
     # edge_labels = {(u, v): f"{data['delay']:.3f}" for u, v, data in edges}
-    node_labels = {n: data["name"] for n, data in nodes}
+    node_labels = {n: data["kind"] for n, data in nodes}
 
     # Get position
     pos = nx.spring_layout(G, pos=pos, fixed=fixed_pos)

@@ -2,14 +2,12 @@ import pytest
 import time
 import jumpy
 from rex.constants import WARN
-import rex.tracer as tracer
+import rex.supergraph as tracer
 from scripts.dummy import build_dummy_env
 
 
-@pytest.mark.parametrize("split_mode, supergraph_mode", [("topological", "MCS"),
-                                                         ("generational", "MCS"),
-                                                         ("topological", "topological")])
-def test_tracer(split_mode, supergraph_mode):
+@pytest.mark.parametrize("supergraph_mode", ["MCS", "topological", "generational"])
+def test_tracer(supergraph_mode):
 	env, nodes = build_dummy_env()
 
 	# Simulate
@@ -18,7 +16,8 @@ def test_tracer(split_mode, supergraph_mode):
 	steps = 0
 	while True:
 		steps += 1
-		graph_state, obs, reward, truncated, done, info = env.step(graph_state, None)
+		graph_state, obs, reward, terminated, truncated, info = env.step(graph_state, None)
+		done = terminated | truncated
 		if done:
 			tend = time.time()
 			env.stop()
@@ -32,20 +31,15 @@ def test_tracer(split_mode, supergraph_mode):
 	root = "agent"
 	order = ["world", "sensor", "observer", "agent", "actuator"]
 	cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
-	record_network, MCS, lst_full, lst_subgraphs = tracer.get_network_record(record, root, -1, split_mode=split_mode,
-		                                                                     supergraph_mode=supergraph_mode, log_level=WARN,
-	                                                                         cscheme=cscheme, order=order, validate=True, )
+	record_network, S, S_init_to_S, Gs, Gs_monomorphism = tracer.get_network_record(record, root, -1,
+		                                                                     supergraph_mode=supergraph_mode, progress_bar=True,
+	                                                                         cscheme=cscheme, order=order, validate=True)
 
 	# Get timings
-	timings = tracer.get_timings_from_network_record(record_network, log_level=WARN)
-	buffer = tracer.get_graph_buffer(MCS, timings, nodes)
-	outputs = tracer.get_outputs_from_timings(MCS, timings, nodes)
-	timings_chron = tracer.get_chronological_timings(MCS, timings, eps=0)
-	seqs_step, updated_step = tracer.get_step_seqs_mapping(MCS, timings, buffer)
+	timings = tracer.get_timings_from_network_record(record_network, progress_bar=True)
+	buffer = tracer.get_graph_buffer(S, timings, nodes)
+	outputs = tracer.get_outputs_from_timings(S, timings, nodes)
+	timings_chron = tracer.get_chronological_timings(S, timings, eps=0)
+	seqs_step, updated_step = tracer.get_step_seqs_mapping(S, timings, buffer)
 
-	G = lst_full[0]
-	G_subgraphs = lst_subgraphs[0]
-
-	# Convert to topological subgraph
-	if supergraph_mode == "topological":
-		G_subgraphs_topo = tracer.as_topological_subgraphs(G_subgraphs)
+	G = Gs[0]

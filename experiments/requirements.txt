@@ -22,3 +22,7 @@ torchaudio
 # todo: Probably need to run this instead,
 # CUDA 11.4 and CuDNN 8.2. This wheel is deprecated and will be discontinued with jax 0.4.8.
 # poetry run pip install --upgrade "jax[cuda11_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+# poetry run pip install --upgrade "jax[cuda11_pip]==0.4.1" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+# poetry run pip install stable-baselines3==2.0.0a13
+# poetry run pip install gym==0.26
+# poetry run pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu

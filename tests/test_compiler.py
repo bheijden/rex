@@ -11,7 +11,7 @@ import rex.jumpy as rjp
 from rex.base import GraphState
 import rex.utils as utils
 from rex.constants import SILENT, DEBUG, INFO, WARN
-from rex.tracer import get_network_record, get_timings_from_network_record, get_graph_buffer
+from rex.supergraph import get_network_record, get_timings_from_network_record, get_graph_buffer
 from rex.compiled import CompiledGraph
 
 from scripts.dummy import DummyEnv, build_dummy_env
@@ -45,7 +45,7 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
 
         # Initial step (warmup)
         with utils.timer(f"{name} | jit step", log_level=WARN):
-            graph_state, obs, reward, truncated, done, info = env_step(graph_state, None)
+            graph_state, obs, reward, terminated, truncated, info = env_step(graph_state, None)
             obs_lst.append(obs)
             gs_lst.append(graph_state)
             # ss_new = graph_state.nodes["agent""].replace(rng=jp.array([0, 0], dtype=jp.int32))
@@ -56,13 +56,14 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
         tstart = time.time()
         eps_steps = 1
         while True:
-            graph_state, obs, reward, truncated, done, info = env_step(graph_state, None)
+            graph_state, obs, reward, terminated, truncated, info = env_step(graph_state, None)
             obs_lst.append(obs)
             gs_lst.append(graph_state)
             # ss_new = graph_state.nodes["agent""].replace(rng=jp.array([0, 0], dtype=jp.int32))
             ss_new = graph_state.nodes["agent"]
             ss_lst.append(ss_new)
             eps_steps += 1
+            done = jp.logical_or(terminated, truncated)
             if done[0]:
                 # Time env stopping
                 tend = time.time()
@@ -91,11 +92,11 @@ def test_compiler():
     record = env.graph.get_episode_record()
 
     # Trace
-    trace_mcs, MCS, G, G_subgraphs = get_network_record(record, "agent", -1)
+    trace_mcs, S, S_init_to_S, Gs, Gs_monomorphism = get_network_record(record, "agent", -1)
 
     # Initialize graph state
     timings = get_timings_from_network_record(trace_mcs)
-    buffer = get_graph_buffer(MCS, timings, nodes)
+    buffer = get_graph_buffer(S, timings, nodes)
     init_gs = GraphState(timings=timings, buffer=buffer)
 
     # Test graph
@@ -103,7 +104,7 @@ def test_compiler():
     _ = env.graph.max_starting_step(max_steps=10)
 
     # Test compiled graph
-    graph = CompiledGraph(nodes=nodes, root=nodes["agent"], MCS=MCS, default_timings=timings)
+    graph = CompiledGraph(nodes=nodes, root=nodes["agent"], S=S, default_timings=timings)
     _ = graph.max_starting_step(max_steps=10, graph_state=init_gs)
     _ = graph.max_starting_step(max_steps=10, graph_state=None)
     _ = graph.max_eps(graph_state=None)

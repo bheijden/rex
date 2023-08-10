@@ -17,7 +17,7 @@ from rex.agent import Agent
 from rex.spaces import Box
 from rex.graph import BaseGraph, Graph
 from rex.compiled import CompiledGraph
-from rex.tracer import get_network_record, get_timings_from_network_record
+from rex.supergraph import get_network_record, get_timings_from_network_record
 
 
 def build_dummy_compiled_env() -> Tuple["DummyEnv", "DummyEnv", Dict[str, Node]]:
@@ -38,11 +38,11 @@ def build_dummy_compiled_env() -> Tuple["DummyEnv", "DummyEnv", Dict[str, Node]]
 	record = env.graph.get_episode_record()
 
 	# Trace computation graph
-	trace_mcs, MCS, G, G_subgraphs = get_network_record(record, "agent", -1)
-	timings = get_timings_from_network_record(trace_mcs, G, G_subgraphs)
+	trace_mcs, S, _, Gs, Gs_monomorphism = get_network_record(record, root="agent", seq=-1, supergraph_mode="MCS")
+	timings = get_timings_from_network_record(trace_mcs, Gs, Gs_monomorphism)
 
 	# Define compiled graph
-	graph = CompiledGraph(nodes=nodes, root=nodes["agent"], MCS=MCS, default_timings=timings)
+	graph = CompiledGraph(nodes=nodes, root=nodes["agent"], S=S, default_timings=timings)
 
 	# Create traced environment
 	env_mcs = DummyEnv(graph=graph, max_steps=env.max_steps, name="dummy_env_mcs")

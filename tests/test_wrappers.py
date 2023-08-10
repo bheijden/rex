@@ -54,7 +54,8 @@ def test_gym_wrapper():
 		done, obs = False, env.reset()
 		while not done:
 			action = action_space.sample()
-			obs, reward, truncated, done, info = env.step(action)
+			obs, reward, terminated, truncated, info = env.step(action)
+			done = terminated | truncated
 	env.close()
 
 

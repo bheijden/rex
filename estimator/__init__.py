@@ -13,7 +13,7 @@ import jumpy.numpy as jp
 
 import networkx as nx
 
-from rex.tracer import get_timings_from_network_record, get_outputs_from_timings, get_graph_buffer, get_step_seqs_mapping, get_seqs_mapping
+from rex.supergraph import get_timings_from_network_record, get_outputs_from_timings, get_graph_buffer, get_step_seqs_mapping, get_seqs_mapping
 from rex.proto import log_pb2
 from rex.base import GraphState, Empty, StepState, Output, GraphBuffer, SeqsMapping
 from rex.env import BaseEnv
@@ -67,7 +67,8 @@ def single_loss(env: BaseEnv, graph_state: GraphState, seqs_step: SeqsMapping, p
 	# Perform steps
 	def _step(carry, x):
 		gs, loss_step, loss = carry
-		new_gs, new_loss_step, _, truncated, done, info = env.step(gs, loss_step)
+		new_gs, new_loss_step, _, terminated, truncated, info = env.step(gs, loss_step)
+		done = jp.logical_or(terminated, truncated) # todo: correct?
 		# Only add dynamic loss to total loss
 		new_loss = (1-done)*(new_loss_step.loss) + loss
 		new_carry = (new_gs, new_loss_step, new_loss)
@@ -109,7 +110,7 @@ def fit(env: BaseEnv, params: optax.Params, optimizer: optax.GradientTransformat
 	start_eps, start_steps = start_eps.flatten(), start_steps.flatten()
 
 	# Determine step_update_mask
-	seqs_step, updated_step = get_step_seqs_mapping(env.graph.MCS, graph_state.timings, graph_state.buffer)
+	seqs_step, updated_step = get_step_seqs_mapping(env.graph.S, graph_state.timings, graph_state.buffer)
 
 	# todo: test out single_loss without vmap.
 	# loss, new_buffer = single_loss(env, graph_state, seqs_step, params, outputs, jumpy.random.PRNGKey(0), jp.int32(0),
@@ -340,9 +341,9 @@ def visualize(_world_states, nodes, ts_actuator, ts_sensor, ts_world):
 	return fig, axes, dict(cos_th=art_cos_th, cos_th2=art_cos_th2, thdot=art_thdot, thdot2=art_thdot2, actions=art_actions)
 
 
-def init_graph_state(env: BaseEnv, nodes: Dict[str, Node], record: log_pb2.NetworkRecord, MCS: nx.DiGraph, G: List[nx.DiGraph], G_subgraphs: List[Dict[str, nx.DiGraph]], data: exp.RecordHelper):
+def init_graph_state(env: BaseEnv, nodes: Dict[str, Node], record: log_pb2.NetworkRecord, MCS: nx.DiGraph, Gs: List[nx.DiGraph], Gs_monomorphism: List[Dict[str, Tuple[int, str]]], data: exp.RecordHelper):
 	# Get timings & buffers
-	timings = get_timings_from_network_record(record, G, G_subgraphs)
+	timings = get_timings_from_network_record(record, Gs, Gs_monomorphism)
 	buffer = get_graph_buffer(MCS, timings, nodes, extra_padding=0)
 	seqs_step, updated_step = get_step_seqs_mapping(MCS, timings, buffer)
 	num_eps, num_steps = next(iter(timings[0].values()))["run"].shape

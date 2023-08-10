@@ -28,10 +28,8 @@ from stable_baselines3.common.base_class import BaseAlgorithm
 import rex.utils as utils
 from rex.graph import Graph
 from rex.compiled import CompiledGraph
-import rex.tracer as tracer
-
-from rex.plot import plot_graph, plot_computation_graph, plot_grouped, plot_input_thread, plot_event_thread, \
-    plot_topological_order, plot_depth_order
+import rex.supergraph as supergraph
+from rex.plot import plot_graph, plot_computation_graph, plot_grouped, plot_input_thread, plot_event_thread
 from rex.gmm_estimator import GMMEstimator
 from rex.env import BaseEnv
 from rex.node import Node
@@ -117,9 +115,8 @@ def make_compiled_env(env: PendulumEnv,
                       records: Union[log_pb2.EpisodeRecord, List[log_pb2.EpisodeRecord]],
                       eval_env: bool = False,
                       max_steps: int = 100,
-                      split_mode: str = "generational",
                       supergraph_mode: str = "MCS",
-                      log_level: int = INFO,
+                      progress_bar: bool = False,
                       ) -> PendulumEnv:
     records = records if isinstance(records, (list, RepeatedCompositeContainer)) else [records]
 
@@ -138,8 +135,8 @@ def make_compiled_env(env: PendulumEnv,
     world.eval_env = eval_env
 
     # Trace record
-    record_network, MCS, G, G_subgraphs = tracer.get_network_record(records, "agent", split_mode=split_mode, supergraph_mode=supergraph_mode, log_level=log_level)
-    timings = tracer.get_timings_from_network_record(record_network, G, G_subgraphs, log_level=log_level)
+    record_network, S, _, Gs, Gs_monomorphism = supergraph.get_network_record(records, "agent", supergraph_mode=supergraph_mode, progress_bar=progress_bar)
+    timings = supergraph.get_timings_from_network_record(record_network, Gs, Gs_monomorphism)
 
     # Create env
     _name = env.name
@@ -149,7 +146,7 @@ def make_compiled_env(env: PendulumEnv,
     env_name.append("compiled")
     env_name = "_".join(env_name)
 
-    graph = CompiledGraph(nodes, agent, MCS, default_timings=timings)
+    graph = CompiledGraph(nodes, agent, S, default_timings=timings)
     env = env.__class__(graph, max_steps, name=env_name)
     return env
 
@@ -206,8 +203,7 @@ def show_communication(record: log_pb2.EpisodeRecord) -> Tuple[plt.Figure, plt.A
     return fig, ax
 
 
-def show_computation_graph(G: nx.DiGraph, MCS: nx.DiGraph, root: str, plot_type: str = "computation", xmax: float = 0.6,
-                           split_mode="generational", supergraph_mode="MCS") -> Tuple[
+def show_computation_graph(G: nx.DiGraph, S: nx.DiGraph, root: str, plot_type: str = "computation", xmax: float = 0.6, supergraph_mode="MCS") -> Tuple[
     plt.Figure, plt.Axes]:
     order = ["world", "sensor", "agent", "actuator"]
     cscheme = {"world": "gray", "sensor": "grape", "agent": "teal", "actuator": "indigo", "render": "yellow", "estimator": "orange"}
@@ -221,14 +217,16 @@ def show_computation_graph(G: nx.DiGraph, MCS: nx.DiGraph, root: str, plot_type:
         plot_computation_graph(ax, G, root=root, order=order, cscheme=cscheme, xmax=xmax, node_size=200,
                                draw_pruned=True, draw_nodelabels=True, node_labeltype="seq", connectionstyle="arc3,rad=0.1")
     elif plot_type == "topological":
+        raise NotImplementedError("Not refactored since supergraph")
         # Create new plot
-        ax.set(facecolor=oc.ccolor("gray"), xlabel="Topological order", yticks=[], xlim=[-1, 20])
-        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        plot_topological_order(ax, G, root=root, xmax=xmax, cscheme=cscheme, node_labeltype="seq", draw_excess=True, draw_root_excess=False)
+        # ax.set(facecolor=oc.ccolor("gray"), xlabel="Topological order", yticks=[], xlim=[-1, 20])
+        # ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        # plot_topological_order(ax, G, root=root, xmax=xmax, cscheme=cscheme, node_labeltype="seq", draw_excess=True, draw_root_excess=False)
     elif plot_type == "depth":
-        ax.set(facecolor=oc.ccolor("gray"), xlabel="Depth order", yticks=[], xlim=[-1, 10])
-        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        plot_depth_order(ax, G, root=root, MCS=MCS, xmax=xmax, cscheme=cscheme, split_mode=split_mode, supergraph_mode=supergraph_mode, node_labeltype="seq", draw_excess=True)
+        raise NotImplementedError("Not refactored since supergraph")
+        # ax.set(facecolor=oc.ccolor("gray"), xlabel="Depth order", yticks=[], xlim=[-1, 10])
+        # ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        # plot_depth_order(ax, G, root=root, MCS=MCS, xmax=xmax, cscheme=cscheme, split_mode=split_mode, supergraph_mode=supergraph_mode, node_labeltype="seq", draw_excess=True)
 
     # Plot legend
     handles, labels = ax.get_legend_handles_labels()
@@ -305,7 +303,8 @@ def eval_env(env: BaseEnv,
         tstart = time.time()
         while not done:
             action = policy(obs)
-            obs, reward, truncated, done, _ = env.step(action)
+            obs, reward, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
             steps += 1
             episode_rewards[-1] += reward
             if done:
@@ -763,7 +762,8 @@ class RolloutWrapper(object):
                 action = self.model_forward.policy.unscale_action(scaled_action)
             else:
                 action = self.env.action_space().sample(rng_net)
-            next_state, next_obs, reward, truncated, done, info = self.env.step(state, action)
+            next_state, next_obs, reward, terminated, truncated, info = self.env.step(state, action)
+            done = jnp.logical_or(terminated, truncated)
             new_cum_reward = cum_reward + reward * valid_mask
             new_valid_mask = valid_mask * (1 - done)
             carry = [

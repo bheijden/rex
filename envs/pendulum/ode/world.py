@@ -27,7 +27,6 @@ def build_pendulum(rates: Dict[str, float],
 	trans = delays["inputs"]
 
 	# Create nodes
-	# Create nodes
 	world = World(name="world", rate=rates["world"], scheduling=scheduling,
 	              delay=process["world"], delay_sim=process_sim["world"])
 	actuator = Actuator(name="actuator", rate=rates["actuator"], scheduling=scheduling, advance=advance,

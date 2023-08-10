@@ -249,8 +249,8 @@ class EstimatorEnv(BaseEnv):
 		loss = self.loss_fn(graph_state)
 
 		# Termination condition
-		done = graph_state.step >= self.graph.max_steps(graph_state)
+		terminated = False
 		truncated = graph_state.step >= self.graph.max_steps(graph_state)
-		info = {"TimeLimit.truncated": done}
+		info = {"TimeLimit.truncated": truncated}
 
-		return graph_state, loss, 0., truncated, done, info
+		return graph_state, loss, 0., terminated, truncated, info

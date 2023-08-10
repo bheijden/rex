@@ -11,10 +11,11 @@ from rex.constants import WARN, INFO
 
 
 class BaseEnv:
-    def __init__(self, graph: BaseGraph, max_steps: int, name: str = "env"):
+    def __init__(self, graph: BaseGraph, max_steps: int, name: str = "env", render_mode: str = None):
         self.name = name
         self.graph = graph
         self.max_steps = max_steps
+        self.render_mode = render_mode
         assert self.max_steps > 0, "max_steps must be a positive integer"
 
     def __getstate__(self):

@@ -11,7 +11,7 @@ from sbx import SAC
 # from stable_baselines3.sac import SAC
 
 import rex.utils as utils
-import rex.tracer as tracer
+from rex.supergraph import get_network_record, get_timings_from_network_record
 from rex.compiled import CompiledGraph
 from rex.graph import Graph
 from rex.proto import log_pb2
@@ -145,8 +145,8 @@ if __name__ == "__main__":
 	# exit()
 
 	# Trace record
-	record_network, MCS, G, G_subgraphs = tracer.get_network_record(exp_record.episode, "agent", split_mode="generational")
-	timings = tracer.get_timings_from_network_record(record_network, G, G_subgraphs)
+	record_network, S, _, Gs, Gs_monomorphism = get_network_record(exp_record.episode, "agent", supergraph_mode="MCS")
+	timings = get_timings_from_network_record(record_network, Gs, Gs_monomorphism)
 
 	# Visualize trace
 	must_plot = True
@@ -165,7 +165,7 @@ if __name__ == "__main__":
 		ax.set(facecolor=oc.ccolor("gray"), xlabel="time (s)", yticks=[], xlim=[-0.01, 0.3])
 		order = ["world", "sensor", "agent", "actuator"]
 		cscheme = {"world": "gray", "sensor": "grape",  "agent": "teal", "render": "yellow",  "actuator": "indigo"}
-		plot_computation_graph(ax, G[0], root="agent", order=order, cscheme=cscheme, xmax=1.0, node_size=200,
+		plot_computation_graph(ax, Gs[0], root="agent", order=order, cscheme=cscheme, xmax=1.0, node_size=200,
 		                       draw_pruned=True, draw_nodelabels=True, node_labeltype="seq", connectionstyle="arc3,rad=0.1")
 		# Plot legend
 		handles, labels = ax.get_legend_handles_labels()
@@ -189,7 +189,7 @@ if __name__ == "__main__":
 	actuator_ode.connect(agent_ode, name="action", window=1, blocking=True, jitter=jitter, delay_sim=delays_sim["inputs"]["actuator"]["action"], delay=delays["inputs"]["actuator"]["action"])
 
 	# Create trace environment
-	graph = CompiledGraph(nodes_ode, root=agent_ode, MCS=MCS, default_timings=timings)
+	graph = CompiledGraph(nodes_ode, root=agent_ode, S=S, default_timings=timings)
 	env_ode = PendulumEnv(graph, max_steps=max_steps)
 	# env_ode = GymWrapper(env_ode)  # Wrap into gym wrapper
 	env_ode = AutoResetWrapper(env_ode)  # Wrap into auto reset wrapper

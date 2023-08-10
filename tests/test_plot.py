@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 import rex.utils as utils
 from rex.constants import SILENT, DEBUG, INFO, WARN, SIMULATED, WALL_CLOCK
-from rex.tracer import get_network_record
+from rex.supergraph import get_network_record
 from scripts.dummy import build_dummy_env
 
 utils.set_log_level(WARN)
@@ -22,7 +22,8 @@ def test_plot():
     steps = 0
     while True:
         steps += 1
-        graph_state, obs, reward, truncated, done, info = env.step(graph_state, None)
+        graph_state, obs, reward, terminated, truncated, info = env.step(graph_state, None)
+        done = terminated | truncated
         if done:
             tend = time.time()
             env.stop()
@@ -126,12 +127,11 @@ def test_plot():
     root = "agent"
     order = ["world", "sensor", "observer", "agent", "actuator"]
     cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
-    split_mode = "topological"
     supergraph_mode = "MCS"
-    record_network, MCS, lst_full, lst_subgraphs = get_network_record(record, root, -1, split_mode=split_mode, supergraph_mode=supergraph_mode, log_level=WARN)
-    G = lst_full[0]
+    record_network, S, _, Gs, Gs_monomorphism = get_network_record(record, root="agent", seq=-1, supergraph_mode=supergraph_mode)
+    G = Gs[0]
 
-    from rex.plot import plot_computation_graph, plot_topological_order, plot_depth_order
+    from rex.plot import plot_computation_graph#, plot_topological_order, plot_depth_order
     from matplotlib.ticker import MaxNLocator
 
     # Create new plot
@@ -153,17 +153,17 @@ def test_plot():
     axes[0].legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
                    bbox_to_anchor=(1.0, 0.50))
 
-    # Create new plot
-    fig, axes = plt.subplots(nrows=2)
-    fig.set_size_inches(12, 10)
-    axes[0].set(facecolor=oc.ccolor("gray"), xlabel="Depth order", yticks=[], xlim=[-1, 10])
-    axes[1].set(facecolor=oc.ccolor("gray"), xlabel="Depth order", yticks=[], xlim=[-1, 10])
-    axes[0].xaxis.set_major_locator(MaxNLocator(integer=True))
-    axes[1].xaxis.set_major_locator(MaxNLocator(integer=True))
-    cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
-
-    plot_depth_order(axes[0], G, root=root, MCS=MCS, split_mode=split_mode, supergraph_mode=supergraph_mode, xmax=0.6, cscheme=cscheme, node_labeltype="seq", draw_excess=True)
-    plot_depth_order(axes[1], G, root=root, MCS=MCS, split_mode=split_mode, supergraph_mode=supergraph_mode, xmax=0.6, cscheme=cscheme, node_labeltype="ts", draw_excess=False)
+    # # Create new plot
+    # fig, axes = plt.subplots(nrows=2)
+    # fig.set_size_inches(12, 10)
+    # axes[0].set(facecolor=oc.ccolor("gray"), xlabel="Depth order", yticks=[], xlim=[-1, 10])
+    # axes[1].set(facecolor=oc.ccolor("gray"), xlabel="Depth order", yticks=[], xlim=[-1, 10])
+    # axes[0].xaxis.set_major_locator(MaxNLocator(integer=True))
+    # axes[1].xaxis.set_major_locator(MaxNLocator(integer=True))
+    # cscheme = {"sensor": "grape", "observer": "pink", "agent": "teal", "actuator": "indigo"}
+    #
+    # plot_depth_order(axes[0], G, root=root, MCS=MCS, split_mode=split_mode, supergraph_mode=supergraph_mode, xmax=0.6, cscheme=cscheme, node_labeltype="seq", draw_excess=True)
+    # plot_depth_order(axes[1], G, root=root, MCS=MCS, split_mode=split_mode, supergraph_mode=supergraph_mode, xmax=0.6, cscheme=cscheme, node_labeltype="ts", draw_excess=False)
 
     # Plot legend
     handles, labels = axes[0].get_legend_handles_labels()
@@ -173,22 +173,22 @@ def test_plot():
               bbox_to_anchor=(1.0, 0.50))
 
     # Create new plot
-    fig, axes = plt.subplots(nrows=2)
-    fig.set_size_inches(12, 10)
-    axes[0].set(facecolor=oc.ccolor("gray"), xlabel="Topological order", yticks=[], xlim=[-1, 20])
-    axes[1].set(facecolor=oc.ccolor("gray"), xlabel="Topological order", yticks=[], xlim=[-1, 20])
-    axes[0].xaxis.set_major_locator(MaxNLocator(integer=True))
-    axes[1].xaxis.set_major_locator(MaxNLocator(integer=True))
+    # fig, axes = plt.subplots(nrows=2)
+    # fig.set_size_inches(12, 10)
+    # axes[0].set(facecolor=oc.ccolor("gray"), xlabel="Topological order", yticks=[], xlim=[-1, 20])
+    # axes[1].set(facecolor=oc.ccolor("gray"), xlabel="Topological order", yticks=[], xlim=[-1, 20])
+    # axes[0].xaxis.set_major_locator(MaxNLocator(integer=True))
+    # axes[1].xaxis.set_major_locator(MaxNLocator(integer=True))
 
-    plot_topological_order(axes[0], G, root=root, xmax=0.6, cscheme=cscheme, node_labeltype="seq", draw_excess=True, draw_root_excess=False)
-    plot_topological_order(axes[1], G, root=root, xmax=0.6, cscheme=cscheme, node_labeltype="ts", draw_excess=False)
+    # plot_topological_order(axes[0], G, root=root, xmax=0.6, cscheme=cscheme, node_labeltype="seq", draw_excess=True, draw_root_excess=False)
+    # plot_topological_order(axes[1], G, root=root, xmax=0.6, cscheme=cscheme, node_labeltype="ts", draw_excess=False)
 
     # Plot legend
-    handles, labels = axes[0].get_legend_handles_labels()
-    by_label = dict(zip(labels, handles))
-    by_label = dict(sorted(by_label.items()))
-    axes[0].legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
-                   bbox_to_anchor=(1.0, 0.50))
+    # handles, labels = axes[0].get_legend_handles_labels()
+    # by_label = dict(zip(labels, handles))
+    # by_label = dict(sorted(by_label.items()))
+    # axes[0].legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
+    #                bbox_to_anchor=(1.0, 0.50))
 
     from rex.plot import plot_graph
 

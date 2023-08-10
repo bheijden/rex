@@ -27,7 +27,7 @@ import time
 import rex
 from rex.proto import log_pb2
 from rex.env import BaseEnv
-from rex.tracer import get_network_record, get_timings_from_network_record
+from rex.supergraph import get_network_record
 from rex.compiled import CompiledGraph
 from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, WARN, REAL_TIME, \
 	ASYNC, WALL_CLOCK, SCHEDULING_MODES, JITTER_MODES, CLOCK_MODES
@@ -134,14 +134,14 @@ if __name__ == "__main__":
 	record, nodes, excludes_inputs = build_estimator(record_pre, rate=RATE_ESTIMATOR, data=data)
  
 	# Trace
-	record_network, MCS, G, G_subgraphs = get_network_record(record.episode, "estimator", split_mode="generational", excludes_inputs=excludes_inputs)
+	record_network, S, S_init_to_S, Gs, Gs_monomorphism = get_network_record(record.episode, "estimator", excludes_inputs=excludes_inputs)
 
 	# Only show
 	if SHOW_PLOTS:
 		# Plot
-		fig_cg, _ = exp.show_computation_graph(G[0], MCS, "estimator", plot_type="computation", xmax=2.0)
-		fig_dp, _ = exp.show_computation_graph(G[0], MCS, "estimator", plot_type="depth", xmax=2.0)
-		fig_tp, _ = exp.show_computation_graph(G[0], MCS, "estimator", plot_type="topological", xmax=2.0)
+		fig_cg, _ = exp.show_computation_graph(Gs[0], S, "estimator", plot_type="computation", xmax=2.0)
+		fig_dp, _ = exp.show_computation_graph(Gs[0], S, "estimator", plot_type="depth", xmax=2.0)
+		fig_tp, _ = exp.show_computation_graph(Gs[0], S, "estimator", plot_type="topological", xmax=2.0)
 		# fig_com, _ = exp.show_communication(record_eps)
 		# fig_grp, _ = exp.show_grouped(record_eps.node[-1], "state")
 		plt.show()
@@ -179,13 +179,13 @@ if __name__ == "__main__":
 
 	# Compile env
 	from estimator import EstimatorEnv
-	graph = CompiledGraph(nodes, nodes["estimator"], MCS)
+	graph = CompiledGraph(nodes, nodes["estimator"], S)
 	cenv = EstimatorEnv(graph, loss_fn=loss_fn)
 
 	# Prepare initial graph_state
 	from estimator import init_graph_state
 	plt.ion()
-	init_gs = init_graph_state(cenv, nodes, record_network, MCS, G, G_subgraphs, data)
+	init_gs = init_graph_state(cenv, nodes, record_network, S, Gs, Gs_monomorphism, data)
 
 	# Define initial params
 	p_tree = jax.tree_util.tree_map(lambda x: None, nodes["world"].default_params(jumpy.random.PRNGKey(0)))

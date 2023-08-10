@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Tuple, Callable, Union
-
+import functools
 import networkx as nx
 from flax.core import FrozenDict
 import jumpy
@@ -13,7 +13,7 @@ from rex.node import Node
 from rex.graph import BaseGraph
 from rex.base import InputState, StepState, GraphState, Output, Timings, GraphBuffer
 from rex.agent import Agent
-from rex.tracer import get_node_data, get_graph_buffer
+from rex.supergraph import get_node_data, get_graph_buffer
 
 
 int32 = Union[jnp.int32, onp.int32]
@@ -76,64 +76,75 @@ def make_update_inputs(name: str, inputs_data: Dict[str, Dict[str, str]]):
     return _update_inputs
 
 
-def make_run_MCS(nodes: Dict[str, "Node"], MCS: nx.DiGraph, generations: List[List[str]]):
+def old_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, generations: List[List[str]]):
+    # todo: Buffer size may not be big enough, when updating graph_state during generational loop.
+    #       Specifically, get_buffer_sizes_from_timings must be adapted to account for this.
+    #       Or, alternatively, we can construct S such that it has a single node per generation (i.e. linear graph).
+    #       This is currently not yet enforced.
+    INTERMEDIATE_UPDATE = False
+
     # Define update function
-    node_data = get_node_data(MCS)
+    node_data = get_node_data(S)
     update_input_fns = {name: make_update_inputs(name, data["inputs"]) for name, data in node_data.items()}
 
+    def _run_node(kind: str, graph_state: GraphState, timings_node: Dict):
+        # Update inputs
+        ss = update_input_fns[kind](graph_state, timings_node)
+        # ss = _old_ss
+
+        # Run node step
+        _new_ss, output = nodes[kind].step(ss)
+
+        # Increment sequence number
+        _new_seq_ss = _new_ss.replace(seq=_new_ss.seq + 1)
+
+        # Update output buffer
+        _new_output = update_output(graph_state.buffer.outputs[kind], output, timings_node["seq"])
+        # _new_output = graph_state.outputs[kind]
+        return _new_seq_ss, _new_output
+
+    node_step_fns = {kind: functools.partial(_run_node, kind) for kind in nodes.keys()}
+
     def _run_generation(graph_state: GraphState, timings_gen: Dict):
-        # todo: test speed difference for linear graph
         new_nodes = dict()
         new_outputs = dict()
-        for slot_name, timings_node in timings_gen.items():
-            # todo: test speed difference for linear graph
-            # new_nodes = dict()
-            # new_outputs = dict()
-            name = MCS.nodes[slot_name]["name"]
-            pred = timings_gen[slot_name]["run"]
+        for slot_kind, timings_node in timings_gen.items():
+            if INTERMEDIATE_UPDATE:
+                new_nodes = dict()
+                new_outputs = dict()
+            kind = S.nodes[slot_kind]["kind"]
+            pred = timings_gen[slot_kind]["run"]
 
             # Prepare old states
-            _old_ss = graph_state.nodes[name]
-            _old_output = graph_state.buffer.outputs[name]
+            _old_ss = graph_state.nodes[kind]
+            _old_output = graph_state.buffer.outputs[kind]
 
             # Add dummy inputs to old step_state (else jax complains about structural mismatch)
             if _old_ss.inputs is None:
-                _old_ss = update_input_fns[name](graph_state, timings_node)
-
-            # Define node update function
-            def _run_node(graph_state: GraphState) -> Tuple[StepState, Output]:
-                # Update inputs
-                ss = update_input_fns[name](graph_state, timings_node)
-                # ss = _old_ss
-
-                # Run node step
-                _new_ss, output = nodes[name].step(ss)
-
-                # Increment sequence number
-                _new_seq_ss = _new_ss.replace(seq=_new_ss.seq + 1)
-
-                # Update output buffer
-                _new_output = update_output(graph_state.buffer.outputs[name], output, timings_node["seq"])
-                # _new_output = graph_state.outputs[name]
-                return _new_seq_ss, _new_output
+                _old_ss = update_input_fns[kind](graph_state, timings_node)
 
             # Run node step
-            new_ss, new_output = jumpy.lax.cond(pred, _run_node, lambda *args: (_old_ss, _old_output), graph_state)
+            no_op = lambda *args: (_old_ss, _old_output)
+            # no_op = jax.checkpoint(no_op) # todo: apply jax.checkpoint to no_op?
+            new_ss, new_output = jumpy.lax.cond(pred, node_step_fns[kind], no_op, graph_state, timings_node)
 
             # Store new state
-            new_nodes[name] = new_ss
-            new_outputs[name] = new_output
+            new_nodes[kind] = new_ss
+            new_outputs[kind] = new_output
 
             # Update buffer
-            # new_buffer = graph_state.buffer.replace(outputs=graph_state.buffer.outputs.copy(new_outputs))
-            # graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes), buffer=new_buffer)
-        # new_graph_state = graphstate
+            if INTERMEDIATE_UPDATE:
+                new_buffer = graph_state.buffer.replace(outputs=graph_state.buffer.outputs.copy(new_outputs))
+                graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes), buffer=new_buffer)
 
-        new_buffer = graph_state.buffer.replace(outputs=graph_state.buffer.outputs.copy(new_outputs))
-        new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes), buffer=new_buffer)
+        if INTERMEDIATE_UPDATE:
+            new_graph_state = graph_state
+        else:
+            new_buffer = graph_state.buffer.replace(outputs=graph_state.buffer.outputs.copy(new_outputs))
+            new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes), buffer=new_buffer)
         return new_graph_state
 
-    def _run_MCS(graph_state: GraphState) -> GraphState:
+    def _run_S(graph_state: GraphState) -> GraphState:
         # Get eps & step  (used to index timings)
         step = graph_state.step
 
@@ -154,28 +165,100 @@ def make_run_MCS(nodes: Dict[str, "Node"], MCS: nx.DiGraph, generations: List[Li
             graph_state = _run_generation(graph_state, timings_gen)
         return graph_state
 
-    return _run_MCS
+    return _run_S
+
+
+def new_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, generations: List[List[str]]):
+    # Define update function
+    node_data = get_node_data(S)
+    update_input_fns = {name: make_update_inputs(name, data["inputs"]) for name, data in node_data.items()}
+
+    def _run_node(kind: str, graph_state: GraphState, timings_node: Dict):
+        # Update inputs
+        ss = update_input_fns[kind](graph_state, timings_node)
+
+        # Run node step
+        _new_ss, output = nodes[kind].step(ss)
+
+        # Increment sequence number
+        _new_seq_ss = _new_ss.replace(seq=_new_ss.seq + 1)
+
+        # Update output buffer
+        _new_output = update_output(graph_state.buffer.outputs[kind], output, timings_node["seq"])
+
+        # Update buffer
+        # todo: Somehow, updating buffer inside this function compiles much slower than updating it outside (for large number of nodes)...
+        new_buffer = graph_state.buffer.replace(outputs=graph_state.buffer.outputs.copy({kind: _new_output}))
+        new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy({kind: _new_seq_ss}), buffer=new_buffer)
+        return new_graph_state
+
+    node_step_fns = {kind: functools.partial(_run_node, kind) for kind in nodes.keys()}
+
+    def _run_generation(graph_state: GraphState, timings_gen: Dict):
+        for slot_kind, timings_node in timings_gen.items():
+            # todo: Buffer size may not be big enough, when updating graph_state during generational loop.
+            #       Specifically, get_buffer_sizes_from_timings must be adapted to account for this.
+            #       Or, alternatively, we can construct S such that it has a single node per generation (i.e. linear graph).
+            #       This is currently not yet enforced.
+            kind = S.nodes[slot_kind]["kind"]
+            pred = timings_gen[slot_kind]["run"]
+
+            # Add dummy inputs to old step_state (else jax complains about structural mismatch)
+            if graph_state.nodes[kind].inputs is None:
+                graph_state = graph_state.replace(nodes=graph_state.nodes.copy({kind: update_input_fns[kind](graph_state, timings_node)}))
+
+            # Run node step
+            # todo: apply jax.checkpoint to no_op?
+            no_op = lambda *args: graph_state
+            graph_state = jumpy.lax.cond(pred, node_step_fns[kind], no_op, graph_state, timings_node)
+        return graph_state
+
+    def _run_S(graph_state: GraphState) -> GraphState:
+        # Get eps & step  (used to index timings)
+        step = graph_state.step
+
+        # Determine slice sizes (depends on window size)
+        # [2:] because first two dimensions are episode and step.
+        timings = graph_state.buffer.timings
+        slice_sizes = jax.tree_map(lambda _tb: list(_tb.shape[1:]), timings)
+
+        # Slice timings
+        timings_mcs = jax.tree_map(
+            lambda _tb, _size: rjp.dynamic_slice(_tb, [step] + [0 * s for s in _size], [1] + _size)[0], timings, slice_sizes
+        )
+
+        # Run generations
+        # NOTE! len(generations)+1 = len(timings_mcs) --> last generation is the root.
+        for gen, timings_gen in zip(generations[:-1], timings_mcs):
+            assert all([node in gen for node in timings_gen.keys()]), f"Missing nodes in timings: {gen}"
+            graph_state = _run_generation(graph_state, timings_gen)
+        return graph_state
+
+    return _run_S
+
+
+make_run_S = old_make_run_S
 
 
 def make_graph_reset(
-    MCS: nx.DiGraph, generations: List[List[str]], run_MCS: Callable, default_timings: Timings, default_buffer: GraphBuffer
+    S: nx.DiGraph, generations: List[List[str]], run_S: Callable, default_timings: Timings, default_buffer: GraphBuffer
 ):
     # Determine root node (always in the last generation)
     root_slot = generations[-1][0]
-    root = MCS.nodes[root_slot]["name"]
+    root = S.nodes[root_slot]["kind"]
 
     # Define update function
-    node_data = get_node_data(MCS)
+    node_data = get_node_data(S)
     update_input_fns = {name: make_update_inputs(name, data["inputs"]) for name, data in node_data.items()}
 
     # We pre-compute the modulo sequence for the default timings
     # name_mapping = {n: {v["input_name"]: o for o, v in data["inputs"].items()} for n, data in node_data.items()}
     # for gen in default_timings:
     #     for n, t in gen.items():
-    #         node_name = MCS.nodes[n]["name"]
-    #         t["seq"] = t["seq"] % jax.tree_util.tree_leaves(default_buffer.outputs[node_name])[0].shape[0]
+    #         node_kind = S.nodes[n]["kind"]
+    #         t["seq"] = t["seq"] % jax.tree_util.tree_leaves(default_buffer.outputs[node_kind])[0].shape[0]
     #         for i, v in t["inputs"].items():
-    #             output_name = name_mapping[node_name][i]
+    #             output_name = name_mapping[node_kind][i]
     #             v["seq"] = v["seq"] % jax.tree_util.tree_leaves(default_buffer.outputs[output_name])[0].shape[0]
 
     def _graph_reset(graph_state: GraphState) -> Tuple[GraphState, StepState]:
@@ -202,7 +285,7 @@ def make_graph_reset(
         graph_state = graph_state.replace(eps=eps, step=step, buffer=new_buffer)
 
         # Run initial chunk.
-        _next_graph_state = run_MCS(graph_state)
+        _next_graph_state = run_S(graph_state)
 
         # Update input
         next_timing = rjp.tree_take(graph_state.buffer.timings[-1][root_slot], i=step)
@@ -213,13 +296,13 @@ def make_graph_reset(
     return _graph_reset
 
 
-def make_graph_step(MCS: nx.DiGraph, generations: List[List[str]], run_MCS: Callable):
+def make_graph_step(S: nx.DiGraph, generations: List[List[str]], run_S: Callable):
     # Determine root node (always in the last generation)
     root_slot = generations[-1][0]
-    root = MCS.nodes[root_slot]["name"]
+    root = S.nodes[root_slot]["kind"]
 
     # Define update function
-    node_data = get_node_data(MCS)
+    node_data = get_node_data(S)
     update_state = make_update_state(root)
     update_input = make_update_inputs(root, node_data[root]["inputs"])
 
@@ -237,7 +320,7 @@ def make_graph_step(MCS: nx.DiGraph, generations: List[List[str]], run_MCS: Call
         graph_state = new_graph_state.replace(step=next_step)
 
         # Run chunk of next step.
-        _next_graph_state = run_MCS(graph_state)
+        _next_graph_state = run_S(graph_state)
 
         # Update input
         next_timing = rjp.tree_take(graph_state.buffer.timings[-1][root_slot], i=next_step)
@@ -249,31 +332,31 @@ def make_graph_step(MCS: nx.DiGraph, generations: List[List[str]], run_MCS: Call
 
 
 class CompiledGraph(BaseGraph):
-    def __init__(self, nodes: Dict[str, "Node"], root: Agent, MCS: nx.DiGraph, default_timings: Timings = None):
+    def __init__(self, nodes: Dict[str, "Node"], root: Agent, S: nx.DiGraph, default_timings: Timings = None):
         super().__init__(root=root, nodes=nodes)
-        self._MCS = MCS
+        self._S = S
         self._default_timings = default_timings
-        # self._default_outputs = get_outputs_from_timings(MCS, default_timings, self.nodes_and_root) if default_timings is not None else None
+        # self._default_outputs = get_outputs_from_timings(S, default_timings, self.nodes_and_root) if default_timings is not None else None
         self._default_buffer = (
-            get_graph_buffer(MCS, default_timings, self.nodes_and_root) if default_timings is not None else None
+            get_graph_buffer(S, default_timings, self.nodes_and_root) if default_timings is not None else None
         )
 
         # Get generations
-        generations = list(nx.topological_generations(MCS))
+        generations = list(nx.topological_generations(S))
 
         # Make chunk runner
-        run_MCS = make_run_MCS(self.nodes_and_root, MCS, generations)
+        run_S = make_run_S(self.nodes_and_root, S, generations)
 
         # Make compiled reset function
         self.__reset = make_graph_reset(
-            MCS, generations, run_MCS, default_timings=self._default_timings, default_buffer=self._default_buffer
+            S, generations, run_S, default_timings=self._default_timings, default_buffer=self._default_buffer
         )
 
         # Make compiled step function
-        self.__step = make_graph_step(MCS, generations, run_MCS)
+        self.__step = make_graph_step(S, generations, run_S)
 
     def __getstate__(self):
-        args, kwargs = (), dict(nodes=self.nodes, root=self.root, MCS=self.MCS, default_timings=self._default_timings)
+        args, kwargs = (), dict(nodes=self.nodes, root=self.root, S=self.S, default_timings=self._default_timings)
         return args, kwargs
 
     def __setstate__(self, state):
@@ -281,8 +364,8 @@ class CompiledGraph(BaseGraph):
         super().__setstate__((args, kwargs))
 
     @property
-    def MCS(self):
-        return self._MCS
+    def S(self):
+        return self._S
 
     def reset(self, graph_state: GraphState) -> Tuple[GraphState, Any]:
         next_graph_state, next_step_state = self.__reset(graph_state)

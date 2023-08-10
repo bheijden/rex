@@ -97,7 +97,8 @@ def test_reinitialize_nodes_from_recording():
 		done, obs = False, env.reset()
 		while not done:
 			action = action_space.sample()
-			obs, reward, truncated, done, info = env.step(action)
+			obs, reward, terminated, truncated, info = env.step(action)
+			done = terminated | truncated
 		env.stop()
 
 		# Save record
@@ -127,7 +128,8 @@ def test_reinitialize_nodes_from_recording():
 		done, obs = False, env_copy.reset()
 		while not done:
 			action = action_space.sample()
-			obs, reward, truncated, done, info = env_copy.step(action)
+			obs, reward, terminated, truncated, info = env_copy.step(action)
+			done = terminated | truncated
 		env_copy.stop()
 
 		# Save record
@@ -192,7 +194,8 @@ def test_record_overflow():
 		done, obs = False, env.reset()
 		while not done:
 			action = action_space.sample()
-			obs, reward, truncated, done, info = env.step(action)
+			obs, reward, terminated, truncated, info = env.step(action)
+			done = terminated | truncated
 		env.stop()
 
 		# Save record

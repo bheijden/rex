@@ -136,3 +136,4 @@ logs/
 *.zip
 *.mp4
 *.pb
+scripts/wandb/

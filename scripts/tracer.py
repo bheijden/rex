@@ -18,7 +18,7 @@ from rex.constants import INFO
 import rex.open_colors as oc
 from rex.node import Node
 from rex.proto import log_pb2
-from rex.mcs import Deque, QueuePolicy, find_largest_motifs
+from scripts.mcs import Deque, QueuePolicy, find_largest_motifs
 from rex.utils import timer, log
 from rex.base import SeqsMapping, BufferSizes, NodeTimings, Timings, Output, GraphBuffer
 from rex.multiprocessing import new_process

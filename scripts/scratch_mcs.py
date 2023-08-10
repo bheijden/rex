@@ -1,14 +1,13 @@
 import time
 from functools import partial, lru_cache
-from typing import List, Dict, Tuple, Union, Callable, Set, Any
+from typing import List, Dict, Tuple, Set, Any
 from math import ceil, floor
 import numpy as np
 import rex.open_colors as oc
 import networkx as nx
 from networkx.algorithms import isomorphism
 import matplotlib.pyplot as plt
-import rex.mcs as rex_mcs
-from rex.multiprocessing import new_process
+import scripts.mcs as rex_mcs
 import grandiso
 
 edge_data = {"color": oc.ecolor.used, "linestyle": "-", "alpha": 1.}

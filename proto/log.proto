@@ -130,9 +130,10 @@ message NetworkRecord{
     repeated EpisodeRecord episode = 1;
     string root = 2; // Root node
     uint32 seq = 3; // Sequence number
-    string split_mode = 4; // Split mode (e.g. `topological_generation`)
-    string supergraph_mode = 5; // Supergraph mode (e.g. `MCS`, 'topological`)
+//    string split_mode = 4; // Split mode (e.g. `topological_generation`)
+    string supergraph_mode = 5; // Supergraph mode (e.g. `MCS`, 'topological`, `generational')
     repeated string excludes_inputs = 6; // Nodes that exclude their inputs during the trace
-    bytes motifs = 7; // Motifs (pickled dict[root_seq, networkx.DiGraph])
-    bytes MCS = 8; // Minimum common (monomorphic) supergraph incl. root in last generation (pickled networkx.DiGraph)
+//    bytes motifs = 7; // Motifs (pickled dict[root_seq, networkx.DiGraph])
+//    bytes MCS = 8; //z Minimum common (monomorphic) supergraph incl. root in last generation (pickled networkx.DiGraph)
+    bytes S = 9; // Supergraph (pickled networkx.DiGraph)
 }

@@ -174,15 +174,15 @@ class DoublePendulumEnv(BaseEnv):
 		cost -= 0.6*(th / (1 + 10 * abs(delta_goal)))**2
 
 		# Termination condition
-		done = (graph_state.step - step_state.state.starting_step) >= self.max_steps
+		terminated = False
 		truncated = (graph_state.step - step_state.state.starting_step) >= self.max_steps
-		info = {"TimeLimit.truncated": done}
+		info = {"TimeLimit.truncated": truncated}
 
 		# update graph_state
 		new_ss = step_state.replace(state=step_state.state.replace(reward=-cost))
 		graph_state = graph_state.replace(nodes=graph_state.nodes.copy({self.agent.name: new_ss}))
 
-		return graph_state, obs, -cost, truncated, done, info
+		return graph_state, obs, -cost, terminated, truncated, info
 
 	def _get_obs(self, step_state: StepState) -> Any:
 		"""Get observation from environment."""

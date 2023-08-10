@@ -45,7 +45,8 @@ class AutoResetWrapper(Wrapper):
 
     def step(self, graph_state: GraphState, action: Any) -> Tuple[GraphState, Any, float, bool, bool, Dict]:
         # Step environment
-        graph_state, obs, reward, truncated, done, info = self.env.step(graph_state, action)
+        graph_state, obs, reward, terminated, truncated, info = self.env.step(graph_state, action)
+        done = jp.logical_or(terminated, truncated)
 
         # Store last_obs in info (so that it can be used as terminal_observation in case of a reset).
         info["last_observation"] = obs
@@ -63,7 +64,7 @@ class AutoResetWrapper(Wrapper):
             return jp.where(_done, x, y)
 
         next_graph_state, next_obs = jax.tree_map(where_done, (graph_state_re, obs_re), (graph_state, obs))
-        return next_graph_state, next_obs, reward, truncated, done, info
+        return next_graph_state, next_obs, reward, terminated, truncated, info
 
 
 class GymWrapper(Wrapper, gym.Env):
@@ -97,19 +98,19 @@ class GymWrapper(Wrapper, gym.Env):
         self._reset = jax.jit(self._reset)
 
     def _step(self, graph_state: GraphState, action: jp.ndarray) -> RexStepReturn:
-        graph_state, obs, reward, truncated, done, info = self.env.step(graph_state, action)
+        graph_state, obs, reward, terminated, truncated, info = self.env.step(graph_state, action)
         return (
             jumpy.lax.stop_gradient(graph_state),
             jumpy.lax.stop_gradient(obs),
             jumpy.lax.stop_gradient(reward),
+            jumpy.lax.stop_gradient(terminated),
             jumpy.lax.stop_gradient(truncated),
-            jumpy.lax.stop_gradient(done),
             info,
         )
 
     def step(self, action: jp.ndarray) -> Tuple[jp.ndarray, float, bool, bool, Dict]:
-        self._graph_state, obs, reward, truncated, done, info = self._step(self._graph_state, action)
-        return obs, reward, truncated, done, info
+        self._graph_state, obs, reward, terminated, truncated, info = self._step(self._graph_state, action)
+        return obs, reward, terminated, truncated, info
 
     def _reset(self, rng: jp.ndarray) -> Tuple[jp.ndarray, GraphState, jp.ndarray, Dict]:
         new_rng, rng_reset = jumpy.random.split(rng, num=2)
@@ -155,7 +156,7 @@ except ImportError:  # pragma: no cover
             Step the environments with the given action
 
             :param actions: the action
-            :return: observation, reward, done, information
+            :return: observation, reward, terminated, truncated, information
             """
             self.step_async(actions)
             return self.step_wait()
@@ -205,14 +206,14 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
     def _step(
         self, graph_state: GraphState, action: jp.ndarray
     ) -> Tuple[GraphState, jp.ndarray, float, bool, bool, List[Dict]]:
-        graph_state, obs, reward, truncated, done, info = self._env_step(graph_state, action)
+        graph_state, obs, reward, terminated, truncated, info = self._env_step(graph_state, action)
         new_infos = self._transpose_infos(info)
         return (
             jumpy.lax.stop_gradient(graph_state),
             jumpy.lax.stop_gradient(obs),
             jumpy.lax.stop_gradient(reward),
+            jumpy.lax.stop_gradient(terminated),
             jumpy.lax.stop_gradient(truncated),
-            jumpy.lax.stop_gradient(done),
             new_infos,
         )
 
@@ -222,11 +223,13 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
         new_infos = self._transpose_infos(info)
         return new_rng, graph_state, obs, new_infos
 
-    def reset(self) -> Tuple[jp.ndarray, Dict]:
+    # todo: VecEnv seems to not be able to handle the info dict (i.e., new gymnasium API)
+    def reset(self) -> Tuple[jp.ndarray]:
+    # def reset(self) -> Tuple[jp.ndarray, Dict]:
         if self._rng is None:
             self.seed()
         self._rng, self._graph_state, obs, info = self._reset(self._rng)
-        return jumpy.lax.stop_gradient(obs), info
+        return jumpy.lax.stop_gradient(obs)
 
     def close(self):
         self.env.close()
@@ -249,15 +252,16 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
         return self.num_envs * [seed]
 
     def get_attr(self, attr_name, indices=None):
-        raise NotImplementedError
-        # return self.num_envs*[getattr(self.env, attr_name)]
+        # raise NotImplementedError
+        return self.num_envs*[getattr(self.env, attr_name)]
 
     def set_attr(self, attr_name, value, indices=None):
         raise NotImplementedError
         # return self.num_envs*[setattr(self.env, attr_name, value)]
 
     def step_wait(self):
-        self._graph_state, obs, rewards, truncateds, dones, infos = self._step(self._graph_state, self._actions)
+        self._graph_state, obs, rewards, terminateds, truncateds, infos = self._step(self._graph_state, self._actions)
+        dones = jp.logical_or(terminateds, truncateds)
 
         # Add terminal infos
         if "last_observation" in infos[0]:
@@ -266,7 +270,8 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
                     # save final observation where user can get it, then reset
                     infos[i]["terminal_observation"] = onp.array(infos[i]["last_observation"])
 
-        return onp.array(obs), onp.array(rewards), truncateds, dones, infos
+        # return onp.array(obs), onp.array(rewards), terminateds, truncateds, infos
+        return onp.array(obs), onp.array(rewards), dones, infos
 
     def step_async(self, actions):
         self._actions = actions

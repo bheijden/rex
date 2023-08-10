@@ -24,7 +24,7 @@ import sbx
 import stable_baselines3 as sb3
 import time
 import rex
-import rex.tracer as tracer
+from rex.supergraph import create_graph
 from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, WARN, REAL_TIME, \
 	ASYNC, WALL_CLOCK, SCHEDULING_MODES, JITTER_MODES, CLOCK_MODES
 from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
@@ -186,8 +186,8 @@ if __name__ == "__main__":
 	cenv = exp.make_compiled_env(env, record_pre.episode[-1], max_steps=MAX_STEPS, eval_env=False)
 
 	# Plot
-	G = tracer.create_graph(record_pre.episode[-1])
-	fig_cg, _ = exp.show_computation_graph(G, cenv.graph.MCS, root="agent", plot_type="computation")
+	G = create_graph(record_pre.episode[-1])
+	fig_cg, _ = exp.show_computation_graph(G, cenv.graph.S, root="agent", plot_type="computation")
 	fig_com, _ = exp.show_communication(record_pre.episode[-1])
 	fig_grp, _ = exp.show_grouped(record_pre.episode[-1].node[-1], "state")
 

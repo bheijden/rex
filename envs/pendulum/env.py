@@ -167,14 +167,14 @@ class PendulumEnv(BaseEnv):
 		cost = th ** 2 + 0.1 * (thdot / (1 + 10 * abs(th))) ** 2 + 0.01 * action[0] ** 2
 
 		# Determine done flag
-		done = self._is_terminal(graph_state)
+		terminated = self._is_terminal(graph_state)
 		truncated = graph_state.step >= self.max_steps
 		info = {"TimeLimit.truncated": graph_state.step >= self.max_steps}
 
-		return graph_state, obs, -cost, truncated, done, info
+		return graph_state, obs, -cost, terminated, truncated, info
 
 	def _is_terminal(self, graph_state: GraphState) -> bool:
-		return graph_state.step >= self.max_steps
+		return False
 
 	def _get_obs(self, step_state: StepState) -> Any:
 		"""Get observation from environment."""

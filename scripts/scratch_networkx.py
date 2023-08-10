@@ -11,11 +11,10 @@ sns.set()
 import networkx as nx
 
 from rex.utils import timer
-import rex.tracer as tracer
+import scripts.tracer as tracer
 import rex.open_colors as oc
 from rex.proto import log_pb2
 from rex.compiled import CompiledGraph
-from rex.constants import ERROR, INFO, DEBUG, WARN, SILENT
 
 from scripts.dummy import build_dummy_env, DummyEnv
 
@@ -163,7 +162,7 @@ if __name__ == "__main__":
     masked_timings = tracer.get_masked_timings(G_MCS, timings)
 
     # Initialize dummy env
-    graph = CompiledGraph(nodes=nodes, root=nodes["agent"], MCS=G_MCS, default_timings=timings)
+    graph = CompiledGraph(nodes=nodes, root=nodes["agent"], S=G_MCS, default_timings=timings)
     env_mcs = DummyEnv(graph=graph, max_steps=env.max_steps, name="dummy_env_mcs")
 
     # Simulate
@@ -275,7 +274,8 @@ if __name__ == "__main__":
     print(f"num_nodes={G_MCS.number_of_nodes()} | num_edges={G_MCS.number_of_edges()}")
 
     # Verify that all subgraphs are monomorphic with the supergraph
-    assert all(tracer.validate_subgraphs(G_MCS, G_subgraphs).values()), "Not all subgraphs are monomorphic with the supergraph."
+    assert all(
+        tracer.validate_subgraphs(G_MCS, G_subgraphs).values()), "Not all subgraphs are monomorphic with the supergraph."
 
     # The lower-bound on the optimal solution adds N nodes, where N is the max difference over every mcs and corresponding target graph.
     # The worst-case optimal solution M nodes, where M is the sum of node differences between every mcs and corresponding target graph.
@@ -310,7 +310,7 @@ if __name__ == "__main__":
 
     # Get timings
     with timer("get_mappings", log_level=50):
-        timings = tracer.get_timings(G_MCS, G_full, G_subgraphs, num_root_steps=root_seq+1, root=root_name)
+        timings = tracer.get_timings(G_MCS, G_full, G_subgraphs, num_root_steps=root_seq + 1, root=root_name)
 
     if False:
         plot_graph(G_full)
