@@ -60,14 +60,14 @@ def build_pendulum(rates: Dict[str, float],
 	# Connect nodes
 	world.connect(actuator, window=1, blocking=False, skip=True, jitter=LATEST,
 	              delay_sim=trans_sim["world"]["actuator"], delay=trans["world"]["actuator"])
-	sensor.connect(world, window=1, blocking=False, skip=True, jitter=LATEST,
+	sensor.connect(world, window=1, blocking=False, skip=False, jitter=LATEST,  # TODO: skip=True?
 	               delay_sim=trans_sim["sensor"]["world"], delay=trans["sensor"]["world"])
 	render.connect(sensor, window=1, blocking=False, skip=False, jitter=LATEST,
 	               delay_sim=trans_sim["render"]["sensor"], delay=trans["render"]["sensor"])
 	# render.connect(actuator, window=1, blocking=False, skip=False, jitter=LATEST,
 	#                delay_sim=Gaussian(0.), delay=0.0)
 
-	# render.step = new_process(render.step)
+	# render.step = new_process(render.step)  # TODO: new process?
 
 	return dict(world=world, actuator=actuator, sensor=sensor, render=render)
 

@@ -39,14 +39,14 @@ def build_pendulum(rates: Dict[str, float],
 	# Connect nodes
 	world.connect(actuator, window=1, blocking=False, skip=True, jitter=LATEST,
 	              delay_sim=trans_sim["world"]["actuator"], delay=trans["world"]["actuator"])
-	sensor.connect(world, window=1, blocking=False, skip=True, jitter=LATEST,
+	sensor.connect(world, window=1, blocking=False, skip=False, jitter=LATEST,  # todo: CHANGED skip=False
 	               delay_sim=trans_sim["sensor"]["world"], delay=trans["sensor"]["world"])
 	render.connect(sensor, window=1, blocking=False, skip=False, jitter=LATEST,
 	               delay_sim=trans_sim["render"]["sensor"], delay=trans["render"]["sensor"])
 
 	# render.connect(actuator, window=1, blocking=False, skip=False, delay_sim=Gaussian(mean=0., std=0.), delay=0.0, jitter=LATEST)
 
-	render.step = new_process(render.step)
+	render.step = new_process(render.step)  # todo: same process ?
 
 	return dict(world=world, actuator=actuator, sensor=sensor, render=render)
 
@@ -98,8 +98,15 @@ def ode_pendulum(params: Params, x, u):
 
 
 def sigmoid(x):
-	pos = 1.0 / (1.0 + jp.exp(-x))
-	neg = jp.exp(x) / (1.0 + jp.exp(x))
+	# For very large negative values of x, the sigmoid is very close to 0.
+	# For very large positive values of x, the sigmoid is very close to 1.
+	# We can use these properties to avoid computing the exponential in these cases.
+	large_positive = x > 35
+	large_negative = x < -35
+	safe_x = jp.where(large_positive, 0, jp.where(large_negative, 0, x))
+
+	pos = 1.0 / (1.0 + jp.exp(-safe_x))
+	neg = 1.0 - pos
 	return jp.where(x >= 0, pos, neg)
 
 
@@ -154,7 +161,7 @@ class World(Node):
 		rng_th, rng_thdot = jumpy.random.split(rng, num=2)
 		if not self.eval_env:
 			th = jumpy.random.uniform(rng_th, shape=(), low=-3.14, high=3.14)
-			thdot = 0.  # jumpy.random.uniform(rng_thdot, shape=(), low=-9., high=9.)
+			thdot = jumpy.random.uniform(rng_thdot, shape=(), low=-9., high=9.)
 		else:
 			th = jumpy.random.uniform(rng_th, shape=(), low=-0.3, high=0.3) + 3.14
 			thdot = jumpy.random.uniform(rng_thdot, shape=(), low=-0.1, high=0.1)

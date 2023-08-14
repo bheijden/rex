@@ -54,7 +54,7 @@ class AutoResetWrapper(Wrapper):
         # Auto-reset environment
         assert isinstance(done, bool) or done.ndim < 2, "done must be a scalar or a vector of booleans."
         rng_re = self.env.graph.root.get_step_state(graph_state).rng
-        graph_state_re, obs_re, info_re = self.env.reset(rng_re, graph_state)
+        graph_state_re, obs_re, info_re = self.env.reset(rng_re, graph_state.replace(step=jp.int32(0)))
 
         def where_done(x, y):
             x = jp.array(x)
@@ -225,7 +225,7 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
 
     # todo: VecEnv seems to not be able to handle the info dict (i.e., new gymnasium API)
     def reset(self) -> Tuple[jp.ndarray]:
-    # def reset(self) -> Tuple[jp.ndarray, Dict]:
+        # def reset(self) -> Tuple[jp.ndarray, Dict]:
         if self._rng is None:
             self.seed()
         self._rng, self._graph_state, obs, info = self._reset(self._rng)
@@ -253,7 +253,7 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
 
     def get_attr(self, attr_name, indices=None):
         # raise NotImplementedError
-        return self.num_envs*[getattr(self.env, attr_name)]
+        return self.num_envs * [getattr(self.env, attr_name)]
 
     def set_attr(self, attr_name, value, indices=None):
         raise NotImplementedError

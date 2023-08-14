@@ -33,17 +33,17 @@ class Gaussian:
         assert std >= 0, "std must be non-negative"
         percentile = max(percentile, 1e-7)
         assert percentile > 0, "There must be a truncating percentile > 0."
-        self._mean = mean
-        self._var = std**2
-        self._std = std
+        self._mean = jp.float32(mean)
+        self._std = jp.float32(std)
+        self._var = self._std**2
         self._percentile = percentile
         self._low = 0.0
-        self._high = tfd.Normal(loc=mean, scale=std).quantile(1 - percentile).tolist()
+        self._high = tfd.Normal(loc=self._mean, scale=self._std).quantile(1 - percentile).tolist()
         assert self._high < onp.inf, "The maximum value must be bounded"
         if std > 0:
-            self._dist = tfd.TruncatedNormal(loc=mean, scale=std, low=self._low, high=self._high)
+            self._dist = tfd.TruncatedNormal(loc=self._mean, scale=self._std, low=self._low, high=self._high)
         else:
-            self._dist = tfd.Deterministic(loc=mean)
+            self._dist = tfd.Deterministic(loc=self._mean)
 
     def __repr__(self):
         return f"Gaussian | {1.0: .2f}*N({self.mean: .4f}, {self.std: .4f}) | percentile={self.percentile}"

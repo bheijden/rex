@@ -83,7 +83,7 @@ def test_vec_gym_wrapper():
 		done, obs = False, env.reset()
 		while not done:
 			action = jp.array([action_space.sample()] * env.num_envs)
-			obs, rewards, truncateds, dones, info = env.step(action)
+			obs, rewards, dones, info = env.step(action)
 			done = dones.any()
 	env.close()
 

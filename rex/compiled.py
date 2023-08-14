@@ -205,7 +205,9 @@ def new_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, generations: List[Li
 
             # Add dummy inputs to old step_state (else jax complains about structural mismatch)
             if graph_state.nodes[kind].inputs is None:
-                graph_state = graph_state.replace(nodes=graph_state.nodes.copy({kind: update_input_fns[kind](graph_state, timings_node)}))
+                graph_state = graph_state.replace(
+                    nodes=graph_state.nodes.copy({kind: update_input_fns[kind](graph_state, timings_node)})
+                )
 
             # Run node step
             # todo: apply jax.checkpoint to no_op?

@@ -101,6 +101,9 @@ class PendulumEnv(BaseEnv):
 	def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> GraphState:
 		"""Get the graph state."""
 		# Prepare new graph state
+		rng, rng_eps = jumpy.random.split(rng, num=2)
+		starting_step = jp.int32(0) if graph_state is None else graph_state.step
+		starting_eps = jumpy.random.choice(rng, self.graph.max_eps(), shape=()) if graph_state is None else graph_state.eps
 		new_nodes = dict()
 		graph_state = GraphState(nodes=new_nodes)
 
@@ -128,7 +131,7 @@ class PendulumEnv(BaseEnv):
 		# Reset nodes
 		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_world_and_agent) + 1)
 		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_world_and_agent.values(), rngs)]
-		return GraphState(step=jp.int32(0), nodes=FrozenDict(new_nodes))
+		return GraphState(eps=starting_eps, step=starting_step, nodes=FrozenDict(new_nodes))
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> RexResetReturn:
 		"""Reset environment."""
@@ -164,7 +167,8 @@ class PendulumEnv(BaseEnv):
 		thdot = step_state.inputs["state"].data.thdot[-1]
 
 		# Calculate cost (penalize angle error, angular velocity and input voltage)
-		cost = th ** 2 + 0.1 * (thdot / (1 + 10 * abs(th))) ** 2 + 0.01 * action[0] ** 2
+		# cost = th ** 2 + 0.1 * (thdot / (1 + 10 * abs(th))) ** 2 + 0.01 * action[0] ** 2
+		cost = th ** 2 + 0.01 * thdot ** 2 + 0.001 * (action[0] ** 2)
 
 		# Determine done flag
 		terminated = self._is_terminal(graph_state)
