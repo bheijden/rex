@@ -50,6 +50,8 @@ class Gaussian:
 
     def __add__(self, other: "Distribution"):
         """Summation of two distributions"""
+        if isinstance(other, Recorded):
+            other = other._dist
         if isinstance(other, Gaussian):
             mean = self.mean + other.mean
             std = (self.var + other.var) ** (1 / 2)
@@ -170,6 +172,9 @@ class GMM:
         return f"GMM | {msg} | percentiles={self.percentiles}"
 
     def __add__(self, other: "Distribution"):
+        if isinstance(other, Recorded):
+            other = other._dist
+
         # Convert to GMM
         if isinstance(other, Gaussian):
             other = GMM([other], weights=[1.0])
@@ -302,9 +307,12 @@ class Recorded:
         return DistState(rng=rng, state=RecordedState(index=jp.int32(0)))
 
     def sample(self, state: DistState, shape: Union[int, Tuple] = None) -> Tuple[DistState, jp.ndarray]:
-        if shape is None or isinstance(shape, int) or len(shape) == 0:
+        if shape is None:
             shape = ()
             num_samples = 1
+        elif isinstance(shape, int) or len(shape) == 0:
+            num_samples = shape
+            shape = (50,)
         else:
             # Sum all elements in tuple
             num_samples = reduce(lambda x, y: x * y, shape, 1)
