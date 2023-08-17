@@ -8,6 +8,7 @@ omit =
     envs/*
     estimator/*
     experiments/*
+    paper/*
 
 [report]
 exclude_lines =

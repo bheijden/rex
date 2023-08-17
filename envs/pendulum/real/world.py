@@ -111,7 +111,7 @@ class World(Node):
 		inputs = self.default_inputs(rng_inputs, graph_state)
 
 		if self._downward_reset:
-			self._to_downward()
+			self._to_downward(onp.random.uniform(-0.2, 0.2, size=()))
 		return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
 	def step(self, step_state: StepState) -> Tuple[StepState, Empty]:

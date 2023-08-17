@@ -163,8 +163,8 @@ class World(Node):
 			th = jumpy.random.uniform(rng_th, shape=(), low=-3.14, high=3.14)
 			thdot = jumpy.random.uniform(rng_thdot, shape=(), low=-9., high=9.)
 		else:
-			th = jumpy.random.uniform(rng_th, shape=(), low=-0.3, high=0.3) + 3.14
-			thdot = jumpy.random.uniform(rng_thdot, shape=(), low=-0.1, high=0.1)
+			th = jumpy.random.uniform(rng_th, shape=(), low=-0.2, high=0.2) + 3.14
+			thdot = jumpy.random.uniform(rng_thdot, shape=(), low=0., high=0.)
 		return State(th=th, thdot=thdot)
 
 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:

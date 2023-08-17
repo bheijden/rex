@@ -37,15 +37,6 @@ import envs.pendulum as pend
 
 
 if __name__ == "__main__":
-	# todo: record number of episodes
-	#        - Determine hyperparameters for episode recording
-	#           - What was recorded?
-	#           - frequencies, blocking=False, advance=True, jitter=LATEST, scheduling=FREQUENCY, clock=WALL_CLOCK
-	#           - system (e.g., dpend.ode.build_double_pendulum),
-	#           - real, simulated
-	#        - Record number of episodes
-	# todo: fit delay distributions to the data
-
 	# Environment
 	ENV = "disc_pendulum"  # "disc_pendulum"
 	DIST_FILE = "21eps_pretrained_sbx_sac_gmms_2comps.pkl"
@@ -53,24 +44,24 @@ if __name__ == "__main__":
 	SCHEDULING = FREQUENCY
 	MAX_STEPS = 5*20
 	START_STEPS = 0
-	WIN_ACTION = 1
-	WIN_OBS = 2
-	BLOCKING = True
+	WIN_ACTION = 2
+	WIN_OBS = 3
+	BLOCKING = False
 	ADVANCE = False
 	ENV_FN = pend.ode.build_pendulum  #  dpend.ode.build_double_pendulum  # pend.ode.build_pendulum
 	ENV_CLS = pend.env.PendulumEnv  # dpend.env.DoublePendulumEnv  # pend.env.PendulumEnv
 	CLOCK = SIMULATED
 	RTF = FAST_AS_POSSIBLE
-	RATES = dict(world=40, agent=20, actuator=20, sensor=20, render=20)
+	RATES = dict(world=100, agent=20, actuator=20, sensor=20, render=20)
 	USE_DELAYS = True
 	# DELAY_FN = lambda d: 0.0
-	DELAY_FN = lambda d: d.quantile(0.99)*int(USE_DELAYS)  # todo: this is slow (takes 3 seconds).
+	DELAY_FN = lambda d: d.quantile(0.5)*int(USE_DELAYS)  # todo: this is slow (takes 3 seconds).
 
 	# Logging
-	NAME = f"supergraph_{ENV}"
+	NAME = f"supergraph_optimized_{ENV}"
 	LOG_DIR = os.path.dirname(rex.__file__) + f"/../logs/{NAME}_{datetime.datetime.today().strftime('%Y-%m-%d-%H%M')}"
 	MUST_LOG = False
-	SHOW_PLOTS = True
+	SHOW_PLOTS = False
 	RECORD_SETTINGS = {"agent": dict(node=True, outputs=False, rngs=False, states=False, params=False, step_states=False),
 	                   "world": dict(node=True, outputs=False, rngs=False, states=False, params=False, step_states=False),
 	                   "actuator": dict(node=True, outputs=False, rngs=False, states=False, params=False, step_states=False),
@@ -80,32 +71,27 @@ if __name__ == "__main__":
 	# Load models. PPO=[64, 64], SAC=[256, 256]
 	MODEL_CLS = sbx.SAC  # sbx.SAC  sb3.SAC
 	MODEL_MODULE = pend.models
-	MODEL_PRELOAD = "sb_ppo_pendulum"  # sbx_sac_pendulum
+	MODEL_PRELOAD = None # "sbx_ppo_pendulum"  # sbx_sac_pendulum
 	# MODEL_PRELOAD = "/home/r2ci/rex/logs/sim_dp_sbx_2023-02-01-1510/model.zip"  # todo: very good sbx model.
 
 	# Training
-	CONTINUE = True
+	CONTINUE = False
 	SEED = 0
-	NUM_ENVS = 10
+	NUM_ENVS = 4
 	SAVE_FREQ = 40_000
-	NSTEPS = 100_000
+	NSTEPS = 40_000
 	NUM_EVAL_PRE = 1
 	NUM_EVAL_POST = 20
 	HYPERPARAMS = {
-		# "gamma": 0.95,
-		"learning_rate": 0.01,
-		"gradient_steps": 10,  # Antonin
-		"train_freq": 10,  # Antonin
-		"qf_learning_rate": 1e-3,  # Antonin
-		# "batch_size": 1024, # todo: maybe this was turned on?
-		# "buffer_size": 10000,
-		# "learning_starts": 0,
-		# "train_freq": 4,
-		# "gradient_steps": 4,  # same as train_freq
-		# "ent_coef": "auto",
-		# "tau": 0.08,
-		# "target_entropy": "auto",
-		# "policy_kwargs": dict(log_std_init=-0.07520582048294414, net_arch=[256, 256], use_sde=False),  # todo: ADD?
+		"gamma": 0.9427860014779296,  # [0.9, 0.95, 0.98, 0.99, 0.995, 0.999, 0.9999]
+        "learning_rate": 0.0016222232059594057,  # [1e-5 to 1]
+        "batch_size": 2048,  # [16, 32, 64, 128, 256, 512, 1024, 2048]
+        "buffer_size": int(1e4),  # [1e4, 1e5, 1e6]
+        "learning_starts": 0,  # [0, 1000, 10000]
+		"tau": 0.08,  # [0.001, 0.005, 0.01, 0.02, 0.05, 0.08]
+		"ent_coef": "auto",
+		"qf_learning_rate": 0.06341856428465494,
+		"policy_kwargs": dict(log_std_init=-3, net_arch=[64, 64], use_sde=False),
 	}
 
 	# Load distributions
@@ -128,7 +114,7 @@ if __name__ == "__main__":
 	record_pre = exp.eval_env(gym_env, policy, n_eval_episodes=NUM_EVAL_PRE, verbose=True, seed=SEED, record_settings=RECORD_SETTINGS)
 
 	# Compile env
-	cenv = exp.make_compiled_env(env, record_pre.episode[-1], max_steps=MAX_STEPS, eval_env=False)
+	cenv = exp.make_compiled_env(env, record_pre.episode, max_steps=MAX_STEPS, eval_env=False)
 
 	# Plot
 	G = create_graph(record_pre.episode[-1])
@@ -182,7 +168,7 @@ if __name__ == "__main__":
 	model_path = f"{LOG_DIR}/model.zip" if MUST_LOG else f"{tempfile.mkdtemp()}/model.zip"
 	cmodel.save(model_path)
 
-	env = exp.make_env(delays_sim, DELAY_FN, RATES, blocking=False, advance=ADVANCE, win_action=WIN_ACTION, win_obs=WIN_OBS,
+	env = exp.make_env(delays_sim, DELAY_FN, RATES, blocking=BLOCKING, advance=ADVANCE, win_action=WIN_ACTION, win_obs=WIN_OBS,
 	                   scheduling=SCHEDULING, jitter=JITTER,
 	                   env_fn=ENV_FN, env_cls=ENV_CLS, name=ENV, eval_env=True, clock=CLOCK, real_time_factor=REAL_TIME,
 	                   max_steps=MAX_STEPS, use_delays=USE_DELAYS)

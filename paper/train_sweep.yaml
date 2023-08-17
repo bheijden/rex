@@ -1,0 +1,24 @@
+project: supergraph
+name: train-sweep
+description: test training with simulated graphs
+program: sweep.py
+
+# method
+method: grid
+
+# metric to optimize
+metric:
+  name: eval/ep_rew_mean
+  goal: maximize
+
+parameters:
+  eval_freq:
+    value: 1000
+  time_budget:
+    value: 180
+  steps:
+    value: 50000
+  env:
+    values: [ "async-sbx-eps10-disc-pendulum-envs.pendulum.ode.world-wall-clock-real-time-frequency-latest-2023-08-14-1110", "deterministic-sbx-eps1-disc-pendulum-envs.pendulum.ode.world-simulated-clock-fast-as-possible-frequency-latest-2023-08-14-1109" ]
+  seed:
+    values: [3, 4]

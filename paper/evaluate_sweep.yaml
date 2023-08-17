@@ -1,0 +1,31 @@
+project: supergraph
+name: train-real-evaluate-sweep
+description: First time to train and evaluate performance
+program: evaluate.py
+
+# method
+method: grid
+
+# metric to optimize
+metric:
+  name: eval/ep_rew_mean
+  goal: maximize
+
+parameters:
+  env_type:
+    value: "real"  # todo: change to real
+  real_time_factor:
+    value: 1.0  # todo: change to real_time=1.0
+  clock:
+    value: 1   # todo: change to wall_clock=1
+  eval_freq:
+    value: 1000
+  time_budget:
+    value: 180
+  steps:
+    value: 50000
+  env:  # todo: check delay_sim when running with deterministic
+    values: ["real-0.5Q-20hz-async-sbx-eps10-disc-pendulum-envs.pendulum.real.world-wall-clock-real-time-frequency-latest-2023-08-16-1201",
+             "ode-0.0Q-20hz-det-sbx-eps1-disc-pendulum-envs.pendulum.ode.world-simulated-clock-fast-as-possible-frequency-latest-2023-08-16-1152"]
+  seed:
+    values: [0, 1, 2, 3, 4]

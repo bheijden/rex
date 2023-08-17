@@ -117,14 +117,20 @@ def make_compiled_env(env: PendulumEnv,
                       max_steps: int = 100,
                       supergraph_mode: str = "MCS",
                       progress_bar: bool = False,
+                      nodes_from: str = "records",
                       ) -> PendulumEnv:
     records = records if isinstance(records, (list, RepeatedCompositeContainer)) else [records]
 
     # Re-initialize nodes
-    nodes: Dict[str, Union[Node, Agent]] = {}
-    for n in records[-1].node:
-        nodes[n.info.name] = pickle.loads(n.info.state)
-    [n.unpickle(nodes) for n in nodes.values()]
+    if nodes_from == "records":
+        nodes: Dict[str, Union[Node, Agent]] = {}
+        for n in records[-1].node:
+            nodes[n.info.name] = pickle.loads(n.info.state)
+        [n.unpickle(nodes) for n in nodes.values()]
+    elif nodes_from == "env":
+        nodes = env.nodes_world_and_agent
+    else:
+        raise ValueError(f"Unknown nodes_from {nodes_from}")
 
     # Grab root
     agent: Agent = nodes["agent"]
@@ -265,7 +271,8 @@ def eval_env(env: BaseEnv,
              n_eval_episodes: int = 10,
              verbose: bool = False,
              record_settings: Dict[str, Dict[str, bool]] = None,
-             seed: int = None) -> log_pb2.ExperimentRecord:
+             seed: int = None,
+             return_rewards: bool = False) -> log_pb2.ExperimentRecord:
     """
     Evaluate an environment using a model.
 
@@ -325,7 +332,10 @@ def eval_env(env: BaseEnv,
     std_reward = onp.std(episode_rewards)
     if verbose:
         print(f"{env.name} | mean reward={mean_reward:.2f} +/- {std_reward:.2f}")
-    return episode_records
+    if return_rewards:
+        return episode_records, episode_rewards
+    else:
+        return episode_records
 
 
 def make_policy(model: BaseAlgorithm, constant_action: float = None):
@@ -391,12 +401,12 @@ def load_distributions(file: str, module: ModuleType = envs.pendulum.dists) -> D
 
 def load_model(file, model_cls: Type[BaseAlgorithm], module: ModuleType = envs.pendulum.models, fail: bool = False,
                **kwargs) -> BaseAlgorithm:
-    # Append zip extension
-    if not file.endswith(".zip"):
-        file = file + ".zip"
-
     # If not an absolute path, load from within module
     try:
+        # Append zip extension
+        if not file.endswith(".zip"):
+            file = file + ".zip"
+
         if not file.startswith("/"):
             module_path = os.path.dirname(os.path.abspath(module.__file__))
             model = model_cls.load(f"{module_path}/{file}", **kwargs)

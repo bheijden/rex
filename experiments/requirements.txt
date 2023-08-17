@@ -26,3 +26,4 @@ torchaudio
 # poetry run pip install stable-baselines3==2.0.0a13
 # poetry run pip install gym==0.26
 # poetry run pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+# poetry run pip install rospkg>=1.4.0

@@ -1,237 +1,238 @@
 # HACK: https://github.com/DLR-RM/stable-baselines3/pull/780
 import sys
 import gymnasium
+
 sys.modules["gym"] = gymnasium
 
 import os
+
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
-import tempfile
+import wandb
+os.environ["WANDB_SILENT"] = "true"
+
+# Add /home/r2ci/rex/paper to PYTHONPATH
+sys.path.append("/home/r2ci/rex")
+sys.path.append("/home/r2ci/supergraph")
+sys.path.append("/home/r2ci/sbx")
+
+import time
 import datetime
 import yaml
-from typing import Dict, List, Tuple, Union, Callable, Any, Type
-from types import ModuleType
-import dill as pickle
-import time
-import jax
-import numpy as onp
-import jumpy
-import jumpy.numpy as jp
 from stable_baselines3.common.vec_env import VecMonitor
 
 import matplotlib.pyplot as plt
 import seaborn as sns
+
 sns.set()
 import matplotlib
+
 matplotlib.use("TkAgg")
 
+import jax
+import numpy as onp
 import sbx
 import stable_baselines3 as sb3
-import time
-import rex
-from rex.supergraph import create_graph
-import rex.constants as rc
-from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 import experiments as exp
+import paper
+import rex.constants as rc
+from rex.proto import log_pb2
+from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 import envs.pendulum as pend
 
 
-def plot_dists(dist, data=None, info=None, est=None):
-    HAS_DATA = False if data is None else True
-    HAS_INFO = False if info is None else True
-    HAS_EST = False if est is None else True
-    if data is None:
-        data = jax.tree_map(lambda x: None, dist)
-    if info is None:
-        class Dummy:
-            def __init__(self, name, output=None, cls=None):
-                self.name = name
-                self.output = output
-                if cls is not None:
-                    self.cls = cls
-
-        info = {"step": {k: Dummy(k, cls=True) for k in dist["step"].keys()},
-                "inputs": {k: {v: (Dummy(k, cls=True),Dummy(v, output=v)) for v in dist["inputs"][k].keys()} for k in dist["step"].keys()}}
-    if est is None:
-        est = jax.tree_map(lambda x: None, dist)
-
-    # First shallow copy of arguments
-    dist = jax.tree_map(lambda x: x, dist)
-    data = jax.tree_map(lambda x: x, data)
-    info = jax.tree_map(lambda x: x, info)
-    est = jax.tree_map(lambda x: x, est)
-
-    # Pop world from
-    [_d["inputs"]["agent"].pop("last_action", None) for _d in [data, info, est, dist]]
-    [_d["inputs"]["sensor"].pop("world", None) for _d in [data, info, est, dist]]
-    [_d["inputs"].pop("world", None) for _d in [data, info, est, dist]]
-    [_d["step"].pop("world", None) for _d in [data, info, est, dist]]
-
-    # Split
-    est_inputs, est_step = est["inputs"], est["step"]
-    data_inputs, data_step = data["inputs"], data["step"]
-    info_inputs, info_step = info["inputs"], info["step"]
-    dist_inputs, dist_step = dist["inputs"], dist["step"]
-
-    # Plot gmm
-    from matplotlib.ticker import FormatStrFormatter
-    import numpy as onp
-
-    def plot_gmm(ax, dist, delays, i, edgecolor):
-        m = onp.max(delays) if delays is not None else dist.high
-        x = onp.linspace(0, m, 1000)
-        y = dist.pdf(x)
-        # if isinstance(i, tuple):
-        #     output, input = i
-        #     if output is None:
-        #         ax.plot(x, y, label="gmm (trun)", color=edgecolor, linestyle="--")
-        #         ax.set_title(f"{input}")
-        #     else:
-        #         ax.plot(x, y, label="gmm (trun)", color=edgecolor, linestyle="--")
-        #         ax.set_title(f"{input} -> {output}")
-        if hasattr(i, "cls"):
-            ax.plot(x, y, label="gmm (trun)", color=edgecolor, linestyle="--")
-            ax.set_title(f"{i.name}")
-        else:
-            node_info, input_info = i
-            ax.plot(x, y, label="gmm (trun)", color=edgecolor, linestyle="--")
-            ax.set_title(f"{input_info.output} -> {node_info.name} ({input_info.name})")
-        ax.tick_params(axis='both', which='major', labelsize=10)
-        ax.tick_params(axis='both', which='minor', labelsize=8)
-        ax.set_xlabel('delay (s)', fontsize=10)
-        ax.set_ylabel('density', fontsize=10)
-        ax.xaxis.set_major_formatter(FormatStrFormatter('%.3f'))
-        ax.legend()
-
-    # Plot distributions
-    from rex.plot import get_subplots
-
-    fig_step, axes_step = get_subplots(dist_step, figsize=(10, 10), sharex=False, sharey=False, major="row")
-    fig_inputs, axes_inputs = get_subplots(dist_inputs, figsize=(10, 10), sharex=False, sharey=False, major="row")
-
-    # Plot measured delays
-    from rex.open_colors import ecolor, fcolor
-
-    if HAS_EST:
-        jax.tree_map(
-            lambda ax, e: e.plot_hist(ax=ax, edgecolor=ecolor.computation, facecolor=fcolor.computation, plot_dist=False),
-            axes_step, est_step)
-        jax.tree_map(
-            lambda ax, e: e.plot_hist(ax=ax, edgecolor=ecolor.communication, facecolor=fcolor.communication, plot_dist=False),
-            axes_inputs, est_inputs)
-
-    # Plot gmm
-    from functools import partial
-
-    jax.tree_map(partial(plot_gmm, edgecolor=ecolor.computation), axes_step, dist_step, data_step, info_step)
-    jax.tree_map(partial(plot_gmm, edgecolor=ecolor.communication), axes_inputs, dist_inputs, data_inputs, info_inputs)
-
-    return fig_step, fig_inputs
-
-
 if __name__ == "__main__":
-    # todo: record deterministic and asynchronous episodes
-    # Environment
-    ENV = "disc-pendulum"  # "disc_pendulum"
-    DIST_FILE = "21eps_pretrained_sbx_sac_gmms_2comps.pkl"  # todo: absolute path "/"
-    JITTER = rc.LATEST
-    SCHEDULING = rc.FREQUENCY
-    WIN_ACTION = 2
-    WIN_OBS = 3
-    BLOCKING = False
-    ADVANCE = False
-    ENV_FN = pend.ode.build_pendulum  #  dpend.ode.build_double_pendulum  # pend.ode.build_pendulum
-    ENV_CLS = pend.env.PendulumEnv  # dpend.env.DoublePendulumEnv  # pend.env.PendulumEnv
-    CLOCK = rc.WALL_CLOCK  # todo: change
-    RTF = rc.REAL_TIME  # todo: change
-    MAX_STEPS = 5 * 20
-    RATES = dict(world=100, agent=20, actuator=20, sensor=20, render=20)
-    USE_DELAYS = True
-    QUANTILE = 0.5
-    delay_fn = lambda d: d.quantile(QUANTILE)*int(USE_DELAYS)  # todo: this is slow (takes 3 seconds).
+    wandb.setup()
+    GROUP = f"train-real-evaluate-{datetime.datetime.today().strftime('%Y-%m-%d-%H%M')}"
+    real_env = None
+    for j in range(5):
+        for JOB_TYPE in ["async", "deterministic"]:
+            print(f"Running {JOB_TYPE}, seed {j}")
+            ENV = {"async": "real-0.5Q-20hz-async-sbx-eps10-disc-pendulum-envs.pendulum.real.world-wall-clock-real-time-frequency-latest-2023-08-16-1201",
+                   "deterministic": "ode-0.0Q-20hz-det-sbx-eps1-disc-pendulum-envs.pendulum.ode.world-simulated-clock-fast-as-possible-frequency-latest-2023-08-16-1152"
+                   }[JOB_TYPE]
+            run = wandb.init(
+                mode="disabled",
+                project="supergraph",
+                group=GROUP,
+                job_type=JOB_TYPE,
+                config={
+                    # Logging
+                    "save_model": True,
+                    "model_dir": ".",
+                    "log_freq": 10,
+                    "eval_freq": 3_000,
+                    "n_eval_episodes": 10,
+                    # Evaluate supergraph
+                    "eval_supergraph": True,
+                    "n_parallel_rollouts": 1000,
+                    # Environment (real)
+                    "eval_real": True,
+                    "dist_file": "real-0.5Q-20hz-async-sbx-eps10-disc-pendulum-envs.pendulum.real.world-wall-clock-real-time-frequency-latest-2023-08-16-1154.pkl",
+                    "env_type": "real",
+                    "advance": False,
+                    "blocking": False,
+                    "jitter": rc.LATEST,
+                    "scheduling": rc.FREQUENCY,
+                    "real_time_factor": rc.REAL_TIME,
+                    "clock": rc.WALL_CLOCK,
+                    "use_delays": True,
+                    # Environment (train)
+                    "log_dir": "/home/r2ci/rex/paper/logs",
+                    "supergraph_mode": "MCS",
+                    "env": ENV,
+                    # "env": "real-0.5Q-20hz-async-sbx-eps10-disc-pendulum-envs.pendulum.real.world-wall-clock-real-time-frequency-latest-2023-08-16-1201",
+                    # "env": "ode-0.0Q-20hz-det-sbx-eps1-disc-pendulum-envs.pendulum.ode.world-simulated-clock-fast-as-possible-frequency-latest-2023-08-16-1152",
+                    # Training
+                    "seed": j,
+                    "time_budget": 180,
+                    "steps": 50_000,
+                    # SAC Hyperparameters
+                    "model": "SAC",
+                    "num_envs": 4,  # [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+                    "gamma": 0.9427860014779296,  # [0.9, 0.95, 0.98, 0.99, 0.995, 0.999, 0.9999]
+                    "learning_rate": 0.0016222232059594057,  # [1e-5 to 1]
+                    "batch_size": 2048,  # [16, 32, 64, 128, 256, 512, 1024, 2048]
+                    "buffer_size": int(1e4),  # [1e4, 1e5, 1e6]
+                    "learning_starts": 0,  # [0, 1000, 10000]
+                    "tau": 0.08,  # [0.001, 0.005, 0.01, 0.02, 0.05, 0.08]
+                    "ent_coef": "auto",
+                    "qf_learning_rate": 0.06341856428465494,  # Antonin
+                    "log_std_init": -3,  # [-4, 1]
+                    "net_arch": "small",  # ["small", "medium"]
+                }
+            )
+            config = wandb.config
 
-    # Training
-    SEED = 0
-    NUM_EVAL_PRE = 2
+            # log env params
+            LOG_DIR = f"{config.log_dir}/{config.env}"
+            with open(f"{LOG_DIR}/params.yaml", "r") as f:
+                params = yaml.load(f, Loader=paper.SafeLoader)
+            # DIST_FILE = f"{LOG_DIR}/distributions.pkl"
+            # params["dist_file"] = config.dist_file
+            # DIST_FILE = params["DIST_FILE"]
+            wandb.log({f"env/{k}": v for k, v in params.items()})
 
-    # Load models. PPO=[64, 64], SAC=[256, 256]
-    MODEL_CLS = sbx.SAC  # sbx.SAC  sb3.SAC
-    MODEL_MODULE = pend.models
-    MODEL_PRELOAD = "sbx_ppo_pendulum"  # sbx_sac_pendulum
+            # Load distributions
+            delays_sim = exp.load_distributions(config.dist_file)
 
-    # Logging
-    NAME = f"test-{ENV}-{ENV_FN.__module__}-{rc.CLOCK_MODES[CLOCK]}-{rc.RTF_MODES[RTF]}-{rc.SCHEDULING_MODES[SCHEDULING]}-{rc.JITTER_MODES[JITTER]}"
-    LOG_DIR = f"/home/r2ci/rex/paper/logs/{NAME}-{datetime.datetime.today().strftime('%Y-%m-%d-%H%M')}"
-    MUST_LOG = True
-    MUST_PLOT = True
-    MUST_DIST = True
-    SHOW_PLOT = True
-    RECORD_SETTINGS = {"agent": dict(node=True, outputs=False, rngs=False, states=False, params=False, step_states=False),
-                       "world": dict(node=True, outputs=False, rngs=False, states=False, params=False, step_states=False),
-                       "actuator": dict(node=True, outputs=False, rngs=False, states=False, params=False, step_states=False),
-                       "sensor": dict(node=True, outputs=False, rngs=False, states=False, params=False, step_states=False),
-                       "render": dict(node=True, outputs=False, rngs=False, states=False, params=False, step_states=False)}
+            # Load proto record
+            record = log_pb2.ExperimentRecord()
+            with open(f"{LOG_DIR}/record_pre.pb", "rb") as f:
+                record.ParseFromString(f.read())
 
-    # Load distributions
-    delays_sim = exp.load_distributions(DIST_FILE, module=pend.dists)
-    fig_sim_step, fig_sim_inputs = plot_dists(delays_sim) if MUST_DIST and MUST_PLOT else (None, None)
+            # Train environment
+            ode_env = exp.make_env(delays_sim, lambda x: 0., params["RATES"], win_action=params["WIN_ACTION"], win_obs=params["WIN_OBS"],
+                                   env_fn=pend.ode.build_pendulum, env_cls=pend.env.PendulumEnv, name="disc-pendulum",
+                                   eval_env=True, max_steps=params["MAX_STEPS"])
+            cenv = exp.make_compiled_env(ode_env, record.episode, max_steps=ode_env.max_steps, eval_env=False, nodes_from="env",
+                                         supergraph_mode=config.supergraph_mode, progress_bar=True)  # Compile env
+            cenv_eval = exp.make_compiled_env(ode_env, record.episode, max_steps=ode_env.max_steps, eval_env=True, nodes_from="env",
+                                              supergraph_mode=config.supergraph_mode, progress_bar=True)  # Compile env
 
-    # Prepare environment
-    env = exp.make_env(delays_sim, delay_fn, RATES, blocking=BLOCKING, advance=ADVANCE, win_action=WIN_ACTION, win_obs=WIN_OBS,
-                       scheduling=SCHEDULING, jitter=JITTER, env_fn=ENV_FN, env_cls=ENV_CLS, name=ENV, eval_env=True,
-                       clock=CLOCK, real_time_factor=RTF, max_steps=MAX_STEPS, use_delays=USE_DELAYS)
-    gym_env = GymWrapper(env)
+            # Wrap model
+            cenv = AutoResetWrapper(cenv)  # Wrap into auto reset wrapper
+            cenv = VecGymWrapper(cenv, num_envs=config.num_envs)  # Wrap into vectorized environment
+            cenv = VecMonitor(cenv)  # Wrap into vectorized monitor
+            cenv.jit()  # Jit
 
-    # Load model
-    model: MODEL_CLS = exp.load_model(MODEL_PRELOAD, MODEL_CLS, env=gym_env, seed=SEED, module=MODEL_MODULE)
-    policy = exp.make_policy(model, constant_action=1.0)
+            # Training
+            model_params = paper.HYPERPARAMETERS_FN[config.model](config)
+            cmodel = getattr(sbx, config.model)(policy="MlpPolicy", env=cenv, seed=config.seed, verbose=1, **model_params)
 
-    # Evaluate model
-    record_pre = exp.eval_env(gym_env, policy, n_eval_episodes=NUM_EVAL_PRE, verbose=True, seed=SEED, record_settings=RECORD_SETTINGS)
+            # Learn
+            budget_cb = paper.StopTrainingOnTimeBudget(time_budget=config.time_budget, verbose=1)
+            eval_cb = paper.WandbCallback(eval_env=cenv_eval, n_eval_episodes=config.n_eval_episodes,
+                                          log_freq=max(config.log_freq // config.num_envs, 1),
+                                          eval_freq=max(config.eval_freq // config.num_envs, 1),
+                                          model_dir=config.model_dir, save_model=config.save_model,
+                                          verbose=1)
+            cmodel.learn(total_timesteps=config.steps, progress_bar=True, callback=[eval_cb, budget_cb])
 
-    # Compile env
-    cenv = exp.make_compiled_env(env, record_pre.episode, max_steps=MAX_STEPS, eval_env=False)
+            # Save model
+            cmodel.save(f"{config.model_dir}/model.zip")
+            if config.save_model:
+                wandb.save(f"{config.model_dir}/model.zip")
+                wandb.save(f"{config.model_dir}/model_best.zip")
 
-    # Plot
-    graph = create_graph(record_pre.episode[-1])
-    fig_gr, _ = exp.show_graph(record_pre.episode[-1]) if MUST_PLOT else (None, None)
-    fig_cg, _ = exp.show_computation_graph(graph, cenv.graph.S, root="agent", plot_type="computation") if MUST_PLOT else (None, None)
-    fig_com, _ = exp.show_communication(record_pre.episode[-1]) if MUST_PLOT else (None, None)
-    fig_grp, _ = exp.show_grouped(record_pre.episode[-1].node[-1], "state") if MUST_PLOT else (None, None)
+            # Reload best model
+            model_best = getattr(sbx, config.model).load(f"{config.model_dir}/model_best.zip", verbose=1)
 
-    # Fit distributions
-    data, info, est, dist = exp.make_delay_distributions(record_pre, num_steps=500, num_components=8, step_size=0.05, seed=SEED) if MUST_DIST else (None, None, None, None)
-    fig_step, fig_inputs = plot_dists(dist, data, info, est) if MUST_DIST and MUST_PLOT else (None, None)
+            # Evaluation real environment
+            if config.eval_real:
+                if real_env is None:
+                    print("Building real environment...")
+                    # Real environment
+                    delay_fn = lambda d: float(d.quantile(params["QUANTILE"]))  # todo: this is slow (takes 3 seconds).
+                    env_fn = {"real": pend.real.build_pendulum, "ode": pend.ode.build_pendulum}[config.env_type]
+                    real_env = exp.make_env(delays_sim, delay_fn, params["RATES"], blocking=config.blocking, advance=config.advance,
+                                            win_action=params["WIN_ACTION"], win_obs=params["WIN_OBS"],
+                                            scheduling=config.scheduling, jitter=config.jitter,
+                                            env_fn=env_fn, env_cls=pend.env.PendulumEnv, name="disc-pendulum", eval_env=True,
+                                            clock=config.clock, real_time_factor=config.real_time_factor,
+                                            max_steps=params["MAX_STEPS"], use_delays=config.use_delays)
+                    real_env = GymWrapper(real_env)
+                else:
+                    print("Using existing real environment...")
 
-    # Only show
-    plt.show() if SHOW_PLOT else None
+                # Evaluate environment
+                policy = exp.make_policy(model_best, constant_action=None)
+                record_pre, episode_rewards = exp.eval_env(real_env, policy, n_eval_episodes=config.n_eval_episodes, verbose=True, seed=config.seed, return_rewards=True)
 
-    # Log
-    if MUST_LOG:
-        os.mkdir(LOG_DIR)
-        # Identify all capitalized variables & save them to file
-        capitalized_vars = {k: v for k, v in globals().items() if k.isupper()}
-        with open(f"{LOG_DIR}/params.yaml", 'w') as file:
-            yaml.dump(capitalized_vars, file)
-        # Save envs
-        env.unwrapped.save(f"{LOG_DIR}/{env.unwrapped.name}.pkl")
-        cenv.unwrapped.save(f"{LOG_DIR}/{cenv.unwrapped.name}.pkl")
-        # Save pre-train record to file
-        with open(LOG_DIR + "/record_pre.pb", "wb") as f:
-            f.write(record_pre.SerializeToString())
-        # Save plots
-        fig_gr.savefig(LOG_DIR + "/robotic_system.png") if fig_gr is not None else None
-        fig_cg.savefig(LOG_DIR + "/computation_graph.png") if fig_gr is not None else None
-        fig_com.savefig(LOG_DIR + "/communication.png") if fig_gr is not None else None
-        fig_grp.savefig(LOG_DIR + "/grouped_agent_sensor.png") if fig_gr is not None else None
-        fig_sim_step.savefig(LOG_DIR + "/delay_sim_step.png") if fig_gr is not None else None
-        fig_sim_inputs.savefig(LOG_DIR + "/delay_sim_inputs.png") if fig_gr is not None else None
-        fig_step.savefig(LOG_DIR + "/delay_step.png") if fig_gr is not None else None
-        fig_inputs.savefig(LOG_DIR + "/delay_inputs.png") if fig_gr is not None else None
-        # Save to file
-        import dill as pickle
-        if MUST_DIST:
-            with open(LOG_DIR + "/distributions.pkl", "wb") as f:
-                pickle.dump(dist, f)
-        # Save model used to evaluate
-        model.save(LOG_DIR + "/eval_model.zip")
+                # Log
+                for r in episode_rewards:
+                    wandb.log({"real/ep_rew": r})
+                metrics = {"ep_rew_mean": onp.mean(episode_rewards), "ep_rew_std": onp.std(episode_rewards)}
+                print(metrics)
+                wandb.log({f"final/real/{k}": v for k, v in metrics.items()})
+
+            # Evaluation supergraph
+            if config.eval_supergraph:
+                cenv_top = exp.make_compiled_env(ode_env, record.episode, max_steps=ode_env.max_steps, eval_env=True,
+                                                  nodes_from="env", supergraph_mode="topological", progress_bar=True)  # Compile env
+                cenv_gen = exp.make_compiled_env(ode_env, record.episode, max_steps=ode_env.max_steps, eval_env=True,
+                                                 nodes_from="env", supergraph_mode="generational", progress_bar=True)
+                supergraph_type = {"topological": cenv_top, "generational": cenv_gen, "mcs": cenv_eval}
+                for mode, cenv_sup in supergraph_type.items():
+                    timings = cenv_sup.graph._default_timings
+                    num_nodes_run = 0
+                    num_nodes = 0
+                    for slots in timings:
+                        for s, t in slots.items():
+                            num_nodes += t["run"].sum()
+                            num_nodes_run += (t["run"] == t["run"]).sum()
+                    efficiency = 100 * num_nodes / num_nodes_run
+                    size = cenv_sup.graph.S.number_of_nodes()
+
+                    # Perform rollouts
+                    rw = paper.RolloutWrapper(cenv_sup, model_best)
+
+                    # Time to jit
+                    seed = jax.random.PRNGKey(0)
+                    rng = jax.random.split(seed, num=config.n_parallel_rollouts)
+                    start = time.time()
+                    obs, action, reward, next_obs, done, cum_return = rw.batch_rollout(rng, model_best.policy.actor_state)
+                    end = time.time()
+                    duration = end - start
+                    fps = (config.n_parallel_rollouts * cenv_sup.max_steps) / duration
+                    return_mean, return_std = cum_return.mean(), cum_return.std()
+                    metrics = {"supergraph_type": mode, "time_to_jit": duration, "efficiency_percentage": efficiency, "size": size}
+                    print(f"{mode} | time_to_jit | {metrics}")
+                    wandb.log({f"supergraph/{k}": v for k, v in metrics.items()})
+
+                    # Time to run
+                    for i in range(1, 10):
+                        seed = jax.random.PRNGKey(i)
+                        rng = jax.random.split(seed, num=config.n_parallel_rollouts)
+                        start = time.time()
+                        obs, action, reward, next_obs, done, cum_return = rw.batch_rollout(rng, model_best.policy.actor_state)
+                        end = time.time()
+                        duration = end - start
+                        fps = (config.n_parallel_rollouts * cenv_sup.max_steps) / duration
+                        return_mean, return_std = cum_return.mean(), cum_return.std()
+                        metrics = {"supergraph_type": mode, "fps": fps, "duration": duration, "ep_rew_mean": return_mean, "ep_rew_std": return_std}
+                        print(f"{mode} | speed | {metrics}")
+                        wandb.log({f"speed/{k}": v for k, v in metrics.items()})
+
+            # Finish wandb
+            run.finish()
