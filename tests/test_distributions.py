@@ -65,6 +65,9 @@ def test_distribution_recorded():
     # Test the API
     state = rec_g1.reset(rnd.PRNGKey(0))
     jit_sample = jax.jit(rec_g1.sample, static_argnums=1)
+    state, samples = jit_sample(state, shape=None)
+    state, samples = jit_sample(state, shape=10)
+    state, samples = jit_sample(state, shape=1)
     state, samples = jit_sample(state, shape=())
     state, samples = jit_sample(state, shape=(2, 3))
 

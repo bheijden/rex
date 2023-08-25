@@ -310,9 +310,12 @@ class Recorded:
         if shape is None:
             shape = ()
             num_samples = 1
-        elif isinstance(shape, int) or len(shape) == 0:
+        elif isinstance(shape, int):
             num_samples = shape
-            shape = (50,)
+            shape = (num_samples,)
+        elif len(shape) == 0:
+            num_samples = 1
+            shape = ()
         else:
             # Sum all elements in tuple
             num_samples = reduce(lambda x, y: x * y, shape, 1)
