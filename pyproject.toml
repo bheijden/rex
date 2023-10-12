@@ -28,7 +28,8 @@ seaborn = "^0.12.1"
 dill = "^0.3.6"
 tqdm = "^4.64.1"
 
-
+# Needed for brax
+#mujoco
 #absl-py = "^1.4.0"  # brax
 #trimesh = "^3.18.3"  # brax
 
