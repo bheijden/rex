@@ -16,6 +16,7 @@ from rex.constants import (
     STOPPED,
     RUNNING_STATES,
     DEBUG,
+    INFO,
     WARN,
     ERROR,
     SIMULATED,

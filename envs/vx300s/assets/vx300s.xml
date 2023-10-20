@@ -35,7 +35,7 @@
 <!--    </custom>-->
 
 <!--    Pusher params-->
-    <option timestep="0.01" iterations="20"/>
+    <option timestep="0.015" iterations="10"/>
     <custom>
         <numeric data="10" name="constraint_ang_damping"/> <!-- positional & spring -->
         <numeric data="1" name="spring_inertia_scale"/>  <!-- positional & spring -->
@@ -86,7 +86,6 @@
             <joint range="-0.036 0.0"/>
             <position ctrlrange="-0.036 0.0" kp="100"/>
         </default>
-
         <!-- Visualization -->
         <default class="arm">
             <geom type="mesh" rgba="0.04 0.04 0.04 1"/>
@@ -113,17 +112,19 @@
 
     <worldbody>
         <!-- table -->
-        <geom name="table" type="plane" pos="0 0.0 0" size="1 1 0.1" contype="16" conaffinity="7" condim="3"/>
+        <geom name="table" type="plane" pos="0 0.0 0" size="1 1 0.1" contype="8" conaffinity="8" condim="3"/>
         <!-- box -->
-        <body name="box" pos="0.45 0.15 0.05" >
-            <geom name="box_geom" rgba="0.2 0.2 0.2 1" type="box" size="0.05 0.05 0.05" density="47" contype="8" conaffinity="7"/>
-            <joint name="box_yaw" type="hinge" pos="0 0 0" axis="0 0 1" limited="false" damping="0.5"/>
+        <body name="box" pos="0.0 0.0 0.0" >
+            <geom name="box_geom" rgba="0.2 0.2 0.2 1" type="box" size="0.05 0.05 0.05" density="47" contype="7" conaffinity="8" condim="3"/>
+<!--            <joint name="box_yaw" type="hinge" pos="0 0 0" axis="0 0 1" limited="false" damping="0.5"/>-->
+<!--            <joint name="box_pitch" type="hinge" pos="0 0 0" axis="0 1 0" limited="false" damping="0.5"/>-->
+<!--            <joint name="box_roll" type="hinge" pos="0 0 0" axis="1 0 0" limited="false" damping="0.5"/>-->
             <joint name="box_slidex" type="slide" pos="0 0 0" axis="1 0 0" range="-2 2" damping="0.5"/>
             <joint name="box_slidey" type="slide" pos="0 0 0" axis="0 1 0" range="-2 2" damping="0.5"/>
-<!--            <joint name="obj_slidez" type="slide" pos="0 0 0" axis="0 0 1" range="-2 2" damping="0."/>-->
+            <joint name="obj_slidez" type="slide" pos="0 0 0" axis="0 0 1" range="-2 0.01" damping="0.5"/>
         </body>
         <!-- goal -->
-        <body name="goal" pos="0.25 -0.15 -0.0485" >
+        <body name="goal" pos="0.0 0.0 -0.0485" >
             <geom name="goal_geom" rgba="0.2 0.2 0.2 1" type="box" size="0.05 0.05 0.05" density="47" contype="0" conaffinity="0"/>
             <joint name="goal_slidex" type="slide" pos="0 0 0" axis="1 0 0" range="-2 2" damping="0.5"/>
             <joint name="goal_slidey" type="slide" pos="0 0 0" axis="0 1 0" range="-2 2" damping="0.5"/>
@@ -162,9 +163,9 @@
                                     <!-- Wrist Rotate Joint -->
                                     <joint class="wrist_rotate" name="wrist_rotate" type="hinge" axis="1 0 0"/>
                                     <geom class="arm" mesh="gripper_mesh" euler="0.0 0.0 1.5707963267948966" pos="-0.02 0 0" contype="0" conaffinity="0"/>
-                                    <!--ee_arm joint: xyz="0.042825 0.0 0.0" rpy="0.0 0.0 0.0" -->
-                                    <geom class="arm" mesh="gripper_bar_mesh" euler="0 0 1.5707963267948966" pos="-0.020175 0 0" contype="4" conaffinity="4"/>
                                     <geom class="arm" mesh="gripper_prop_mesh" euler="0 0 1.5707963267948966" pos="-0.02 0 0" contype="0" conaffinity="0"/>
+                                    <!-- gripper bar -->
+                                    <geom class="arm" mesh="gripper_bar_mesh" euler="0 0 1.5707963267948966" pos="-0.020175 0 0" contype="0" conaffinity="0"/>
                                     <!-- To follow the gripper link (ee_link is dummy joint)-->
                                     <body name="ee_link" euler="0 0 0" pos="0.1072 0 0">
                                         <joint name="ee_link" type="slide" axis="1 0 0" range="-0.01 0.01"/>

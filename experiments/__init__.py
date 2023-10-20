@@ -74,7 +74,7 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
     # Determine whether we use the real system
     real = True if "real" in env_fn.__module__ else False
 
-    # Built nodes
+    # Build nodes
     nodes = env_fn(rates, delays_sim, delays, scheduling=scheduling, advance=advance)
     world, actuator, sensor = nodes["world"], nodes["actuator"], nodes["sensor"]
 
@@ -812,9 +812,3 @@ class RolloutWrapper(object):
         rng = jax.random.PRNGKey(0)
         obs, state, info = self.env.reset(rng, self.env_params)
         return obs.shape
-
-
-if __name__ == "__main__":
-    a = onp.zeros((80, 1))
-    b = onp.zeros((80, 1))
-    c = stack_padding((a, b))

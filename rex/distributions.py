@@ -348,6 +348,7 @@ def mixture_distribution_quantiles(dist, probs, N_grid_points: int = int(1e3), g
     cdf_grid = dist.cdf(full_grid)  # this is fully parallelized and even uses GPU
     grid_check = (cdf_grid.min(axis=0).max() <= min(probs)) & (max(probs) <= cdf_grid.max(axis=0).min())
     if not grid_check:
+        print(f"Grid min: {grid_min}, max: {grid_max} | CDF min: {cdf_grid.min(axis=0).max()}, max: {cdf_grid.max(axis=0).min()} | Probs min: {min(probs)}, max: {max(probs)}")
         raise RuntimeError("Grid does not span full CDF range needed for interpolation!")
 
     probs_row_grid = np.transpose(np.tile(np.array(probs), (cdf_grid.shape[0], 1)))
