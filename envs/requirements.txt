@@ -1,0 +1,4 @@
+modern_robotics
+interbotix_copilot
+interbotix_xs_modules
+opencv-contrib-python==4.6.0.66  # MAKE SURE opencv-python is uninstalled first.

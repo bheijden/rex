@@ -1,8 +1,14 @@
 import os
-from typing import Any, Dict, Tuple, Union
+from typing import Any, Dict, Tuple, Union, List
+import numpy as np
 import jumpy
+import brax
+from brax.io import html
 import jumpy.numpy as jp
 import jax
+import jax.experimental.host_callback as hcb
+from jax.debug import print as jax_print
+import jax.numpy as jnp
 from math import ceil
 from flax import struct
 
@@ -26,8 +32,8 @@ from envs.vx300s.env import ActuatorOutput, ArmOutput, BoxOutput
 def build_vx300s(rates: Dict[str, float],
                  delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distribution]]]],
                  delays: Dict[str, Dict[str, Union[float, Dict[str, float]]]],
+                 config: Dict[str, Dict[str, Any]],
                  scheduling: int = PHASE,
-                 advance: bool = False,
                  ) -> Dict[str, Node]:
 
     # Prepare delays
@@ -37,21 +43,21 @@ def build_vx300s(rates: Dict[str, float],
     trans = delays["inputs"]
 
     # Create nodes
-    world = World(name="world", rate=rates["world"], scheduling=scheduling, advance=False,
+    world = World(xml_path=config["brax"]["xml_path"], name="world", rate=rates["world"], scheduling=scheduling, advance=False,
                   delay=process["world"], delay_sim=process_sim["world"])
     armsensor = ArmSensor(world, name="armsensor", rate=rates["armsensor"], scheduling=scheduling, advance=False,
-                          delay=process["armsensor"], delay_sim=process_sim["armsensor"])
+                          delay=process["armsensor"], delay_sim=process_sim["armsensor"] )
     boxsensor = BoxSensor(world, name="boxsensor", rate=rates["boxsensor"], scheduling=scheduling, advance=False,
                           delay=process["boxsensor"], delay_sim=process_sim["boxsensor"])
     armactuator = ArmActuator(world, name="armactuator", rate=rates["armactuator"], scheduling=scheduling, advance=False,
                               delay=process["armactuator"], delay_sim=process_sim["armactuator"])
 
     # Connect nodes
-    world.connect(armactuator, window=1, blocking=True, skip=False, jitter=LATEST,
+    world.connect(armactuator, window=1, blocking=False, skip=False, jitter=LATEST,
                   delay_sim=trans_sim["world"]["armactuator"], delay=trans["world"]["armactuator"])
-    armsensor.connect(world, window=1, blocking=True, skip=False, jitter=LATEST,
+    armsensor.connect(world, window=1, blocking=False, skip=True, jitter=LATEST,
                       delay_sim=trans_sim["armsensor"]["world"], delay=trans["armsensor"]["world"])
-    boxsensor.connect(world, window=1, blocking=True, skip=False, jitter=LATEST,
+    boxsensor.connect(world, window=1, blocking=False, skip=True, jitter=LATEST,
                       delay_sim=trans_sim["boxsensor"]["world"], delay=trans["boxsensor"]["world"])
 
     return dict(world=world, armactuator=armactuator, armsensor=armsensor, boxsensor=boxsensor)
@@ -85,7 +91,7 @@ PIPELINE = {
 
 
 class World(Node):
-    def __init__(self, *args, dt_brax: float = 0.04, backend: str = "generalized", debug: bool = False, **kwargs):
+    def __init__(self, xml_path: str, *args, dt_brax: float = 0.04, backend: str = "generalized", debug: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
         self.debug = debug
         dt = 1 / self.rate
@@ -95,8 +101,8 @@ class World(Node):
         self._pipeline = PIPELINE[backend]
 
         # Load system
-        path = os.path.dirname(__file__) + "/../assets/vx300s.xml"
-        self.sys: BraxSystem = mjcf.load(path)
+        self._xml_path = xml_path
+        self.sys: BraxSystem = mjcf.load(xml_path)
         self.sys = self.sys.replace(dt=self.dt_brax)
 
         # Get indices
@@ -131,28 +137,22 @@ class World(Node):
     def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
         """Default state of the node."""
         # Try to grab state from graph_state
-        goalpos = graph_state.nodes["planner"].state.goalpos
-        boxpos_home = graph_state.nodes["planner"].params.boxpos_home
+        goalpos = graph_state.nodes["supervisor"].state.goalpos
+        home_boxpos = graph_state.nodes["supervisor"].params.home_boxpos
+        home_boxyaw = graph_state.nodes["supervisor"].params.home_boxyaw
+        home_jpos = graph_state.nodes["supervisor"].params.home_jpos
 
         # Set joint positions
-        qpos = self.sys.init_q
-        qpos = qpos.at[1:5].set(jp.concatenate([boxpos_home, goalpos]))
-        pipeline_state = self._pipeline.init(self.sys, qpos, jp.zeros(self.sys.qd_size()))
+        qpos = jnp.concatenate([home_boxpos, home_boxyaw, goalpos, home_jpos, np.array([0.])], dtype=np.float32)
+        qd = jnp.zeros(self.sys.qd_size(), dtype=jp.float32)
+        pipeline_state = self._pipeline.init(self.sys, qpos, qd)
         return State(pipeline_state=pipeline_state)
 
     def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BraxOutput:
         """Default output of the node."""
         # Grab output from state
-        try:
-            pipeline_state = graph_state.nodes["world"].state.pipeline_state
-            brax_output = self._get_output(pipeline_state)
-        except (AttributeError):
-            jpos = jp.zeros(self.sys.actuator.q_id.shape, dtype=jp.float32)
-            eepos = jp.zeros((3,), dtype=jp.float32)
-            eeorn = jp.zeros((3,), dtype=jp.float32)
-            boxpos = jp.zeros((3,), dtype=jp.float32)
-            boxorn = jp.zeros((3,), dtype=jp.float32)
-            brax_output = BraxOutput(jpos=jpos, eepos=eepos, eeorn=eeorn, boxpos=boxpos, boxorn=boxorn)
+        pipeline_state = graph_state.nodes["world"].state.pipeline_state
+        brax_output = self._get_output(pipeline_state)
         return brax_output
 
     def _get_output(self, pipeline_state: BraxState) -> BraxOutput:
@@ -161,10 +161,14 @@ class World(Node):
         )
         jpos = pipeline_state.q[self._joint_slice]
         eepos = x_i.pos[self._ee_arm_idx]
-        eeorn = quat_to_euler(x_i.rot[self._ee_arm_idx])
+        eeorn = self._convert_wxyz_to_xyzw(x_i.rot[self._ee_arm_idx])  # quaternion (w,x,y,z) -> (x,y,z,w)
         boxpos = x_i.pos[self._box_idx]
-        boxorn = quat_to_euler(x_i.rot[self._box_idx])
+        boxorn = self._convert_wxyz_to_xyzw(x_i.rot[self._box_idx])  # quaternion (w,x,y,z) -> (x,y,z,w)
         return BraxOutput(jpos=jpos, eepos=eepos, eeorn=eeorn, boxpos=boxpos, boxorn=boxorn)
+
+    def _convert_wxyz_to_xyzw(self, quat: jp.ndarray):
+        """Convert quaternion (w,x,y,z) -> (x,y,z,w)"""
+        return jnp.array([quat[1], quat[2], quat[3], quat[0]], dtype="float32")
 
     def step(self, step_state: StepState) -> Tuple[StepState, BraxOutput]:
         """Step the node."""
@@ -183,6 +187,9 @@ class World(Node):
 
         new_pipeline_state = jax.lax.scan(f, state.pipeline_state, (), self.substeps)[0]
 
+        # jax_print("qf_constraint: {qf_constraint}", qf_constraint=new_pipeline_state.qf_constraint[:3])
+        # hcb.call(lambda qf_constraint: print(f"qf_constraint: {qf_constraint}"), new_pipeline_state.qf_constraint)
+
         # Update state
         new_state = state.replace(pipeline_state=new_pipeline_state)
         new_step_state = step_state.replace(state=new_state)
@@ -190,6 +197,21 @@ class World(Node):
         # Prepare output
         brax_output = self._get_output(new_pipeline_state)
         return new_step_state, brax_output
+
+    def view_rollout(self, rollout: List[BraxState], sys=None, verbose=False, path: str = None, dt: float = None, **kwargs):
+        """Render a rollout."""
+        sys = self.sys if sys is None else sys
+        path = "./brax_render.html" if path is None else path
+        dt = sys.dt if dt is None else dt
+        sys = sys.replace(dt=dt)
+
+        # Check if directory to path exists
+        assert os.path.exists(os.path.dirname(path)), f"Directory {os.path.dirname(path)} does not exist"
+
+        # save rollout
+        html.save(path, sys, rollout)
+        if verbose:
+            print(f"Saved rollout to {path}")
 
 
 class ArmSensor(Node):

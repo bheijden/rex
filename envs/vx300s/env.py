@@ -17,21 +17,25 @@ from rex.spaces import Box
 
 
 @struct.dataclass
-class PlannerParams:
+class SupervisorParams:
     # Other parameters
-    goalpos_dist: jp.float32 = struct.field(pytree_node=True, default_factory=lambda: jp.float32(0.15))
-    boxpos_home: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([0.45, 0.0], jp.float32))
-    home_jpos: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.zeros((6,), jp.float32))
+    goalpos_dist: jp.float32 = struct.field(pytree_node=True, default_factory=lambda: jp.float32(0.25))
+    home_boxpos: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([0.35, 0.0, 0.051], jp.float32))
+    home_boxyaw: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([0.0], jp.float32))
+    home_jpos: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([0., 0., 0., 0*-3.14/4, 3.1415 / 2, 0.], jp.float32))
     # Observation parameters
     min_jpos: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([-3.14159, -1.8500, -1.7628, -3.14159, -1.8675, -3.14159], jp.float32))
     max_jpos: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([3.14159, 1.2566, 1.6057, 3.14159, 2.2340, 3.14159], jp.float32))
     min_boxpos: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([-2.0, -2.0, 0.], jp.float32))
     max_boxpos: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([2.0, 2.0, 0.5], jp.float32))
-    min_boxorn: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array( [-3.14, -3.14, -3.14], jp.float32))
-    max_boxorn: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array( [3.14, 3.14, 3.14], jp.float32))
+    min_boxorn: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([-3.14, -3.14, -3.14], jp.float32))
+    max_boxorn: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([3.14, 3.14, 3.14], jp.float32))
     # Action parameters
-    horizon: jp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.array(5, jp.int32))
-    max_jvel: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: 0.2*jp.array([3.14159, 3.14159, 3.14159, 3.14159, 3.14159, 3.14159], jp.float32))
+    # horizon: jp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.array(4, jp.int32))
+    # max_jvel: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: 0.35*3.14159*jp.ones((6,), dtype=jp.float32))
+    # dt: jp.float32 = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.15, jp.float32))
+    # dt_brax: jp.float32 = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.015, jp.float32))
+    # pipeline: str = struct.field(pytree_node=False, default_factory=lambda: "generalized")
 
 
 @struct.dataclass
@@ -42,9 +46,15 @@ class PlannerOutput:
 
 
 @struct.dataclass
-class PlannerState:
+class SupervisorState:
     goalpos: jp.ndarray
-    last_plan: PlannerOutput = struct.field(pytree_node=True, default_factory=lambda: None)
+    goalyaw: jp.ndarray
+
+
+@struct.dataclass
+class SupervisorOutput:
+    goalpos: jp.ndarray
+    goalyaw: jp.ndarray
 
 
 @struct.dataclass
@@ -58,11 +68,58 @@ class ArmOutput:
     eepos: jp.ndarray
     eeorn: jp.ndarray
 
+    @property
+    def orn_to_3x3(self):
+        q = self.eeorn
+        d = jp.dot(q, q)
+        x, y, z, w = q
+        s = 2 / d
+        xs, ys, zs = x * s, y * s, z * s
+        wx, wy, wz = w * xs, w * ys, w * zs
+        xx, xy, xz = x * xs, x * ys, x * zs
+        yy, yz, zz = y * ys, y * zs, z * zs
+
+        return jp.array([
+            jp.array([1 - (yy + zz), xy - wz, xz + wy]),
+            jp.array([xy + wz, 1 - (xx + zz), yz - wx]),
+            jp.array([xz - wy, yz + wx, 1 - (xx + yy)]),
+        ])
+
 
 @struct.dataclass
 class BoxOutput:
     boxpos: jp.ndarray
     boxorn: jp.ndarray
+
+    @property
+    def wrapped_yaw(self):
+        """Get the wrapped yaw from boxorn (quaternion xyzw)"""
+        boxorn = self.boxorn
+        boxyaw = jp.arctan2(2 * (boxorn[3] * boxorn[2] + boxorn[0] * boxorn[1]), 1 - 2 * (boxorn[1] ** 2 + boxorn[2] ** 2))
+        return boxyaw
+
+    @property
+    def orn_to_3x3(self):
+        q = self.boxorn
+        d = jp.dot(q, q)
+        x, y, z, w = q
+        s = 2 / d
+        xs, ys, zs = x * s, y * s, z * s
+        wx, wy, wz = w * xs, w * ys, w * zs
+        xx, xy, xz = x * xs, x * ys, x * zs
+        yy, yz, zz = y * ys, y * zs, z * zs
+
+        return jp.array([
+            jp.array([1 - (yy + zz), xy - wz, xz + wy]),
+            jp.array([xy + wz, 1 - (xx + zz), yz - wx]),
+            jp.array([xz - wy, yz + wx, 1 - (xx + yy)]),
+        ])
+
+
+def get_wrapped_yaw(boxorn):
+    """Get the wrapped yaw from boxorn (quaternion xyzw)"""
+    boxyaw = jp.arctan2(2 * (boxorn[3] * boxorn[2] + boxorn[0] * boxorn[1]), 1 - 2 * (boxorn[1] ** 2 + boxorn[2] ** 2))
+    return boxyaw
 
 
 def get_next_jpos(plan, ts):
@@ -159,45 +216,45 @@ class Controller(Node):
         return new_step_state, actuator_output
 
 
-class Planner(BaseAgent):
+class Supervisor(BaseAgent):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> PlannerParams:
+    def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> SupervisorParams:
         """Default params of the root."""
-        return PlannerParams()
+        return SupervisorParams()
 
-    def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> PlannerState:
+    def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> SupervisorState:
         """Default state of the root."""
         # Place goal on semi-circle around home position with radius goalpos_dist
-        params: PlannerParams = graph_state.nodes["planner"].params
+        params: SupervisorParams = graph_state.nodes["supervisor"].params
         rng_planner, rng_goal = jax.random.split(rng, num=2)
+        goalyaw = jp.array([jumpy.random.uniform(rng_goal, low=jp.float32(0), high=jp.pi/2)])
         angle = jumpy.random.uniform(rng_goal, low=jp.float32(0), high=jp.pi)
         dx = jp.sin(angle)*params.goalpos_dist
         dy = jp.cos(angle)*params.goalpos_dist
-        goalpos = params.boxpos_home + jp.array([dx, dy])
-        return PlannerState(last_plan=self.default_output(rng, graph_state), goalpos=goalpos)
+        goalpos = params.home_boxpos[:2] + jp.array([dx, dy])
+        # goalpos = params.home_boxpos[:2] + jp.array([0.05, 0.2])  # todo: goal hardcoded here.
+        # goalpos = params.home_boxpos[:2] + jp.array([-0.10, 0.45])  # todo: goal hardcoded here.
+        return SupervisorState(goalpos=goalpos, goalyaw=goalyaw)
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> PlannerOutput:
+    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> SupervisorOutput:
         """Default output of the root."""
-        params = graph_state.nodes["planner"].params
-        jpos = jp.zeros(params.home_jpos.shape, dtype=jp.float32)
-        jvel =  jp.zeros((params.horizon, params.home_jpos.shape[0]), dtype=jp.float32)
-        timestamps = (1/self.rate) * jp.arange(0, params.horizon+1, dtype=jp.float32)
-        return PlannerOutput(jpos=jpos, jvel=jvel, timestamps=timestamps)
+        state = graph_state.nodes["supervisor"].state
+        return SupervisorOutput(goalpos=state.goalpos, goalyaw=state.goalyaw)
 
-    # def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-    #     """Reset the root."""
-    #     rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
-    #     params = self.default_params(rng_params, graph_state)
-    #     state = self.default_state(rng_state, graph_state)
-    #     inputs = self.default_inputs(rng_inputs, graph_state)
-    #     return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
+
+# todo: add to BaseGraph?
+# def init_graph_state(rng: jp.ndarray = None,
+#                      graph_state: GraphState = None,
+#                      starting_step: jp.int32 = jp.int32(0),
+#                      starting_eps: jp.int32 = jp.int32(0),
+#                      randomize_eps: bool = True)
 
 
 class Vx300sEnv(BaseEnv):
-    planner_cls: Planner = Planner
-    controller_cls: Controller = Controller
+    supervisor_cls = Supervisor
+    controller_cls = Controller
 
     def __init__(
             self,
@@ -210,31 +267,14 @@ class Vx300sEnv(BaseEnv):
         # Required for step and reset functions
         assert "world" in self.graph.nodes, "Environment requires a world node."
         self.world = self.graph.nodes["world"]
-        self.planner = self.graph.root
+        self.supervisor = self.graph.root
         self.nodes = {node.name: node for _, node in self.graph.nodes.items() if node.name != self.world.name}
-        self.nodes_world_and_planner = self.graph.nodes_and_root
+        self.nodes_world_and_supervisor = self.graph.nodes_and_root
 
-    # def observation_space(self, params: PlannerParams = None):
-    #     """Observation space of the environment."""
-    #     if params is not None:
-    #         self.log("reloading", "Current implementation does not support custom parametrized observation spaces.")
-    #     params = self.planner.default_params(jumpy.random.PRNGKey(0))
-    #     inputs = {u.input_name: u for u in self.planner.inputs}
-    #
-    #     # Prepare
-    #     win_armsensor = inputs["armsensor"].window
-    #     low = jp.array(params.min_jpos.tolist() * win_armsensor + params.min_boxpos.tolist() + params.min_boxorn.tolist(), dtype=jp.float32)
-    #     high = jp.array(params.max_jpos.tolist() * win_armsensor + params.max_boxpos.tolist() + params.max_boxorn.tolist(), dtype=jp.float32)
-    #     return Box(low=low, high=high, dtype=jp.float32)
-    #
-    # def action_space(self, params: PlannerParams = None):
-    #     """Action space of the environment."""
-    #     if params is not None:
-    #         self.log("reloading", "Current implementation does not support custom parametrized action spaces.")
-    #     params = self.planner.default_params(jumpy.random.PRNGKey(0))
-    #     high = jp.array([[params.max_jvel]]*params.horizon, dtype=jp.float32)
-    #     return Box(low=-high, high=high, shape=high.shape, dtype=jp.float32)
+        from envs.vx300s.cem_brax import box_pushing_cost
+        self._cost_fn = box_pushing_cost
 
+    # todo: automate _get_graph_state -> find order of reset iteratively.
     def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> GraphState:
         """Get the graph state."""
         # Prepare new graph state
@@ -258,7 +298,7 @@ class Vx300sEnv(BaseEnv):
             return new_nodes[node.name].replace(state=state)
 
         # Step_state root & world (root must be reset before world, as the world may copy some params from the root)
-        new_nodes[self.planner.name] = get_step_state(self.planner, rng_planner, graph_state)
+        new_nodes[self.supervisor.name] = get_step_state(self.supervisor, rng_planner, graph_state)
         new_nodes[self.world.name] = get_step_state(self.world, rng_world, graph_state)
 
         # Get new step_state for other nodes in arbitrary order
@@ -267,33 +307,38 @@ class Vx300sEnv(BaseEnv):
             # Replace step state in graph state
             new_nodes[name] = get_step_state(n, rng_n, graph_state)
 
-        # Reset nodes
-        rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_world_and_planner) + 1)
-        [n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_world_and_planner.values(), rngs)]
+        rng, *rngs = jumpy.random.split(rng, num=len(self.graph.nodes_and_root) + 1)
+        for (name, n), rng_n in zip(self.graph.nodes_and_root.items(), rngs):
+            new_nodes[name] = new_nodes[name].replace(inputs=n.default_inputs(rng_n, graph_state))
         return GraphState(eps=starting_eps, step=starting_step, nodes=FrozenDict(new_nodes))
 
     def reset(self, rng: jp.ndarray, graph_state: GraphState = None):
         """Reset environment."""
         new_graph_state = self._get_graph_state(rng, graph_state)
 
+        # Reset nodes
+        rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_world_and_supervisor) + 1)
+        # todo: we reset with step state once more here.
+        [n.reset(rng_reset, new_graph_state) for (n, rng_reset) in zip(self.nodes_world_and_supervisor.values(), rngs)]
+
         # Reset environment to get initial step_state (runs up-until the first step)
         graph_state, step_state = self.graph.reset(new_graph_state)
 
-        # Get observation
-        cost, info = self._get_cost(step_state)
+        # Get cost
+        cost, info = self._get_cost(graph_state)
         return graph_state, step_state, info
 
-    def step(self, graph_state: GraphState, plan: PlannerOutput):
+    def step(self, graph_state: GraphState, action):
         """Perform step transition in environment."""
         # Update step_state (if necessary)
-        step_state = self.planner.get_step_state(graph_state)
-        new_step_state = step_state.replace(state=step_state.state.replace(last_plan=plan))
+        step_state = self.supervisor.get_step_state(graph_state)
 
         # Apply step and receive next step_state
-        graph_state, step_state = self.graph.step(graph_state, new_step_state, plan)
+        output = SupervisorOutput(goalpos=step_state.state.goalpos, goalyaw=step_state.state.goalyaw)
+        graph_state, step_state = self.graph.step(graph_state, step_state, output)
 
-        # Calculate distance
-        cost, info = self._get_cost(step_state)
+        # Get cost
+        cost, info = self._get_cost(graph_state)
 
         # Determine done flag
         terminated = self._is_terminal(graph_state)
@@ -304,14 +349,69 @@ class Vx300sEnv(BaseEnv):
     def _is_terminal(self, graph_state: GraphState) -> bool:
         return False
 
-    def _get_cost(self, step_state: StepState):
+    def _get_cost(self, graph_state: GraphState):
+        step_state = self.supervisor.get_step_state(graph_state)
+        # Calculate cost
         boxpos = step_state.inputs["boxsensor"][-1].data.boxpos
         eepos = step_state.inputs["armsensor"][-1].data.eepos
         goalpos = step_state.state.goalpos
-        cost_z = 1.0 * jumpy.numpy.linalg.safe_norm(eepos[2] - 0.075)
-        cost_near = 0.4 * jumpy.numpy.linalg.safe_norm((boxpos - eepos)[:2])
-        cost_dist = 4.0 * jumpy.numpy.linalg.safe_norm(boxpos[:2] - goalpos)
-        cost = cost_z + cost_near + cost_dist
-        info = {"cost_z": cost_z, "cost_near": cost_near, "cost_dist": cost_dist, "cost": cost}
+        eeorn = step_state.inputs["armsensor"][-1].data.eeorn
+        cp = graph_state.nodes["planner"].params.cost_params
+        cost, info = self._cost_fn(cp, boxpos, eepos, goalpos, eeorn)
         return cost, info
+
+    # def _get_cost(self, step_state: StepState):
+    #     boxpos = step_state.inputs["boxsensor"][-1].data.boxpos
+    #     eepos = step_state.inputs["armsensor"][-1].data.eepos
+    #     goalpos = step_state.state.goalpos
+    #
+    #     rot_mat = step_state.inputs["armsensor"][-1].data.orn_to_3x3
+    #     ee_to_goal = goalpos - eepos[:2]
+    #     box_to_goal = goalpos - boxpos[:2]
+    #
+    #     # if dot(ee_yaxis (in global), ee_to_goal (in global))==0 --> ee_yaxis = perpedicular to box
+    #     # ee_yaxis is parallel to gripper_bar axis
+    #     norm_ee_to_goal = ee_to_goal / jp.linalg.safe_norm(ee_to_goal)
+    #     cost_orn = jp.abs(jp.dot(rot_mat[:2, 1], norm_ee_to_goal))
+    #
+    #     # ee_xaxis points in -z if ee is oriented downward
+    #     # norm_box_to_goal = box_to_goal / math.safe_norm(box_to_goal)
+    #     # target_ee_xaxis = jnp.concatenate([norm_box_to_goal, jnp.array([-5.0])])  # making this more negative forces the ee to be pointing downward
+    #     # norm_target_ee_xaxis = target_ee_xaxis / math.safe_norm(target_ee_xaxis)
+    #     # cost_down = (1-jnp.dot(rot_mat[:3, 0], norm_target_ee_xaxis))  # Here, the dot is 1 if ee_xaxis == target_ee_axis
+    #     cost_down = jp.abs(rot_mat[:2, 0]).sum()
+    #
+    #     # Distances in xy-plane
+    #     box_to_ee = (eepos - boxpos)[:2]
+    #     box_to_goal = (goalpos - boxpos[:2])
+    #     dist_box_to_ee = jp.linalg.safe_norm(box_to_ee)
+    #     dist_box_to_goal = jp.linalg.safe_norm(box_to_goal)
+    #     cost_align = (jp.sum(box_to_ee * box_to_goal) / (dist_box_to_ee * dist_box_to_goal) + 1)
+    #
+    #     # Force cost
+    #     cost_force = 0.
+    #
+    #     cost_z = jp.abs(eepos[2] - 0.02)
+    #     cost_near = jp.abs(jp.linalg.safe_norm((boxpos - eepos)[:2]) - 0.06)
+    #     cost_dist = jp.linalg.safe_norm(boxpos[:2] - goalpos)
+    #     cost_ctrl = 0.
+    #
+    #     cm = cost_dist
+    #
+    #     # Weight all costs
+    #     alpha = 1 / (1 + 2.0 * jp.abs(cost_down + cost_orn))
+    #     cost_orn = 3.0 * cost_orn
+    #     cost_down = 3.0 * cost_down
+    #     cost_force = 0.2 * cost_force
+    #     cost_align = 2.0 * cost_align
+    #     cost_z = 1.0 * cost_z * alpha
+    #     cost_near = 10.0 * cost_near * alpha
+    #     cost_dist = 20.0 * cost_dist * alpha
+    #     cost_ctrl = 0.1 * cost_ctrl
+    #
+    #     total_cost = cost_ctrl + cost_z + cost_near + cost_dist + cost_orn + cost_down + cost_align + cost_force
+    #     info = {"cm": cm*100, "cost": total_cost, "cost_orn": cost_orn, "cost_force": cost_force, "cost_down": cost_down,
+    #             "cost_align": cost_align, "cost_z": cost_z, "cost_near": cost_near, "cost_dist": cost_dist,
+    #             "cost_ctrl": cost_ctrl, "alpha": alpha}
+    #     return total_cost, info
 

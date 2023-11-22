@@ -1,0 +1,20 @@
+image_width: 640
+image_height: 480
+camera_name: logitech_c170
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [744.854391488828, 0, 327.2505862760107, 0, 742.523670731623, 207.0294448122543, 0, 0, 1]
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [0.1164823030284325, -0.7022013182646298, -0.01409335811907957, 0.001216661775149573, 0]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1, 0, 0, 0, 1, 0, 0, 0, 1]
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [742.5888671875, 0, 327.7492634819646, 0, 0, 741.0902709960938, 202.927556117038, 0, 0, 0, 1, 0]

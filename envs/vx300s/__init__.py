@@ -1,8 +1,10 @@
 import envs.vx300s.brax as brax
-# import envs.vx300s.real as real
+import envs.vx300s.mjx as mjx
+import envs.vx300s.real as real
 import envs.vx300s.env as env
 import envs.vx300s.models as models
 import envs.vx300s.dists as dists
+import envs.vx300s.cem_brax as cem_brax
 
 
 # From experiments.__init__.py
@@ -46,7 +48,7 @@ from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHA
 import rex.open_colors as oc
 from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 
-from envs.vx300s.env import Vx300sEnv, Planner
+from envs.vx300s.env import Vx300sEnv
 import envs.vx300s.dists
 import envs.vx300s.models
 
@@ -54,33 +56,41 @@ import envs.vx300s.models
 def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distribution]]]],
              delay_fn: Callable[[Distribution], float],
              rates: Dict[str, float],
+             config: Dict[str, Dict[str, Any]],
              scheduling: int = PHASE,
              win_planner: int = 2,
              jitter: int = BUFFER,
              env_fn: Callable = brax.build_vx300s,
-             env_cls: Type[BaseEnv] = Vx300sEnv,
              name: str = "vx300s",
              max_steps: int = 20,
              clock: int = SIMULATED,
              real_time_factor: int = REAL_TIME,
-             use_delays: bool = True) -> Vx300sEnv:
+             use_delays: bool = True,
+             viewer: bool = True,
+             ) -> Vx300sEnv:
     # Override delays
     delays_sim["step"] = delays_sim.get("step", {})
     delays_sim["inputs"] = delays_sim.get("inputs", {})
-    for n in ["world", "planner", "controller", "armactuator", "armsensor", "boxsensor"]:
+    for n in ["supervisor", "world", "planner", "controller", "armactuator", "armsensor", "boxsensor", "viewer"]:
         delays_sim["step"][n] = delays_sim["step"].get(n, Gaussian(0.))
         delays_sim["inputs"][n] = delays_sim["inputs"].get(n, {})
-    delays_sim["step"]["world"] = Gaussian(0.)
-    delays_sim["step"]["armactuator"] = Gaussian(0.)
-    delays_sim["step"]["armsensor"] = Gaussian(0.)
-    delays_sim["step"]["boxsensor"] = Gaussian(0.)
-    delays_sim["inputs"]["world"]["armactuator"] = Gaussian(0.)
+    # delays_sim["step"]["world"] = Gaussian(0.)
+    # delays_sim["step"]["armactuator"] = Gaussian(0.)
+    # delays_sim["step"]["armsensor"] = Gaussian(0.)
+    # delays_sim["step"]["boxsensor"] = Gaussian(0.)
+    # delays_sim["inputs"]["world"]["armactuator"] = Gaussian(0.)
     delays_sim["inputs"]["armactuator"]["controller"] = delays_sim["inputs"]["armactuator"].get("controller", Gaussian(0.))
     delays_sim["inputs"]["controller"]["planner"] = delays_sim["inputs"]["controller"].get("planner", Gaussian(0.))
-    delays_sim["inputs"]["armsensor"]["world"] = Gaussian(0.)
-    delays_sim["inputs"]["boxsensor"]["world"] = Gaussian(0.)
+    # delays_sim["inputs"]["armsensor"]["world"] = Gaussian(0.)
+    # delays_sim["inputs"]["boxsensor"]["world"] = Gaussian(0.)
     delays_sim["inputs"]["planner"]["armsensor"] = delays_sim["inputs"]["planner"].get("armsensor", Gaussian(0.))
     delays_sim["inputs"]["planner"]["boxsensor"] = delays_sim["inputs"]["planner"].get("boxsensor", Gaussian(0.))
+    delays_sim["inputs"]["planner"]["supervisor"] = delays_sim["inputs"]["planner"].get("boxsensor", Gaussian(0.))
+    delays_sim["inputs"]["supervisor"]["armsensor"] = delays_sim["inputs"]["supervisor"].get("armsensor", Gaussian(0.))
+    delays_sim["inputs"]["supervisor"]["boxsensor"] = delays_sim["inputs"]["supervisor"].get("boxsensor", Gaussian(0.))
+    delays_sim["inputs"]["viewer"]["armsensor"] = delays_sim["inputs"]["viewer"].get("armsensor", Gaussian(0.))
+    delays_sim["inputs"]["viewer"]["boxsensor"] = delays_sim["inputs"]["viewer"].get("boxsensor", Gaussian(0.))
+    delays_sim["inputs"]["viewer"]["supervisor"] = delays_sim["inputs"]["viewer"].get("supervisor", Gaussian(0.))
     delays_sim = tree_map(lambda d: Gaussian(0), delays_sim) if not use_delays else delays_sim
     delays = jax.tree_map(delay_fn, delays_sim)
 
@@ -88,28 +98,54 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
     real = True if "real" in env_fn.__module__ else False
 
     # Build nodes
-    nodes = env_fn(rates, delays_sim, delays, scheduling=scheduling)
+    nodes = env_fn(rates, delays_sim, delays, config, scheduling=scheduling)
     world, armactuator, armsensor, boxsensor = nodes["world"], nodes["armactuator"], nodes["armsensor"], nodes["boxsensor"]
 
     # Define planner
-    planner = env_cls.planner_cls("planner", rate=rates["planner"], advance=True,
-                                  delay_sim=delays_sim["step"]["planner"], delay=delays["step"]["planner"])
+    planner = cem_brax.BraxCEMPlanner("planner", rate=rates["planner"], advance=True,
+                                      delay_sim=delays_sim["step"]["planner"], delay=delays["step"]["planner"],
+                                      mj_path=config["planner"]["brax_xml_path"], pipeline="generalized",
+                                      horizon=config["planner"]["horizon"], u_max=config["planner"]["u_max"],
+                                      dt=config["planner"]["dt"], dt_substeps=config["planner"]["dt_substeps"],
+                                      num_samples=config["planner"]["num_samples"], max_iter=config["planner"]["max_iter"])
     nodes["planner"] = planner
 
+    # Define supervisor
+    supervisor = Vx300sEnv.supervisor_cls("supervisor", rate=rates["supervisor"], advance=True,
+                                          delay_sim=delays_sim["step"]["supervisor"], delay=delays["step"]["supervisor"])
+    nodes["supervisor"] = supervisor
+
     # Define controller
-    controller = env_cls.controller_cls(planner, "controller", rate=rates["controller"], advance=False,
-                                  delay_sim=delays_sim["step"]["controller"], delay=delays["step"]["controller"])
+    controller = Vx300sEnv.controller_cls(planner, "controller", rate=rates["controller"], advance=False,
+                                          delay_sim=delays_sim["step"]["controller"], delay=delays["step"]["controller"])
     nodes["controller"] = controller
 
     # Connect
-    planner.connect(armsensor, name="armsensor", window=1, blocking=False, jitter=BUFFER,
+    supervisor.connect(armsensor, name="armsensor", window=1, blocking=False, jitter=LATEST,
+                       delay_sim=delays_sim["inputs"]["supervisor"]["armsensor"], delay=delays["inputs"]["supervisor"]["armsensor"])
+    supervisor.connect(boxsensor, name="boxsensor", window=1, blocking=False, jitter=LATEST,
+                       delay_sim=delays_sim["inputs"]["supervisor"]["boxsensor"], delay=delays["inputs"]["supervisor"]["boxsensor"])
+    planner.connect(armsensor, name="armsensor", window=1, blocking=False, jitter=LATEST,
                     delay_sim=delays_sim["inputs"]["planner"]["armsensor"], delay=delays["inputs"]["planner"]["armsensor"])
     planner.connect(boxsensor, name="boxsensor", window=1, blocking=False, jitter=LATEST,
                     delay_sim=delays_sim["inputs"]["planner"]["boxsensor"], delay=delays["inputs"]["planner"]["boxsensor"])
-    controller.connect(planner, name="planner", window=win_planner, blocking=False, jitter=LATEST, skip=True,
+    controller.connect(planner, name="planner", window=win_planner, blocking=False, jitter=LATEST, skip=False,
                        delay_sim=delays_sim["inputs"]["controller"]["planner"], delay=delays["inputs"]["controller"]["planner"])
     armactuator.connect(controller, name="controller", window=1, blocking=True, jitter=LATEST,
                         delay_sim=delays_sim["inputs"]["armactuator"]["controller"], delay=delays["inputs"]["armactuator"]["controller"])
+
+    # Define viewer
+    if viewer:
+        viewer = mjx.Viewer(xml_path=config["viewer"]["xml_path"], name="viewer", rate=rates["viewer"], scheduling=scheduling, advance=False,
+                            delay=delays["step"]["viewer"], delay_sim=delays_sim["step"]["viewer"])
+        nodes["viewer"] = viewer
+
+        viewer.connect(supervisor, name="supervisor", window=1, blocking=False, jitter=LATEST,
+                       delay_sim=delays_sim["inputs"]["viewer"]["supervisor"], delay=delays["inputs"]["viewer"]["supervisor"])
+        viewer.connect(armsensor, name="armsensor", window=1, blocking=False, jitter=LATEST,
+                       delay_sim=delays_sim["inputs"]["viewer"]["armsensor"], delay=delays["inputs"]["viewer"]["armsensor"])
+        viewer.connect(boxsensor, name="boxsensor", window=1, blocking=False, jitter=LATEST,
+                       delay_sim=delays_sim["inputs"]["viewer"]["boxsensor"], delay=delays["inputs"]["viewer"]["boxsensor"])
 
     # Create environment
     env_name = [name]
@@ -117,8 +153,8 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
     env_name.append(JITTER_MODES[jitter])
     env_name.append(SCHEDULING_MODES[scheduling])
     env_name = "_".join(env_name)
-    graph = Graph(nodes, root=planner, clock=clock, real_time_factor=real_time_factor)
-    env = env_cls(graph, max_steps=max_steps, name=env_name)
+    graph = Graph(nodes, root=supervisor, clock=clock, real_time_factor=real_time_factor)
+    env = Vx300sEnv(graph, max_steps=max_steps, name=env_name)
     return env
 
 
@@ -140,7 +176,8 @@ def eval_env(env: BaseEnv,
     """
 
     # Update record settings
-    episode_records = log_pb2.ExperimentRecord(environment=pickle.dumps(env.unwrapped))
+    # episode_records = log_pb2.ExperimentRecord(environment=pickle.dumps(env.unwrapped))
+    episode_records = log_pb2.ExperimentRecord()
     record_settings = record_settings or {}
     _record_settings = {}
     for name in env.graph.nodes_and_root.keys():
@@ -157,7 +194,7 @@ def eval_env(env: BaseEnv,
             try:
                 value_list = value.tolist()
                 if isinstance(value_list, list):
-                    value_list= [round(v, 2) for v in value_list]
+                    value_list = [round(v, 2) for v in value_list]
                 else:
                     value_list = round(value_list, 2)
                 formatted_items.append(f"{key}: {value_list}")
@@ -326,10 +363,10 @@ def plot_dists(dist, data=None, info=None, est=None):
     return fig_step, fig_inputs
 
 
-def show_computation_graph(G: nx.DiGraph, root: str, xmax: float = 2.0) -> Tuple[
+def show_computation_graph(G: nx.DiGraph, root: str = None, xmax: float = 2.0) -> Tuple[
     plt.Figure, plt.Axes]:
-    order = ["world", "armsensor", "boxsensor", "planner", "controller", "armactuator"]
-    cscheme = {"world": "gray", "armsensor": "grape", "boxsensor": "grape", "planner": "teal", "controller": "indigo", "armactuator": "orange"}
+    order = ["world", "armsensor", "boxsensor", "supervisor", "viewer", "planner", "controller", "armactuator"]
+    cscheme = {"world": "gray", "armsensor": "grape", "boxsensor": "grape", "supervisor": "teal", "viewer": "teal", "planner": "indigo", "controller": "indigo", "armactuator": "orange"}
 
     # Create new plot
     fig, ax = plt.subplots()
@@ -337,7 +374,7 @@ def show_computation_graph(G: nx.DiGraph, root: str, xmax: float = 2.0) -> Tuple
 
     ax.set(facecolor=oc.ccolor("gray"), xlabel="time (s)", yticks=[], xlim=[-0.01, xmax])
     plot_computation_graph(ax, G, root=root, order=order, cscheme=cscheme, xmax=xmax, node_size=200,
-                           draw_pruned=True, draw_nodelabels=True, node_labeltype="seq", connectionstyle="arc3,rad=0.1")
+                           draw_pruned=False, draw_nodelabels=True, node_labeltype="seq", connectionstyle="arc3,rad=0.1")
 
     # Plot legend
     handles, labels = ax.get_legend_handles_labels()
@@ -351,9 +388,10 @@ def show_computation_graph(G: nx.DiGraph, root: str, xmax: float = 2.0) -> Tuple
 
 def show_graph(episode_record: log_pb2.EpisodeRecord, pos: Dict[str, Tuple[float]] = None, cscheme: Dict[str, str] = None) -> \
         Tuple[plt.Figure, plt.Axes]:
-    cscheme = cscheme or {"world": "gray", "armsensor": "grape", "boxsensor": "grape", "planner": "teal", "controller": "indigo",
-               "armactuator": "orange"}
-    pos = pos or {"world": (0, 0), "armsensor": (1.5, 1.5), "boxsensor": (1.5, -1.5), "planner": (3, 0), "controller": (4.5, 0), "armactuator": (6.0, 0)}
+    cscheme = cscheme or {"world": "gray", "armsensor": "grape", "boxsensor": "grape", "planner": "indigo", "controller": "indigo",
+               "armactuator": "orange", "supervisor": "teal", "viewer": "teal"}
+    pos = pos or {"world": (0, 0), "armsensor": (1.5, 1.5), "boxsensor": (1.5, -1.5), "supervisor": (3, 3), "viewer": (4.5, 3),
+                  "planner": (3, 0), "controller": (4.5, 0), "armactuator": (6.0, 0)}
 
     # Create new plot
     fig, ax = plt.subplots()
@@ -370,3 +408,95 @@ def show_graph(episode_record: log_pb2.EpisodeRecord, pos: Dict[str, Tuple[float
     ax.legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
               bbox_to_anchor=(1.0, 0.50))
     return fig, ax
+
+
+def show_communication(record: log_pb2.EpisodeRecord) -> Tuple[plt.Figure, plt.Axes]:
+    # Reformat record
+    d = {n.info.name: n for n in record.node}
+
+    # Create new plots
+    fig, ax = plt.subplots()
+    xlim = [-0.001, 1.0]
+    ax.set(ylim=[-18, 95], xlim=xlim, yticks=[], facecolor=oc.ccolor("gray"))
+    ystart, dy, margin = 90, -10, 4
+
+    # Plot all thread traces
+    # ystart = plot_input_thread(ax, d["world"].inputs[0], ystart=ystart - margin, dy=dy / 2, name="")
+    ystart = plot_event_thread(ax, d["world"], ystart=ystart, dy=dy)
+
+    # ystart = plot_input_thread(ax, d["sensor"].inputs[0], ystart=ystart - margin, dy=dy / 2, name="")
+    ystart = plot_event_thread(ax, d["armsensor"], ystart=ystart, dy=dy)
+    ystart = plot_event_thread(ax, d["boxsensor"], ystart=ystart, dy=dy)
+
+    # idx = len(d["agent"].inputs) - 1
+    # ystart = plot_input_thread(ax, d["agent"].inputs[idx], ystart=ystart - margin, dy=dy / 2, name="")
+    ystart = plot_event_thread(ax, d["supervisor"], ystart=ystart, dy=dy)
+    ystart = plot_event_thread(ax, d["planner"], ystart=ystart, dy=dy)
+    ystart = plot_event_thread(ax, d["controller"], ystart=ystart, dy=dy)
+
+    # ystart = plot_input_thread(ax, d["actuator"].inputs[0], ystart=ystart - margin, dy=dy / 2, name="")
+    ystart = plot_event_thread(ax, d["armactuator"], ystart=ystart, dy=dy)
+
+    # Plot legend
+    handles, labels = ax.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    by_label = dict(sorted(by_label.items()))
+    ax.legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
+              bbox_to_anchor=(1.0, 0.50))
+    return fig, ax
+
+
+def get_default_distributions() -> Dict[str, Dict[str, Union[Distribution, Dict[str, Distribution]]]]:
+    delays_sim = dict(step={}, inputs={})
+    for n in ["world", "supervisor", "planner", "controller", "armactuator", "armsensor", "boxsensor", "viewer"]:
+        delays_sim["step"][n] = Gaussian(0.)
+        delays_sim["inputs"][n] = {}
+    delays_sim["step"]["world"] = Gaussian(0.)
+    delays_sim["step"]["armactuator"] = Gaussian(0.)
+    delays_sim["step"]["armsensor"] = Gaussian(0.005)
+    delays_sim["step"]["boxsensor"] = Gaussian(0.05)
+    delays_sim["step"]["controller"] = Gaussian(0.03)
+    delays_sim["step"]["planner"] = Gaussian(0.18)
+    delays_sim["step"]["supervisor"] = Gaussian(0.01)
+    delays_sim["step"]["viewer"] = Gaussian(0.01)
+    delays_sim["inputs"]["world"]["armactuator"] = Gaussian(0.01)
+    delays_sim["inputs"]["armactuator"]["controller"] = Gaussian(0.002)
+    delays_sim["inputs"]["controller"]["planner"] = Gaussian(0.002)
+    delays_sim["inputs"]["armsensor"]["world"] = Gaussian(0.01)
+    delays_sim["inputs"]["boxsensor"]["world"] = Gaussian(0.05)
+    delays_sim["inputs"]["supervisor"]["armsensor"] = Gaussian(0.002)
+    delays_sim["inputs"]["supervisor"]["boxsensor"] = Gaussian(0.002)
+    delays_sim["inputs"]["viewer"]["armsensor"] = Gaussian(0.002)
+    delays_sim["inputs"]["viewer"]["boxsensor"] = Gaussian(0.002)
+    delays_sim["inputs"]["viewer"]["supervisor"] = Gaussian(0.002)
+    delays_sim["inputs"]["planner"]["armsensor"] = Gaussian(0.002)
+    delays_sim["inputs"]["planner"]["boxsensor"] = Gaussian(0.002)
+    return delays_sim
+
+
+def get_nodelay_distributions() -> Dict[str, Dict[str, Union[Distribution, Dict[str, Distribution]]]]:
+    delays_sim = dict(step={}, inputs={})
+    for n in ["world", "supervisor", "planner", "controller", "armactuator", "armsensor", "boxsensor", "viewer"]:
+        delays_sim["step"][n] = Gaussian(0.)
+        delays_sim["inputs"][n] = {}
+    delays_sim["step"]["world"] = Gaussian(0.)
+    delays_sim["step"]["armactuator"] = Gaussian(0.)
+    delays_sim["step"]["armsensor"] = Gaussian(0.0)
+    delays_sim["step"]["boxsensor"] = Gaussian(0.0)
+    delays_sim["step"]["controller"] = Gaussian(0.0)
+    delays_sim["step"]["planner"] = Gaussian(0.0)
+    delays_sim["step"]["supervisor"] = Gaussian(0.0)
+    delays_sim["step"]["viewer"] = Gaussian(0.0)
+    delays_sim["inputs"]["world"]["armactuator"] = Gaussian(0.0)
+    delays_sim["inputs"]["armactuator"]["controller"] = Gaussian(0.0)
+    delays_sim["inputs"]["controller"]["planner"] = Gaussian(0.0)
+    delays_sim["inputs"]["armsensor"]["world"] = Gaussian(0.0)
+    delays_sim["inputs"]["boxsensor"]["world"] = Gaussian(0.0)
+    delays_sim["inputs"]["supervisor"]["armsensor"] = Gaussian(0.0)
+    delays_sim["inputs"]["supervisor"]["boxsensor"] = Gaussian(0.0)
+    delays_sim["inputs"]["viewer"]["armsensor"] = Gaussian(0.0)
+    delays_sim["inputs"]["viewer"]["boxsensor"] = Gaussian(0.0)
+    delays_sim["inputs"]["viewer"]["supervisor"] = Gaussian(0.0)
+    delays_sim["inputs"]["planner"]["armsensor"] = Gaussian(0.0)
+    delays_sim["inputs"]["planner"]["boxsensor"] = Gaussian(0.0)
+    return delays_sim

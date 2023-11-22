@@ -286,6 +286,9 @@ class Recorded:
         # self._dist = dist
         # self._samples = samples
 
+    def __repr__(self):
+        return f"Recorded | {self._dist.__repr__}"
+
     def __getstate__(self):
         """Used for pickling"""
         args = ()

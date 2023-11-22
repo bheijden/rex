@@ -48,7 +48,6 @@ with timer("jit[reset]", log_level=100):
     goalpos = boxpos_home[:2] + jnp.array([-0.1, 0.45])
     qpos = m.init_q.at[9].set(jnp.pi/2)
     qpos = qpos.at[0:5].set(jnp.concatenate([boxpos_home, goalpos]))
-    # pipeline_state = pipeline.init(m, qpos, jnp.zeros(m.qd_size()))
     pipeline_state = jit_env_reset(m, qpos, jnp.zeros(m.qd_size()))
 # with timer("jit[step]", log_level=100):
 #     _ = jit_env_step(m, pipeline_state, 10 * jnp.sin(1 / 100) * jnp.ones(m.act_size()))
@@ -56,7 +55,7 @@ with timer("jit[reset]", log_level=100):
 # Get sampling time (0.8s horizon needed)
 # substeps = 20
 # cem_dt = substeps * m.dt
-total_time = 4
+total_time = 2.5
 cem_dt = 0.15
 substeps = ceil(cem_dt / m.dt)
 timesteps = ceil(total_time / cem_dt)
@@ -73,7 +72,7 @@ cem_hyperparams = {
       'evolution_smoothing': 0.1,
       'elite_portion': 0.1,
       'max_iter': 1,
-      'num_samples': 300,
+      'num_samples': 150,
 }
 
 
@@ -105,7 +104,7 @@ def _cost(params, state, action):
     ee_to_goal = goalpos - eepos[:2]
     box_to_goal = goalpos - boxpos[:2]
 
-    # dot product of ee_yaxis with ee_to_goal (ee parallel to box?)
+    # dot product of ee_yaxis with ee_to_goal
     norm_ee_to_goal = ee_to_goal / math.safe_norm(ee_to_goal)
     cost_orn = jnp.abs(jnp.dot(rot_mat[:2, 1], norm_ee_to_goal))
 
@@ -114,13 +113,6 @@ def _cost(params, state, action):
     norm_target_ee_xaxis = target_ee_xaxis / math.safe_norm(target_ee_xaxis)
     cost_down = (1-jnp.dot(rot_mat[:3, 0], norm_target_ee_xaxis))
     # cost_down = 0.5 * jnp.abs(rot_mat[2, 0]+1)
-
-    # Distances in xy-plane
-    box_to_ee = (eepos - boxpos)[:2]
-    box_to_goal = (goalpos - boxpos[:2])
-    dist_box_to_ee = math.safe_norm(box_to_ee)
-    dist_box_to_goal = math.safe_norm(box_to_goal)
-    cost_align = (jnp.sum(box_to_ee * box_to_goal) / (dist_box_to_ee*dist_box_to_goal) + 1)
 
     # Radius cost
     box_dist = math.safe_norm(box_to_goal)
@@ -139,15 +131,14 @@ def _cost(params, state, action):
     alpha = 1 / (1 + 2.0 * jnp.abs(cost_down + cost_orn))
     cost_orn = 3.0 * cost_orn
     cost_down = 3.0 * cost_down
-    cost_radius = 0.0 * cost_radius
-    cost_align = 2.0 * cost_align
+    cost_radius = 1.0 * cost_radius
     cost_z = 1.0 * cost_z * alpha
     cost_near = 2.0 * cost_near * alpha
     cost_dist = 20.0 * cost_dist * alpha
     cost_ctrl = 0.1 * cost_ctrl
 
-    total_cost = cost_ctrl + cost_z + cost_near + cost_dist + cost_radius + cost_orn + cost_down + cost_align
-    info = {"cm": cm, "cost": total_cost, "cost_orn": cost_orn, "cost_down": cost_down, "cost_radius": cost_radius, "cost_align": cost_align, "cost_z": cost_z, "cost_near": cost_near, "cost_dist": cost_dist, "cost_ctrl": cost_ctrl, "alpha": alpha}
+    total_cost = cost_ctrl + cost_z +  cost_near + cost_dist + cost_radius + cost_orn + cost_down
+    info = {"cm": cm, "cost": total_cost, "cost_orn": cost_orn, "cost_down": cost_down, "cost_radius": cost_radius, "cost_z": cost_z, "cost_near": cost_near, "cost_dist": cost_dist, "cost_ctrl": cost_ctrl, "alpha": alpha}
     # return cost_z + cost_dist + cost_near + cost_ctrl + cost_radius + cost_orn + cost_down
     return total_cost, info
 
@@ -169,6 +160,37 @@ def dynamics(params: brax.System, state: State, action, time_step):
 
     return state
 
+
+import numpy as np
+
+# Params
+params = m
+
+def _rollout(U, x0, *args):
+    def dynamics_for_scan(x, ut):
+        u, t = ut
+        x_next = dynamics(params, x, u, t, *args)
+        c_next = cost(params, x_next, u, t)
+        return x_next, c_next
+
+    all_c = jax.lax.scan(f=dynamics_for_scan, init=x0, xs=(U, np.arange(U.shape[0])))[1]
+    return all_c
+
+jit_vmap_rollout = jax.jit(jax.vmap(_rollout, in_axes=(0, None)))
+
+
+init_state = State(pipeline_state=pipeline_state, q_des=pipeline_state.q[m.actuator.q_id])
+init_controls = jnp.zeros((cem_hyperparams["num_samples"], horizon, m.act_size()))
+
+with timer("jit[rollout]", log_level=100):
+    all_c = jit_vmap_rollout(init_controls, init_state)
+    print(all_c)
+for _ in range(5):
+    with timer("eval[rollout]", log_level=100):
+        _ = jit_vmap_rollout(init_controls, init_state)
+        # print(all_c)
+
+exit()
 
 from trajax.optimizers import cem, random_shooting
 from functools import partial
