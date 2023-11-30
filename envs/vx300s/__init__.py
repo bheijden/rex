@@ -95,6 +95,9 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
 
     # Determine whether we use the real system
     real = True if "real" in env_fn.__module__ else False
+    if real:
+        assert clock == WALL_CLOCK, "Real system must be run with wall clock"
+        assert real_time_factor == REAL_TIME, "Real system must be run in real time"
 
     # Define all nodes
     nodes = {}
@@ -142,7 +145,7 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
                        delay_sim=delays_sim["inputs"]["supervisor"]["armsensor"], delay=delays["inputs"]["supervisor"]["armsensor"])
     supervisor.connect(boxsensor, name="boxsensor", window=1, blocking=False, jitter=LATEST,
                        delay_sim=delays_sim["inputs"]["supervisor"]["boxsensor"], delay=delays["inputs"]["supervisor"]["boxsensor"])
-    planner.connect(armsensor, name="armsensor", window=4, blocking=False, jitter=LATEST,
+    planner.connect(armsensor, name="armsensor", window=1, blocking=False, jitter=LATEST,
                     delay_sim=delays_sim["inputs"]["planner"]["armsensor"], delay=delays["inputs"]["planner"]["armsensor"])
     planner.connect(boxsensor, name="boxsensor", window=1, blocking=False, jitter=LATEST,
                     delay_sim=delays_sim["inputs"]["planner"]["boxsensor"], delay=delays["inputs"]["planner"]["boxsensor"])

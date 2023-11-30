@@ -71,20 +71,20 @@ if __name__ == "__main__":
 	JITTER = BUFFER
 	SCHEDULING = PHASE
 
-	ENV_FN = vx300s.brax.build_vx300s  # vx300s.brax.build_vx300s
-	CLOCK = SIMULATED
-	RTF = FAST_AS_POSSIBLE
+	ENV_FN = vx300s.real.build_vx300s  # vx300s.brax.build_vx300s
+	CLOCK = WALL_CLOCK
+	RTF = REAL_TIME
 	RATES = dict(world=80, supervisor=8, planner=5.0, controller=20, armactuator=20, armsensor=80, boxsensor=10, viewer=20)
 	# RATES = dict(world=25, planner=25, controller=25, armactuator=25, armsensor=25, boxsensor=25)
-	MAX_STEPS = int(10 * RATES["supervisor"])
+	MAX_STEPS = int(20 * RATES["supervisor"])
 	WIN_PLANNER = 3
 	USE_DELAYS = True
 	DELAY_FN = lambda d: d.quantile(0.99)*int(USE_DELAYS)  # todo: this is slow (takes 3 seconds).
 
 	# Logging
-	NAME = f"real_3winplanner_2eps_{ENV}"
+	NAME = f"real_3winplanner_{ENV}"
 	LOG_DIR = os.path.dirname(rex.__file__) + f"/../logs/{NAME}_{datetime.datetime.today().strftime('%Y-%m-%d-%H%M')}"
-	MUST_LOG = False
+	MUST_LOG = True
 	MUST_DIST = False
 	MUST_PLOT = True
 	SHOW_PLOTS = True
@@ -92,7 +92,7 @@ if __name__ == "__main__":
 	# Training
 	SEED = 0
 	RNG = jumpy.random.PRNGKey(0)
-	NUM_EVAL = 20
+	NUM_EVAL = 3
 
 	# Load distributions
 	delays_sim = exp.load_distributions(DIST_FILE, module=vx300s.dists) if DIST_FILE is not None else vx300s.get_default_distributions()
@@ -132,8 +132,8 @@ if __name__ == "__main__":
 			continue
 		with timer(f"warmup[{name}]", log_level=100):
 			ss, o = node.step(graph_state.nodes[name])
-			if name == "planner":
-				print(o.jpos.device())
+			# if name == "planner":
+			# 	print(o.jpos.device())
 		with timer(f"eval[{name}]", log_level=100):
 			_, _ = node.step(graph_state.nodes[name])
 			jax.tree_util.tree_map(lambda x: x.block_until_ready(), _)
@@ -155,9 +155,9 @@ if __name__ == "__main__":
 	# env.world.view_rollout(rollout=rollout, path="./vx300s_render.html")
 
 	# Plot computation graph
-	G = create_graph(record_pre.episode[-1])
+	g = create_graph(record_pre.episode[-1])
 	fig_gr, _ = vx300s.show_graph(record_pre.episode[-1]) if MUST_PLOT else (None, None)
-	fig_cg, _ = vx300s.show_computation_graph(G, root="supervisor", xmax=2.0) if MUST_PLOT else (None, None)
+	fig_cg, _ = vx300s.show_computation_graph(g, root="supervisor", xmax=2.0) if MUST_PLOT else (None, None)
 	fig_com, _ = vx300s.show_communication(record_pre.episode[-1]) if MUST_PLOT else (None, None)
 
 	# Fit distributions

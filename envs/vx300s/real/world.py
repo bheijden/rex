@@ -142,10 +142,11 @@ class World(Node):
         # Reset arm
         # todo: wrap in jumpy.host_callback (with halting).
         home_jpos = graph_state.nodes["supervisor"].params.home_jpos
-        # f = self._client.wait_for_feedthrough()
-        # f.result()  # Wait for feedthrough to be toggled on.
-        # print("Arm feedthrough enabled.")
+        f = self._client.wait_for_feedthrough()
+        f.result()  # Wait for feedthrough to be toggled on.
+        print("Arm feedthrough enabled.")
         f = self._client.go_to(points=home_jpos, timestamps=5.0, remap=True)  # Move to home
+        # print(f"Going to home position: {home_jpos}")
         self._gripper.close(delay=0.)  # Close gripper
         f.result()  # Block until at home position
         print("Arm at home position.")
@@ -158,6 +159,7 @@ class World(Node):
     def view_rollout(self, rollout: List[Empty], m=None, verbose=False, **kwargs):
         pass
 
+
 class ArmSensor(Node):
     def __init__(self, client: Client, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -169,7 +171,11 @@ class ArmSensor(Node):
         rot_matrix, eepos, eeorn = self._client.get_ee_pose()
         eepos = eepos.astype("float32")
         eeorn = R.from_matrix(rot_matrix).as_quat().astype("float32")  # quaternion: (x, y, z, w)
-        return ArmOutput(jpos=jpos, eepos=eepos, eeorn=eeorn)
+        output = ArmOutput(jpos=jpos, eepos=eepos, eeorn=eeorn)
+        # output = ArmOutput(jpos=jp.zeros((6,), dtype=jp.float32),
+        #                    eepos=jp.array([0.2, 0.2, 0.2], dtype=jp.float32),
+        #                    eeorn=jp.array([0, 0, 0, 1], dtype=jp.float32))
+        return output
 
     def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ArmOutput:
         """Default output of the node."""
@@ -379,6 +385,7 @@ class ArmActuator(Node):
         """Default output of the node."""
         jpos = self._client.get_joint_states().position
         jpos = np.array(jpos, dtype="float32")
+        # jpos = np.zeros((6,), dtype="float32")
         return ActuatorOutput(jpos=jpos)
 
     def step(self, step_state: StepState) -> Tuple[StepState, ActuatorOutput]:
@@ -396,7 +403,15 @@ class ArmActuator(Node):
         return new_step_state, actuator_output
 
 
-
+def unwrap_angles(angles, wrap_point = np.pi/4):   # --> wrap_point=half the domain
+    """
+    Unwrap angles by adjusting those that exceed the wrap point.
+    """
+    unwrapped_angles = np.copy(angles)
+    for i in range(len(angles)):
+        if angles[i] > wrap_point:
+            unwrapped_angles[i] -= wrap_point * 2
+    return unwrapped_angles
 
 
 def mean_angle(angles):
