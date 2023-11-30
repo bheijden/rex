@@ -30,7 +30,7 @@
 #        link: https://matplotlib.org/stable/gallery/lines_bars_and_markers/bar_label_demo.html
 # todo: [TRACE] Add helper functions to modify traces (e.g. remove nodes, add nodes, etc.)
 # todo: [PICKLE] Pickle the nodes inside Inputs as BaseNodes, stripped of any node specifics.
-# todo: [API] Rename "root" in BaseEnv, Graph, Agent to "RootNode", "Root", "EnvNode", "MainNode", "Supervisor".
+# todo: [API] Rename "root" in BaseEnv, AsyncGraph, Agent to "RootNode", "Root", "EnvNode", "MainNode", "Supervisor".
 
 import time
 import jumpy.random as rnd

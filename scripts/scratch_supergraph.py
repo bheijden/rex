@@ -10,7 +10,8 @@ import jax.numpy as jnp
 
 import rex.proto.log_pb2 as log_pb2
 from rex.env import BaseEnv
-from rex.graph import BaseGraph, Graph
+from rex.graph import BaseGraph
+from rex.asynchronous import AsyncGraph
 from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, LATEST, BUFFER
 from rex.distributions import Gaussian
 from rex.compiled import CompiledGraph
@@ -284,7 +285,7 @@ if __name__ == "__main__":
     nodes = {n.name: n for n in nodes}
 
     agent: envs.supergraph.DummyAgent = nodes["agent"]  # type: ignore
-    graph = Graph(nodes, root=agent, clock=SIMULATED, real_time_factor=FAST_AS_POSSIBLE)
+    graph = AsyncGraph(nodes, root=agent, clock=SIMULATED, real_time_factor=FAST_AS_POSSIBLE)
     env_async = envs.supergraph.DummyEnv(graph=graph, max_steps=100, name="dummy_env")
 
     # Get spaces

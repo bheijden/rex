@@ -310,8 +310,12 @@ class ViewerOutput:
 
 
 class Viewer(Node):
-    def __init__(self, xml_path, *args, **kwargs):
+    def __init__(self, xml_path, *args, show_left_ui=False, show_right_ui=False, **kwargs):
         super().__init__(*args, **kwargs)
+        # Ui settings
+        self._show_left_ui = show_left_ui
+        self._show_right_ui = show_right_ui
+
         # Load system
         self._xml_path = xml_path
         self._mj_m = mujoco.MjModel.from_xml_path(self._xml_path)
@@ -321,16 +325,17 @@ class Viewer(Node):
         self._viewer = None
         self.open()
 
-        # boxpos = np.array([0.1, 0.0, 0.00])
+        # boxpos = np.array([0.32, -0.15, 0.051])
         # boxyaw = np.array([3.14/4])
         # goalpos = np.array([0.0, 0.0])
-        # jpos = np.array([0, 0, 0, 0, 3.14/2, 0])
+        # goalpos = boxpos[:2] + np.array([0.10, 0.4])
+        # # jpos = np.array([-3.14/8, 0, 0, 0, 3.14/2, 3.14/2])
+        # jpos = np.array([-0.723, 0.396, 0.136, 0, 1.04, 0.88])
         # qpos = np.concatenate([boxpos, boxyaw, goalpos, jpos, [0]])
         #
         # self._mj_d.qpos[:] = qpos
         # mujoco.mj_forward(self._mj_m, self._mj_d)
         # self._viewer.sync()
-        #
         #
         # mjx_d = self._mjx_d.replace(qpos=qpos)
         # mjx_d = mjx.forward(self._mjx_m, mjx_d)
@@ -385,7 +390,8 @@ class Viewer(Node):
 
     def open(self):
         if self._viewer is None:
-            self._viewer = mujoco.viewer.launch_passive(self._mj_m, self._mj_d, key_callback=self._key_callback)
+            self._viewer = mujoco.viewer.launch_passive(self._mj_m, self._mj_d, key_callback=self._key_callback,
+                                                        show_left_ui=self._show_left_ui, show_right_ui=self._show_right_ui)
             self._paused = False
 
     def _sync_viewer(self, mjx_d):

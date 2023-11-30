@@ -382,6 +382,10 @@ class BaseNode:
             error_msg = "".join(traceback.format_exception(None, e, e.__traceback__))
             log(self.name, "red", ERROR, "ERROR", error_msg)
 
+    def get_step_state(self, graph_state: GraphState) -> StepState:
+        """Get the step state of the node."""
+        return graph_state.nodes[self.name]
+
     def now(self) -> Tuple[float, float]:
         """Get the passed time since according to the simulated and wall clock"""
         # Determine starting timestamp
@@ -431,9 +435,40 @@ class BaseNode:
         # Register the input with the output of the specified node
         node.output.connect(i)
 
+    def get_named_input_node(self, input_name: str):
+        node = None
+        for i in self.inputs:
+            if i.input_name == input_name:
+                node = i.output.node
+                break
+        assert node is not None, f"No input named `{input_name}` found!"
+        return node
+
+    def get_named_output_node(self, output_name: str):
+        node = None
+        for i in self.output.inputs:
+            if i.node.name == output_name:
+                node = i.node
+                break
+        assert node is not None, f"No connected output `{output_name}` found!"
+        return node
+
     @abc.abstractmethod
     def step(self, step_state: StepState) -> Tuple[StepState, Output]:
         raise NotImplementedError
+
+    def _step(self, step_state: StepState) -> Tuple[StepState, Output]:
+        """Internal step function that is called in push_step().
+        This function can be overridden/wrapped without affecting step() directly.
+        Hence, it does not change the effect of the step() function.
+        """
+        new_step_state, output = self.step(step_state)
+
+        # Update step_state (increment sequence number)
+        if new_step_state is not None:
+            new_step_state = new_step_state.replace(seq=new_step_state.seq + 1)
+
+        return new_step_state, output
 
     def _reset(self, graph_state: GraphState, clock: int = SIMULATED, real_time_factor: Union[int, float] = FAST_AS_POSSIBLE):
         assert self.unpickled, (
@@ -727,7 +762,7 @@ class BaseNode:
                 self._record_step_states.append(step_state)
 
             # Run step and get msg
-            new_step_state, output = self.step(step_state)
+            new_step_state, output = self._step(step_state)
 
             # Log output
             if (
@@ -735,9 +770,9 @@ class BaseNode:
             ):  # Agent returns None when we are stopping/resetting.
                 self._record_outputs.append(output)
 
-            # Update step_state (increment sequence number)
+            # Update step_state (sequence number is incremented in ._step())
             if new_step_state is not None:
-                self._step_state = new_step_state.replace(seq=jp.int32(tick) + 1)
+                self._step_state = new_step_state
 
             # Determine output timestamp
             if self._clock in [SIMULATED]:
@@ -818,7 +853,10 @@ class Node(BaseNode):
 
     @abc.abstractmethod
     def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BaseOutput:
-        """Default output of the node."""
+        """Default output of the node.
+        NOTE: This is also used to determine the shape of every leaf in the output tree.
+              Therefore, it should be able to return a valid output even if no graph_state is provided.
+        """
         return Empty()
 
     @abc.abstractmethod

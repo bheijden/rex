@@ -12,7 +12,7 @@ from rex.constants import WARN, LATEST, PHASE, FAST_AS_POSSIBLE, SIMULATED
 from rex.base import StepState, GraphState, Empty
 from rex.node import Node
 from rex.multiprocessing import new_process
-from rex.agent import Agent as BaseAgent
+from rex.asynchronous import Agent as BaseAgent
 from rex.env import BaseEnv
 from rex.proto import log_pb2
 import rex.jumpy as rjp

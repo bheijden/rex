@@ -25,7 +25,7 @@ class VideoCapture:
     # read frames as soon as they are available, keeping only most recent one
     def _reader(self):
         while True:
-            time.sleep(0.01)
+            time.sleep(0.03)
             ret, frame = self.cap.read()
             if not ret:
                 ...

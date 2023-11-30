@@ -206,7 +206,7 @@ def fit(env: BaseEnv, params: optax.Params, optimizer: optax.GradientTransformat
 
 from rex.open_colors import ewheel, fwheel
 from rex.node import Node
-from rex.agent import Agent
+from rex.asynchronous import Agent
 import dill as pickle
 import experiments as exp
 import matplotlib.pyplot as plt

@@ -1,4 +1,4 @@
-from scripts.dummy import DummyNode, DummyAgent
+from scripts.dummy import DummyNode
 from rex.distributions import Distribution, Gaussian, GMM
 from rex.constants import LATEST, BUFFER, WARN, DEBUG, ERROR, READY
 import rex.utils as utils
@@ -10,7 +10,7 @@ def test_node_api():
     world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000))
     sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007))
     observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016))
-    agent = DummyAgent("root", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
+    agent = DummyNode("root", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
     actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), advance=False,
                          stateful=True)
     nodes = [world, sensor, observer, agent, actuator]
@@ -28,7 +28,7 @@ def test_node_api():
     reload_world = DummyNode.from_info(world.info)
     reload_sensor = DummyNode.from_info(sensor.info)
     reload_observer = DummyNode.from_info(observer.info)
-    reload_agent = DummyAgent.from_info(agent.info)
+    reload_agent = DummyNode.from_info(agent.info)
     reload_actuator = DummyNode.from_info(actuator.info)
     reload_nodes = [reload_world, reload_sensor, reload_observer, reload_agent, reload_actuator]
     reload_nodes = {n.name: n for n in reload_nodes}
@@ -61,7 +61,7 @@ def test_node_pickle_reload():
     world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000))
     sensor = DummyNode("sensor", rate=20, delay_sim=GMM([Gaussian(0.007)], [1.0]))
     observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016))
-    agent = DummyAgent("root", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
+    agent = DummyNode("root", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
     actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), advance=False,
                          stateful=True)
     nodes = [world, sensor, observer, agent, actuator]

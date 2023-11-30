@@ -13,9 +13,9 @@ from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, LATEST
 from rex.base import InputState, StepState, GraphState, RexResetReturn, RexStepReturn
 from rex.env import BaseEnv
 from rex.node import Node
-from rex.agent import Agent
 from rex.spaces import Box
-from rex.graph import BaseGraph, Graph
+from rex.graph import BaseGraph
+from rex.asynchronous import AsyncGraph
 from rex.compiled import CompiledGraph
 from rex.supergraph import get_network_record, get_timings_from_network_record
 
@@ -49,10 +49,10 @@ def build_dummy_compiled_env() -> Tuple["DummyEnv", "DummyEnv", Dict[str, Node]]
 	return env_mcs, env, nodes
 
 
-def build_dummy_env() -> Tuple["DummyEnv", Dict[str, Union[Agent, Node]]]:
+def build_dummy_env() -> Tuple["DummyEnv", Dict[str, Node]]:
 	nodes = build_dummy_graph()
 	agent: DummyAgent = nodes["agent"]  # type: ignore
-	graph = Graph(nodes, root=agent, clock=SIMULATED, real_time_factor=FAST_AS_POSSIBLE)
+	graph = AsyncGraph(nodes, root=agent, clock=SIMULATED, real_time_factor=FAST_AS_POSSIBLE)
 	env = DummyEnv(graph=graph, max_steps=100, name="dummy_env")
 	return env, nodes
 
@@ -62,7 +62,7 @@ def build_dummy_graph() -> Dict[str, Node]:
 	world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000))
 	sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007))
 	observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016))
-	agent = DummyAgent("agent", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
+	agent = DummyNode("agent", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
 	actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), advance=False, stateful=True)
 	nodes = [world, sensor, observer, agent, actuator]
 
@@ -158,26 +158,23 @@ class DummyNode(Node):
 		return new_step_state, output
 
 
-class DummyAgent(Agent):
-
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyOutput:
-		"""Default output of the root."""
-		# if graph_state is not None:
-		# 	seqs_sum = graph_state.nodes[self.name].state.seqs_sum
-		# else:
-		seqs_sum = jp.int32(0)
-		return DummyOutput(seqs_sum=seqs_sum, dummy_1=jp.array([0.0, 1.0], dtype=jp.float32))
+# class DummyAgent(Agent):
+#
+# 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyOutput:
+# 		"""Default output of the root."""
+# 		# if graph_state is not None:
+# 		# 	seqs_sum = graph_state.nodes[self.name].state.seqs_sum
+# 		# else:
+# 		seqs_sum = jp.int32(0)
+# 		return DummyOutput(seqs_sum=seqs_sum, dummy_1=jp.array([0.0, 1.0], dtype=jp.float32))
 
 
 class DummyEnv(BaseEnv):
 	def __init__(self, graph: BaseGraph, max_steps: int = 100, name: str = "DummyEnv"):
 		super().__init__(graph=graph, max_steps=max_steps, name=name)
-		self.agent = self.graph.root
-		self.nodes = self.graph.nodes
-		self.nodes_and_root = self.graph.nodes_and_root
-
-	def _is_terminal(self, graph_state: GraphState) -> bool:
-		return graph_state.step >= self.max_steps
+		# self.agent = self.graph.root
+		# self.nodes = self.graph.nodes
+		# self.nodes_and_root = self.graph.nodes_and_root
 
 	def _get_obs(self, step_state: StepState) -> Any:
 		"""Get observation from environment."""
@@ -187,44 +184,9 @@ class DummyEnv(BaseEnv):
 
 		return obs
 
-	def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> GraphState:
-		"""Get the graph state."""
-		# Prepare graph_state
-		graph_state = graph_state or GraphState(step=jp.int32(0), eps=jp.int32(0), nodes=None, timings=None)
-
-		# For every node, prepare the initial stepstate
-		new_nodes = dict()
-
-		# ***DO SOMETHING WITH graph_state TO RESET ALL NODES***
-		# Reset root node (for which this environment is a drop-in replacement)
-		rng, rng_agent = jumpy.random.split(rng, num=2)
-
-		# Get new step_state
-		def get_step_state(node: Node, _rng: jp.ndarray, _graph_state) -> StepState:
-			"""Get new step_state for a node."""
-			rng_params, rng_state, rng_step = jumpy.random.split(rng, num=3)
-			params = node.default_params(rng_params, _graph_state)
-			state = node.default_state(rng_state, _graph_state)
-			return StepState(rng=rng_step, params=params, state=state, inputs=None)
-
-		# Get root step state first
-		new_nodes[self.agent.name] = get_step_state(self.agent, rng_agent, graph_state)
-
-		# Get new step_state for other nodes in arbitrary order
-		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes)+1)
-		for (name, n), rng_n in zip(self.nodes.items(), rngs):
-			# Replace step state in graph state
-			new_nodes[name] = get_step_state(n, rng_n, graph_state)
-
-		# Reset nodes
-		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_and_root) + 1)
-		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_and_root.values(), rngs)]
-		# ***DO SOMETHING WITH graph_state TO RESET ALL NODES***
-		return graph_state.replace(nodes=FrozenDict(new_nodes))
-
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> RexResetReturn:
 		"""Reset environment."""
-		new_graph_state = self._get_graph_state(rng, graph_state)
+		new_graph_state = self.graph.init()
 
 		# Reset environment to get initial step_state (runs up-until the first step)
 		graph_state, step_state = self.graph.reset(new_graph_state)
@@ -240,7 +202,7 @@ class DummyEnv(BaseEnv):
 		"""Perform step transition in environment."""
 		# ***PREPROCESS action TO GET AgentOutput***
 		# Unpack StepState
-		step_state = self.agent.get_step_state(graph_state)
+		step_state = self.graph.root.get_step_state(graph_state)
 		rng, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
 
 		# Split rng for step call
@@ -270,7 +232,7 @@ class DummyEnv(BaseEnv):
 		obs = self._get_obs(step_state)
 		reward = 0.
 		truncated = False
-		done = self._is_terminal(graph_state)
+		done = step_state.seq >= self.max_steps
 		info = {}
 		# ***DO SOMETHING WITH StepState TO GET OBS/reward/done/info***
 

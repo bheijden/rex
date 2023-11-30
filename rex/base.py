@@ -13,6 +13,7 @@ SeqsMapping = Dict[str, jp.ndarray]
 BufferSizes = Dict[str, List[int]]
 NodeTimings = Dict[str, Dict[str, Union[jp.ndarray, Dict[str, Dict[str, jp.ndarray]]]]]
 Timings = List[NodeTimings]
+GraphBuffer = FrozenDict[str, Output]
 
 
 @struct.dataclass
@@ -77,25 +78,46 @@ class StepState:
 
 
 @struct.dataclass
-class GraphBuffer:
-    """
-    outputs: A ring buffer that holds the outputs for every node's output channel.
-    timings: The timings for a given episode (i.e. GraphState.timings[eps]).
-    """
+class GraphState:
+    eps: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
+    nodes: FrozenDict[str, StepState] = struct.field(pytree_node=True, default_factory=lambda: None)
 
-    outputs: FrozenDict[str, Output]
-    timings: Timings
+    def replace_eps(self, eps: jp.int32):
+        # Next(iter()) is a bit hacky, but it simply takes the first node in the final (i.e. [-1]) generations (i.e. the root).
+        max_eps, max_step = next(iter(self.timings[-1].values()))["run"].shape
+        eps = jp.clip(eps, jp.int32(0), max_eps - 1)
+        nodes = FrozenDict({n: ss.replace(eps=eps) for n, ss in self.nodes.items()})
+        return self.replace(eps=eps, nodes=nodes)
 
 
 @struct.dataclass
-class GraphState:
+class CompiledGraphState(GraphState):
     step: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
-    eps: rjp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
-    nodes: FrozenDict[str, StepState] = struct.field(pytree_node=True, default_factory=lambda: None)
     timings: Timings = struct.field(pytree_node=True, default_factory=lambda: None)
-    buffer: GraphBuffer = struct.field(pytree_node=True, default_factory=lambda: None)
+    # The timings for a single episode (i.e. GraphState.timings[eps]).
+    timings_eps: Timings = struct.field(pytree_node=True, default_factory=lambda: None)
+    # A ring buffer that holds the outputs for every node's output channel.
+    buffer: FrozenDict[str, Output] = struct.field(pytree_node=True, default_factory=lambda: None)
+
+    def replace_buffer(self, outputs: Union[Dict[str, Output], FrozenDict[str, Output]]):
+        return self.replace(buffer=self.buffer.copy(outputs))
+
+    def replace_eps(self, eps: jp.int32):
+        # Next(iter()) is a bit hacky, but it simply takes the first node in the final (i.e. [-1]) generations (i.e. the root).
+        max_eps = next(iter(self.timings[-1].values()))["run"].shape[-2]
+        eps = jp.clip(eps, jp.int32(0), max_eps - 1)
+        nodes = FrozenDict({n: ss.replace(eps=eps) for n, ss in self.nodes.items()})
+        timings_eps = rjp.tree_take(self.timings, eps)
+        return self.replace(eps=eps, nodes=nodes, timings_eps=timings_eps)
+
+    def replace_step(self, step: jp.int32):
+        # Next(iter()) is a bit hacky, but it simply takes the first node of the final generation (i.e. [-1] = root_slot).
+        max_step = next(iter(self.timings[-1].values()))["run"].shape[-1]
+        step = jp.clip(step, jp.int32(0), max_step - 1)
+        return self.replace(step=step)
 
 
 RexObs = Union[Dict[str, Any], jp.ndarray]
 RexResetReturn = Tuple[GraphState, RexObs, Dict]
 RexStepReturn = Tuple[GraphState, RexObs, float, bool, bool, Dict]
+StepStates = Union[Dict[str, StepState], FrozenDict[str, StepState]]

@@ -99,7 +99,7 @@ def build_vx300s(rates: Dict[str, float],
                           cam_rot=config["real"]["cam_rot"],
                           cam_intrinsics=ci,
                           cam_idx=config["real"]["cam_idx"],
-                          z_fixed=["real"]["z_fixed"],
+                          z_fixed=config["real"]["z_fixed"],
                           name="boxsensor", rate=rates["boxsensor"], scheduling=scheduling, advance=False,
                           delay=process["boxsensor"], delay_sim=process_sim["boxsensor"])
     armactuator = ArmActuator(client, name="armactuator", rate=rates["armactuator"], scheduling=scheduling, advance=False,
@@ -116,11 +116,22 @@ def build_vx300s(rates: Dict[str, float],
     return dict(world=world, armactuator=armactuator, armsensor=armsensor, boxsensor=boxsensor)
 
 
+@struct.dataclass
+class State:
+    pipeline_state: Empty
+
+
 class World(Node):
     def __init__(self, client: Client, gripper, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._client = client
         self._gripper: interbotix_gripper.InterbotixRobotXSCore = gripper
+        f = self._client.wait_for_feedthrough()
+        f.result()  # Wait for feedthrough to be toggled on.
+        print("Arm feedthrough enabled.")
+
+    def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
+        return State(pipeline_state=Empty())
 
     def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
         # rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
@@ -131,9 +142,9 @@ class World(Node):
         # Reset arm
         # todo: wrap in jumpy.host_callback (with halting).
         home_jpos = graph_state.nodes["supervisor"].params.home_jpos
-        f = self._client.wait_for_feedthrough()
-        f.result()  # Wait for feedthrough to be toggled on.
-        print("Arm feedthrough enabled.")
+        # f = self._client.wait_for_feedthrough()
+        # f.result()  # Wait for feedthrough to be toggled on.
+        # print("Arm feedthrough enabled.")
         f = self._client.go_to(points=home_jpos, timestamps=5.0, remap=True)  # Move to home
         self._gripper.close(delay=0.)  # Close gripper
         f.result()  # Block until at home position
@@ -144,6 +155,8 @@ class World(Node):
         """Step the node."""
         return step_state, Empty()
 
+    def view_rollout(self, rollout: List[Empty], m=None, verbose=False, **kwargs):
+        pass
 
 class ArmSensor(Node):
     def __init__(self, client: Client, *args, **kwargs):
@@ -266,6 +279,7 @@ class BoxSensor(Node):
         # Get pose
         image, corners, ids, rvec, tvec = self._detector.estimate_pose(image, draw=True)
 
+        # boxpos = np.array([0.35, 0.0, 0.051], dtype="float32")
         if rvec is not None and (ids == self._aruco_id)[:, 0].any():
             mask = (ids == self._aruco_id)[:, 0]
             rvec = rvec[mask]
@@ -278,8 +292,15 @@ class BoxSensor(Node):
             rmat_a2c = R.from_rotvec(rvec[:, 0, :]).as_matrix()
             rmat_a2b = self._T_c2b[:3, :3] @ rmat_a2c
             quat_a2b = R.from_matrix(rmat_a2b).as_quat().astype("float32")
+            # Get wrapped orientation
+            wrapped_yaws = []
+            for q in quat_a2b:
+                wrapped_yaws.append(BoxOutput(boxpos=None, boxorn=q).wrapped_yaw)
+            yaw = mean_angle(np.array(wrapped_yaws, dtype="float32"))
+            cos_half_yaw = jp.cos(yaw / 2)
+            sin_half_yaw = jp.sin(yaw / 2)
+            boxorn = jp.array([0, 0, sin_half_yaw, cos_half_yaw], dtype=jp.float32)
             # Store last position
-            boxorn = np.mean(quat_a2b, axis=0, dtype="float32")
             boxpos = np.mean(pos_aib, axis=0, dtype="float32")[:, 0]
             boxpos[2] = self._z_fixed
 
@@ -289,7 +310,6 @@ class BoxSensor(Node):
         else:
             boxorn = None
             boxpos = None
-        # boxpos = np.array([0.35, 0.0, 0.051], dtype="float32")
         # boxorn = np.array([0.0, 0.0, 0.0, 1.0], dtype="float32")   # quaternion: (x, y, z, w)
         return BoxOutput(boxpos=boxpos, boxorn=boxorn), image
 
@@ -372,5 +392,20 @@ class ArmActuator(Node):
 
         # Prepare output
         actuator_output = inputs["controller"][-1].data
-        self._client.write_commands(actuator_output.jpos.tolist())
+        # self._client.write_commands(actuator_output.jpos.tolist())
         return new_step_state, actuator_output
+
+
+
+
+
+def mean_angle(angles):
+    """
+    Calculate the mean of a list of angles after unwrapping.
+    """
+    unwrapped = unwrap_angles(angles)
+    x = np.cos(unwrapped)
+    y = np.sin(unwrapped)
+    mean_x = np.mean(x)
+    mean_y = np.mean(y)
+    return np.arctan2(mean_y, mean_x)

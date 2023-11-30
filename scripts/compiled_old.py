@@ -4,7 +4,7 @@ import rex.jumpy as rjp
 from rex.graph import BaseGraph
 from rex.base import InputState, StepState, GraphState, State
 from rex.proto import log_pb2
-from rex.agent import Agent
+from rex.asynchronous import Agent
 from rex.node import Node
 
 

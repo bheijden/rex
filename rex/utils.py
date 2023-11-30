@@ -1,3 +1,4 @@
+import inspect
 from typing import TYPE_CHECKING, List, Deque, Callable
 import pickle
 from functools import wraps
@@ -7,10 +8,12 @@ from termcolor import colored
 from os import getpid
 from threading import current_thread
 import numpy as onp
+from warnings import warn
 import jax
 
 from rex.proto import log_pb2
 from rex.constants import WARN, INFO, SIMULATED
+from rex.base import StepState
 
 if TYPE_CHECKING:
     from rex.node import BaseNode
@@ -30,6 +33,21 @@ NODE_COLOR = {}
 #                 return fn(*args, **kwargs)
 #         return inner
 #     return wrapper
+
+
+def deprecation_warning(msg: str, stacklevel: int = 2):
+    # Get the current stack frame
+    stack = inspect.stack()
+    frame = stack[stacklevel]
+    # Extract information
+    module = inspect.getmodule(frame[0]).__name__
+    filename = frame.filename
+    lineno = frame.lineno
+    function_name = frame.function
+    # Print log message
+    msg = f"{msg}: (fun={module}.{function_name} at line {lineno})."
+    log("rex", "yellow", WARN, "rex", msg)
+    # warn(msg, DeprecationWarning, stacklevel=stacklevel)
 
 
 def load(attribute: str):
@@ -207,3 +225,13 @@ def get_delay_data(record: log_pb2.ExperimentRecord, concatenate: bool = True):
     data = jax.tree_map(lambda *x: onp.concatenate(x, axis=0), *exp_data) if concatenate else exp_data
     info = jax.tree_map(lambda *x: x[0], *exp_info) if concatenate else exp_info
     return data, info
+
+
+def make_put_output_on_device(wrapped_fn, device):
+    def put_output_on_device(step_state: StepState):
+        new_step_state, output = wrapped_fn(step_state)
+        # todo: use jax.device_get(x) (transfers "x" to host) instead of jax.device_put(x, device)?
+        output_on_device = jax.tree_util.tree_map(lambda x: jax.device_put(x, device), output)
+        return new_step_state, output_on_device
+
+    return put_output_on_device

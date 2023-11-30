@@ -514,8 +514,10 @@ def plot_computation_graph(
     assert all([v != "red" for v in cscheme.values()]), "Color red is reserved for excluded nodes."
 
     # Set edge and node properties
+    # Get all non-pruned nodes
+    unpruned_nodes = [n for n in G.nodes if not G.nodes[n]["pruned"]]
     rex.supergraph.set_node_order(G, order)
-    rex.supergraph.set_node_colors(G, cscheme)
+    rex.supergraph.set_node_colors(G.subgraph(unpruned_nodes), cscheme)
     y = rex.supergraph.get_node_y_position(G)
     cscheme = rex.supergraph.get_node_colors(G)
 

@@ -7,7 +7,7 @@ import jumpy
 import jumpy.numpy as jp
 import numpy as onp
 
-from rex.graph import Graph
+from rex.asynchronous import AsyncGraph
 from rex.spaces import Space, Discrete, Box
 from rex.base import GraphState, RexStepReturn
 import rex.jumpy as rjp
@@ -40,8 +40,8 @@ class Wrapper:
 class AutoResetWrapper(Wrapper):
     def __init__(self, env):
         super().__init__(env)
-        if isinstance(env.unwrapped.graph, Graph):
-            raise TypeError("AutoResetWrapper is only compatible with Graph environments.")
+        if isinstance(env.unwrapped.graph, AsyncGraph):
+            raise TypeError("AutoResetWrapper is only compatible with AsyncGraph environments.")
 
     def step(self, graph_state: GraphState, action: Any) -> Tuple[GraphState, Any, float, bool, bool, Dict]:
         # Step environment

@@ -45,11 +45,11 @@ def build_vx300s(rates: Dict[str, float],
     # Create nodes
     world = World(xml_path=config["brax"]["xml_path"], name="world", rate=rates["world"], scheduling=scheduling, advance=False,
                   delay=process["world"], delay_sim=process_sim["world"])
-    armsensor = ArmSensor(world, name="armsensor", rate=rates["armsensor"], scheduling=scheduling, advance=False,
+    armsensor = ArmSensor(name="armsensor", rate=rates["armsensor"], scheduling=scheduling, advance=False,
                           delay=process["armsensor"], delay_sim=process_sim["armsensor"] )
-    boxsensor = BoxSensor(world, name="boxsensor", rate=rates["boxsensor"], scheduling=scheduling, advance=False,
+    boxsensor = BoxSensor(name="boxsensor", rate=rates["boxsensor"], scheduling=scheduling, advance=False,
                           delay=process["boxsensor"], delay_sim=process_sim["boxsensor"])
-    armactuator = ArmActuator(world, name="armactuator", rate=rates["armactuator"], scheduling=scheduling, advance=False,
+    armactuator = ArmActuator(name="armactuator", rate=rates["armactuator"], scheduling=scheduling, advance=False,
                               delay=process["armactuator"], delay_sim=process_sim["armactuator"])
 
     # Connect nodes
@@ -91,7 +91,7 @@ PIPELINE = {
 
 
 class World(Node):
-    def __init__(self, xml_path: str, *args, dt_brax: float = 0.04, backend: str = "generalized", debug: bool = False, **kwargs):
+    def __init__(self, xml_path: str, *args, dt_brax: float = 0.015, backend: str = "generalized", debug: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
         self.debug = debug
         dt = 1 / self.rate
@@ -114,14 +114,8 @@ class World(Node):
 
     def __getstate__(self):
         args, kwargs, inputs = super().__getstate__()
-        kwargs.update(dict(dt_brax=self.dt_brax, backend=self.backend, debug=self.debug))
+        kwargs.update(dict(xml_path=self._xml_path, dt_brax=self.dt_brax, backend=self.backend, debug=self.debug))
         return args, kwargs, inputs
-
-    def __setstate__(self, state):
-        args, kwargs, inputs = state
-        self.__init__(*args, **kwargs)
-        # At this point, the inputs are not yet fully unpickled.
-        self.inputs = inputs
 
     def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
         """Default params of the node."""
@@ -136,14 +130,16 @@ class World(Node):
 
     def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
         """Default state of the node."""
+        # if graph_state is not None and "supervisor" in graph_state.nodes:
         # Try to grab state from graph_state
         goalpos = graph_state.nodes["supervisor"].state.goalpos
         home_boxpos = graph_state.nodes["supervisor"].params.home_boxpos
         home_boxyaw = graph_state.nodes["supervisor"].params.home_boxyaw
         home_jpos = graph_state.nodes["supervisor"].params.home_jpos
-
         # Set joint positions
         qpos = jnp.concatenate([home_boxpos, home_boxyaw, goalpos, home_jpos, np.array([0.])], dtype=np.float32)
+        # else:
+        #     qpos = self.sys.init_q
         qd = jnp.zeros(self.sys.qd_size(), dtype=jp.float32)
         pipeline_state = self._pipeline.init(self.sys, qpos, qd)
         return State(pipeline_state=pipeline_state)
@@ -151,19 +147,29 @@ class World(Node):
     def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BraxOutput:
         """Default output of the node."""
         # Grab output from state
+        # if graph_state is not None:
         pipeline_state = graph_state.nodes["world"].state.pipeline_state
         brax_output = self._get_output(pipeline_state)
+        # else:
+        #     brax_output = self._get_output()
         return brax_output
 
-    def _get_output(self, pipeline_state: BraxState) -> BraxOutput:
-        x_i = pipeline_state.x.vmap().do(
-            Transform.create(pos=self.sys.link.inertia.transform.pos)
-        )
-        jpos = pipeline_state.q[self._joint_slice]
-        eepos = x_i.pos[self._ee_arm_idx]
-        eeorn = self._convert_wxyz_to_xyzw(x_i.rot[self._ee_arm_idx])  # quaternion (w,x,y,z) -> (x,y,z,w)
-        boxpos = x_i.pos[self._box_idx]
-        boxorn = self._convert_wxyz_to_xyzw(x_i.rot[self._box_idx])  # quaternion (w,x,y,z) -> (x,y,z,w)
+    def _get_output(self, pipeline_state: BraxState = None) -> BraxOutput:
+        if pipeline_state is None:
+            jpos = jnp.zeros((self.sys.act_size(),), dtype=jp.float32)
+            eepos = jnp.zeros((3,), dtype=jp.float32)
+            eeorn = jnp.array([0, 0, 0, 1], dtype=jp.float32)
+            boxpos = jnp.zeros((3,), dtype=jp.float32)
+            boxorn = jnp.array([0, 0, 0, 1], dtype=jp.float32)
+        else:
+            x_i = pipeline_state.x.vmap().do(
+                Transform.create(pos=self.sys.link.inertia.transform.pos)
+            )
+            jpos = pipeline_state.q[self._joint_slice]
+            eepos = x_i.pos[self._ee_arm_idx]
+            eeorn = self._convert_wxyz_to_xyzw(x_i.rot[self._ee_arm_idx])  # quaternion (w,x,y,z) -> (x,y,z,w)
+            boxpos = x_i.pos[self._box_idx]
+            boxorn = self._convert_wxyz_to_xyzw(x_i.rot[self._box_idx])  # quaternion (w,x,y,z) -> (x,y,z,w)
         return BraxOutput(jpos=jpos, eepos=eepos, eeorn=eeorn, boxpos=boxpos, boxorn=boxorn)
 
     def _convert_wxyz_to_xyzw(self, quat: jp.ndarray):
@@ -172,6 +178,7 @@ class World(Node):
 
     def step(self, step_state: StepState) -> Tuple[StepState, BraxOutput]:
         """Step the node."""
+        # print("brax.World.step()")
 
         # Unpack StepState
         _, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
@@ -215,13 +222,13 @@ class World(Node):
 
 
 class ArmSensor(Node):
-    def __init__(self, world, *args, **kwargs):
-        self._world = world
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
     def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ArmOutput:
         """Default output of the node."""
-        brax_output = self._world.default_output(rng, graph_state)
+        world = self.get_named_input_node("world")
+        brax_output = world.default_output(rng, graph_state)
         return ArmOutput(jpos=brax_output.jpos, eepos=brax_output.eepos, eeorn=brax_output.eeorn)
 
     def step(self, step_state: StepState) -> Tuple[StepState, ArmOutput]:
@@ -239,13 +246,13 @@ class ArmSensor(Node):
 
 
 class BoxSensor(Node):
-    def __init__(self, world, *args, **kwargs):
-        self._world = world
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
     def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BoxOutput:
         """Default output of the node."""
-        brax_output = self._world.default_output(rng, graph_state)
+        world = self.get_named_input_node("world")
+        brax_output = world.default_output(rng, graph_state)
         return BoxOutput(boxpos=brax_output.boxpos, boxorn=brax_output.boxorn)
 
     def step(self, step_state: StepState) -> Tuple[StepState, BoxOutput]:
@@ -263,13 +270,13 @@ class BoxSensor(Node):
 
 
 class ArmActuator(Node):
-    def __init__(self, world, *args, **kwargs):
-        self._world = world
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
     def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ActuatorOutput:
         """Default output of the node."""
-        brax_output = self._world.default_output(rng, graph_state)
+        world = self.get_named_output_node("world")
+        brax_output = world.default_output(rng, graph_state)
         return ActuatorOutput(jpos=brax_output.jpos)
 
     def step(self, step_state: StepState) -> Tuple[StepState, ActuatorOutput]:

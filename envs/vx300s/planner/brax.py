@@ -19,12 +19,13 @@ from brax import base, math
 from flax import struct
 from flax.core import FrozenDict
 
-from trajax.optimizers import cem
-
 from rex.base import StepState, GraphState
 from rex.node import Node
+from rex.utils import deprecation_warning
 
-from envs.vx300s.env import PlannerOutput, get_next_jpos, ArmOutput
+from envs.vx300s.planner.cost import CostParams, box_pushing_cost
+from envs.vx300s.planner.cem import CEMParams, cem_planner
+from envs.vx300s.env import PlannerOutput, get_next_jpos
 
 PIPELINES = {"generalized": gen_pipeline,
              "positional": pos_pipeline,
@@ -38,30 +39,12 @@ class State:
 
 
 @struct.dataclass
-class CostParams:
-    orn: jp.float32     # Gripper bar parallel to box
-    down: jp.float32    # Downward orientation --> w_ee_r (w_"ee_rotation")
-    height: jp.float32  # Height of ee --> w_ee_h (w_"ee_height")
-    force: jp.float32   # Force penalty --> w_c (w_"contact")
-    near: jp.float32    # Ee near box --> w_t  (w_"touch")
-    dist: jp.float32    # Box near goal --> w_o_p (w_"object_to_goal")
-    align: jp.float32   # Align such that box is in-between goal and ee --> w_a (w_"align")
-    ctrl: jp.float32    # Control penalty
-    bias_height: jp.float32  # Bias [m] for ee height (accounts for ee size (from ee_link to ground ~35mm)
-    bias_near: jp.float32  # Bias [m] for near penalty in xy plane (accounts for box size from center ~50mm + ~10mm for ee thickness)
-    alpha: jp.float32   # Larger alpha increases penalty on near and dist once (orn, down, height, align) are satisfied
-    discount: jp.float32   # Discount factor
-
-
-@struct.dataclass
 class BraxCEMParams:
+    """See https://arxiv.org/pdf/1907.03613.pdf for details on CEM"""
     dt_substeps: jp.float32
     substeps: jp.int32
     sys: base.System
-    u_min: jp.ndarray
-    u_max: jp.ndarray
-    smoothing_coef: jp.float32
-    evolution_smoothing: jp.float32
+    cem_params: CEMParams
     cost_params: CostParams
 
 
@@ -122,13 +105,14 @@ class BraxCEMPlanner(Node):
                                      bias_near=0.07,
                                      alpha=0.0,
                                      discount=0.98)
+            cem_params = CEMParams(u_min=-self._u_max * jp.ones((6,), dtype=jp.float32),
+                                   u_max=self._u_max * jp.ones((6,), dtype=jp.float32),
+                                   sampling_smoothing=self._sampling_smoothing,
+                                   evolution_smoothing=self._evolution_smoothing)
             params = BraxCEMParams(dt_substeps=dt_substeps,
                                    substeps=substeps,
                                    sys=self._sys,
-                                   u_min=-self._u_max * jp.ones((6,), dtype=jp.float32),
-                                   u_max=self._u_max * jp.ones((6,), dtype=jp.float32),
-                                   smoothing_coef=self._sampling_smoothing,
-                                   evolution_smoothing=self._evolution_smoothing,
+                                   cem_params=cem_params,
                                    cost_params=cost_params)
         return params
 
@@ -171,9 +155,6 @@ class BraxCEMPlanner(Node):
         new_plan = self.run_cem(rng_cem, params, state.last_plan, timestamps, jpos_now, boxpos_now, boxyaw_now, goalpos)
         # new_plan = self._jit_run_cem(rng_cem, params, state.last_plan, timestamps, jpos_now, boxpos_now, goalpos)
 
-        # Get output and step_state # todo: remove?
-        new_plan = jax.tree_util.tree_map(lambda x: jax.device_put(x, self._cpu_device), new_plan)
-
         # print(f"new_plan.jpos: {new_plan.jpos} | jpos_now: {jpos_now} | diff: {new_plan.jpos - jpos_now}")
         # jpos_diff = new_plan.jpos - jpos_now
         # print(f"jpos diff | max={jpos_diff.max()} | min={jpos_diff.min()} | mean={jpos_diff.mean()}")
@@ -192,6 +173,7 @@ class BraxCEMPlanner(Node):
     def run_cem(self, rng, params: BraxCEMParams, last_plan: PlannerOutput, timestamps: jnp.ndarray, jpos: jnp.ndarray, boxpos: jnp.ndarray, boxyaw: jnp.ndarray, goalpos: jnp.ndarray) -> PlannerOutput:
         # Update system with correct dt from parameters
         params = params.replace(sys=params.sys.replace(dt=params.dt_substeps))
+        cem_params = params.cem_params
 
         # Determine initial plan from last_plan
         init_plan = self.get_init_plan(last_plan, timestamps)
@@ -245,10 +227,10 @@ class BraxCEMPlanner(Node):
         init_state = State(pipeline_state=pipeline_state, q_des=q_des)
 
         # Run CEM
-        cem_hyperparams = dict(sampling_smoothing=self._sampling_smoothing, evolution_smoothing=self._evolution_smoothing,
+        cem_hyperparams = dict(sampling_smoothing=cem_params.sampling_smoothing, evolution_smoothing=cem_params.evolution_smoothing,
                                elite_portion=self._elite_portion, num_samples=self._num_samples, max_iter=self._max_iter)
-        _, mean, obj = cem(cost, dynamics, params, init_state, init_plan.jvel, params.u_min, params.u_max, rng,
-                           hyperparams=cem_hyperparams)
+        _, mean, obj = cem_planner(cost, dynamics, params, init_state, init_plan.jvel, cem_params.u_min, cem_params.u_max, rng,
+                                   hyperparams=cem_hyperparams)
 
         # Return new plan
         new_plan = init_plan.replace(jvel=mean)
@@ -261,57 +243,6 @@ class BraxCEMPlanner(Node):
     def _convert_wxyz_to_xyzw(self, quat: jp.ndarray):
         """Convert quaternion (w,x,y,z) -> (x,y,z,w)"""
         return jnp.array([quat[1], quat[2], quat[3], quat[0]], dtype="float32")
-
-
-def box_pushing_cost(cp: CostParams, boxpos, eepos, goalpos, eeorn, force=None, action=None, time_step=None):
-    rot_mat = ArmOutput(jpos=None, eeorn=eeorn, eepos=None).orn_to_3x3
-    ee_to_goal = goalpos - eepos[:2]
-    box_to_ee = (eepos - boxpos)[:2]
-    box_to_goal = (goalpos - boxpos[:2])
-
-    # if dot(ee_yaxis (in global), ee_to_goal (in global))==0 --> ee_yaxis = perpendicular to box
-    # ee_yaxis is parallel to gripper_bar axis
-    norm_ee_to_goal = ee_to_goal / math.safe_norm(ee_to_goal)
-    cost_orn = jnp.abs(jnp.dot(rot_mat[:2, 1], norm_ee_to_goal))
-
-    # ee_xaxis points in -z if ee is oriented downward
-    # norm_box_to_goal = box_to_goal / math.safe_norm(box_to_goal)
-    # target_ee_xaxis = jnp.concatenate([norm_box_to_goal, jnp.array([-5.0])])  # making this more negative forces the ee to be pointing downward
-    # norm_target_ee_xaxis = target_ee_xaxis / math.safe_norm(target_ee_xaxis)
-    # cost_down = (1-jnp.dot(rot_mat[:3, 0], norm_target_ee_xaxis))  # Here, the dot is 1 if ee_xaxis == target_ee_axis
-    cost_down = jnp.abs(rot_mat[:2, 0]).sum()
-
-    # Distances in xy-plane
-    dist_box_to_ee = math.safe_norm(box_to_ee)
-    dist_box_to_goal = math.safe_norm(box_to_goal)
-    cost_align = (jnp.sum(box_to_ee * box_to_goal) / (dist_box_to_ee*dist_box_to_goal) + 1)
-
-    # Force cost
-    # cost_force = (pipeline_state.qf_constraint[2]-0.46) ** 2
-    cost_force = jnp.abs(force).max() ** 2 if force is not None else 0.0
-    cost_height = jnp.abs(eepos[2] - cp.bias_height)
-    cost_near = jp.abs(math.safe_norm((boxpos - eepos)[:2]) - cp.bias_near)
-    cost_dist = math.safe_norm(boxpos[:2] - goalpos)
-    cost_ctrl = math.safe_norm(action) if action is not None else 0.0
-
-    # Store centimeter distance
-    cm = cost_dist*100
-
-    # Weight all costs
-    cost_orn = cp.orn * cost_orn
-    cost_down = cp.down * cost_down
-    cost_align = cp.align * cost_align
-    cost_height = cp.height * cost_height
-    alpha = 1 / (1 + cp.alpha * jnp.abs(cost_orn + cost_down + cost_align + cost_height))
-    cost_force = cp.force * cost_force
-    cost_near = cp.near * cost_near * alpha
-    cost_dist = cp.dist * cost_dist * alpha
-    cost_ctrl = cp.ctrl * cost_ctrl
-
-    total_cost = cost_ctrl + cost_height + cost_near + cost_dist + cost_orn + cost_down + cost_align + cost_force
-    discounted_cost = total_cost * cp.discount ** time_step if time_step is not None else total_cost
-    info = {"cm": cm, "cost": discounted_cost, "cost_orn": cost_orn, "cost_force": cost_force, "cost_down": cost_down, "cost_align": cost_align, "cost_height": cost_height, "cost_near": cost_near, "cost_dist": cost_dist, "cost_ctrl": cost_ctrl, "alpha": alpha}
-    return discounted_cost, info
 
 
 def print_sys_info(sys: base.System = None, pipeline: str = "generalized"):

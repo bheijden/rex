@@ -13,7 +13,7 @@ from rex.constants import LATEST, BUFFER, WARN, DEBUG, ERROR
 import rex.utils as utils
 from rex.proto import log_pb2
 from rex.node import Node
-from rex.agent import Agent
+from rex.asynchronous import Agent
 from rex.gmm_estimator import GMMEstimator
 from rex.plot import get_subplots
 from rex.open_colors import ecolor, fcolor

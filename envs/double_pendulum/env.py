@@ -10,7 +10,7 @@ from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, WARN
 from rex.base import StepState, GraphState, RexStepReturn, RexResetReturn
 from rex.env import BaseEnv
 from rex.node import Node
-from rex.agent import Agent as BaseAgent
+from rex.asynchronous import Agent as BaseAgent
 from rex.spaces import Box
 
 

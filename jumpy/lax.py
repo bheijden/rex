@@ -36,7 +36,7 @@ Y = TypeVar("Y")
 
 
 def cond(
-    pred, true_fun: Callable[..., bool], false_fun: Callable[..., bool], *operands: Any
+    pred, true_fun: Callable, false_fun: Callable, *operands: Any
 ):
     """Conditionally apply true_fun or false_fun to operands."""
     if is_jitted() or jumpy.core.which_np((pred, true_fun, false_fun)) is jnp:

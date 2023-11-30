@@ -4,7 +4,7 @@ import envs.vx300s.real as real
 import envs.vx300s.env as env
 import envs.vx300s.models as models
 import envs.vx300s.dists as dists
-import envs.vx300s.cem_brax as cem_brax
+import envs.vx300s.planner
 
 
 # From experiments.__init__.py
@@ -33,14 +33,13 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.base_class import BaseAlgorithm
 
 import rex.utils as utils
-from rex.graph import Graph
 from rex.compiled import CompiledGraph
 import rex.supergraph as supergraph
 from rex.plot import plot_graph, plot_computation_graph, plot_grouped, plot_input_thread, plot_event_thread
 from rex.gmm_estimator import GMMEstimator
 from rex.env import BaseEnv
 from rex.node import Node
-from rex.agent import Agent
+from rex.asynchronous import AsyncGraph
 from rex.proto import log_pb2
 from rex.distributions import Distribution, Gaussian
 from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, WARN, REAL_TIME, \
@@ -48,7 +47,7 @@ from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHA
 import rex.open_colors as oc
 from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 
-from envs.vx300s.env import Vx300sEnv
+from envs.vx300s.env import Vx300sEnv, Controller, Supervisor
 import envs.vx300s.dists
 import envs.vx300s.models
 
@@ -97,35 +96,53 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
     # Determine whether we use the real system
     real = True if "real" in env_fn.__module__ else False
 
+    # Define all nodes
+    nodes = {}
+
     # Build nodes
-    nodes = env_fn(rates, delays_sim, delays, config, scheduling=scheduling)
+    nodes.update(env_fn(rates, delays_sim, delays, config, scheduling=scheduling))
     world, armactuator, armsensor, boxsensor = nodes["world"], nodes["armactuator"], nodes["armsensor"], nodes["boxsensor"]
 
-    # Define planner
-    planner = cem_brax.BraxCEMPlanner("planner", rate=rates["planner"], advance=True,
-                                      delay_sim=delays_sim["step"]["planner"], delay=delays["step"]["planner"],
-                                      mj_path=config["planner"]["brax_xml_path"], pipeline="generalized",
-                                      horizon=config["planner"]["horizon"], u_max=config["planner"]["u_max"],
-                                      dt=config["planner"]["dt"], dt_substeps=config["planner"]["dt_substeps"],
-                                      num_samples=config["planner"]["num_samples"], max_iter=config["planner"]["max_iter"])
-    nodes["planner"] = planner
-
     # Define supervisor
-    supervisor = Vx300sEnv.supervisor_cls("supervisor", rate=rates["supervisor"], advance=True,
-                                          delay_sim=delays_sim["step"]["supervisor"], delay=delays["step"]["supervisor"])
+    supervisor = Supervisor("supervisor", rate=rates["supervisor"], advance=True,
+                            delay_sim=delays_sim["step"]["supervisor"], delay=delays["step"]["supervisor"])
     nodes["supervisor"] = supervisor
 
     # Define controller
-    controller = Vx300sEnv.controller_cls(planner, "controller", rate=rates["controller"], advance=False,
-                                          delay_sim=delays_sim["step"]["controller"], delay=delays["step"]["controller"])
+    controller = Controller("controller", rate=rates["controller"], advance=False,
+                            delay_sim=delays_sim["step"]["controller"], delay=delays["step"]["controller"])
     nodes["controller"] = controller
+
+    # Define planner
+    if config["planner"]["type"] == "brax":
+        planner = envs.vx300s.planner.BraxCEMPlanner(name="planner", rate=rates["planner"], advance=True,
+                                                     delay_sim=delays_sim["step"]["planner"], delay=delays["step"]["planner"],
+                                                     mj_path=config["planner"]["brax_xml_path"], pipeline="generalized",
+                                                     horizon=config["planner"]["horizon"], u_max=config["planner"]["u_max"],
+                                                     dt=config["planner"]["dt"], dt_substeps=config["planner"]["dt_substeps"],
+                                                     num_samples=config["planner"]["num_samples"],
+                                                     max_iter=config["planner"]["max_iter"])
+    elif config["planner"]["type"] == "rex":
+        planner = envs.vx300s.planner.RexCEMPlanner(name="planner", rate=rates["planner"], advance=True,
+                                                    nodes=nodes,
+                                                    graph_path=config["planner"]["rex_graph_path"],
+                                                    supergraph_mode=config["planner"]["supergraph_mode"],
+                                                    delay_sim=delays_sim["step"]["planner"], delay=delays["step"]["planner"],
+                                                    mj_path=config["planner"]["rex_xml_path"], pipeline="generalized",
+                                                    horizon=config["planner"]["horizon"], u_max=config["planner"]["u_max"],
+                                                    dt=config["planner"]["dt"], dt_substeps=config["planner"]["dt_substeps"],
+                                                    num_samples=config["planner"]["num_samples"],
+                                                    max_iter=config["planner"]["max_iter"])
+    else:
+        raise ValueError(f"Unknown planner type {config['planner']['type']}")
+    nodes["planner"] = planner
 
     # Connect
     supervisor.connect(armsensor, name="armsensor", window=1, blocking=False, jitter=LATEST,
                        delay_sim=delays_sim["inputs"]["supervisor"]["armsensor"], delay=delays["inputs"]["supervisor"]["armsensor"])
     supervisor.connect(boxsensor, name="boxsensor", window=1, blocking=False, jitter=LATEST,
                        delay_sim=delays_sim["inputs"]["supervisor"]["boxsensor"], delay=delays["inputs"]["supervisor"]["boxsensor"])
-    planner.connect(armsensor, name="armsensor", window=1, blocking=False, jitter=LATEST,
+    planner.connect(armsensor, name="armsensor", window=4, blocking=False, jitter=LATEST,
                     delay_sim=delays_sim["inputs"]["planner"]["armsensor"], delay=delays["inputs"]["planner"]["armsensor"])
     planner.connect(boxsensor, name="boxsensor", window=1, blocking=False, jitter=LATEST,
                     delay_sim=delays_sim["inputs"]["planner"]["boxsensor"], delay=delays["inputs"]["planner"]["boxsensor"])
@@ -153,7 +170,7 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
     env_name.append(JITTER_MODES[jitter])
     env_name.append(SCHEDULING_MODES[scheduling])
     env_name = "_".join(env_name)
-    graph = Graph(nodes, root=supervisor, clock=clock, real_time_factor=real_time_factor)
+    graph = AsyncGraph(nodes, root=supervisor, clock=clock, real_time_factor=real_time_factor)
     env = Vx300sEnv(graph, max_steps=max_steps, name=env_name)
     return env
 
@@ -363,32 +380,37 @@ def plot_dists(dist, data=None, info=None, est=None):
     return fig_step, fig_inputs
 
 
-def show_computation_graph(G: nx.DiGraph, root: str = None, xmax: float = 2.0) -> Tuple[
+def show_computation_graph(G: nx.DiGraph, root: str = None, xmax: float = 2.0, draw_pruned: bool = False, ax=None) -> Tuple[
     plt.Figure, plt.Axes]:
-    order = ["world", "armsensor", "boxsensor", "supervisor", "viewer", "planner", "controller", "armactuator"]
-    cscheme = {"world": "gray", "armsensor": "grape", "boxsensor": "grape", "supervisor": "teal", "viewer": "teal", "planner": "indigo", "controller": "indigo", "armactuator": "orange"}
+    order = ["planner", "controller", "armactuator", "world", "armsensor", "boxsensor", "supervisor", "viewer", "cost"]
+    cscheme = {"world": "gray", "armsensor": "grape", "boxsensor": "grape", "supervisor": "teal", "viewer": "teal",
+               "planner": "indigo", "controller": "orange", "armactuator": "orange", "cost": "yellow"}
 
     # Create new plot
-    fig, ax = plt.subplots()
-    fig.set_size_inches(12, 5)
+    if ax is None:
+        fig, ax = plt.subplots()
+        fig.set_size_inches(12, 5)
+        ax.set(facecolor=oc.ccolor("gray"), xlabel="time (s)", yticks=[], xlim=[-0.01, xmax])
+    else:
+        fig = ax.get_figure()
 
-    ax.set(facecolor=oc.ccolor("gray"), xlabel="time (s)", yticks=[], xlim=[-0.01, xmax])
     plot_computation_graph(ax, G, root=root, order=order, cscheme=cscheme, xmax=xmax, node_size=200,
-                           draw_pruned=False, draw_nodelabels=True, node_labeltype="seq", connectionstyle="arc3,rad=0.1")
+                           draw_pruned=draw_pruned, draw_nodelabels=True, node_labeltype="seq", connectionstyle="arc3,rad=0.1")
 
     # Plot legend
-    handles, labels = ax.get_legend_handles_labels()
-    by_label = dict(zip(labels, handles))
-    by_label = dict(sorted(by_label.items()))
-    ax.legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
-              bbox_to_anchor=(1.0, 0.50))
+    if ax is None:
+        handles, labels = ax.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        by_label = dict(sorted(by_label.items()))
+        ax.legend(by_label.values(), by_label.keys(), ncol=1, loc='center left', fancybox=True, shadow=False,
+                  bbox_to_anchor=(1.0, 0.50))
 
     return fig, ax
 
 
 def show_graph(episode_record: log_pb2.EpisodeRecord, pos: Dict[str, Tuple[float]] = None, cscheme: Dict[str, str] = None) -> \
         Tuple[plt.Figure, plt.Axes]:
-    cscheme = cscheme or {"world": "gray", "armsensor": "grape", "boxsensor": "grape", "planner": "indigo", "controller": "indigo",
+    cscheme = cscheme or {"world": "gray", "armsensor": "grape", "boxsensor": "grape", "planner": "indigo", "controller": "orange",
                "armactuator": "orange", "supervisor": "teal", "viewer": "teal"}
     pos = pos or {"world": (0, 0), "armsensor": (1.5, 1.5), "boxsensor": (1.5, -1.5), "supervisor": (3, 3), "viewer": (4.5, 3),
                   "planner": (3, 0), "controller": (4.5, 0), "armactuator": (6.0, 0)}

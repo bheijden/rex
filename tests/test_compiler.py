@@ -71,8 +71,7 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
                 tstop = time.time()
 
                 # Print timings
-                print(
-                    f"{name=} | agent_steps={eps_steps} | chunk_index={graph_state.step} | t={(tstop - tstart): 2.4f} sec | t_s={(tstop - tend): 2.4f} sec | fps={eps_steps / (tend - tstart): 2.4f} | fps={eps_steps / (tstop - tstart): 2.4f} (incl. stop)")
+                print(f"{name=} | agent_steps={eps_steps} | chunk_index={ss_new.seq} | t={(tstop - tstart): 2.4f} sec | t_s={(tstop - tend): 2.4f} sec | fps={eps_steps / (tend - tstart): 2.4f} | fps={eps_steps / (tstop - tstart): 2.4f} (incl. stop)")
                 break
     return gs_lst, obs_lst, ss_lst
 
@@ -96,8 +95,8 @@ def test_compiler():
 
     # Initialize graph state
     timings = get_timings_from_network_record(trace_mcs)
-    buffer = get_graph_buffer(S, timings, nodes)
-    init_gs = GraphState(timings=timings, buffer=buffer)
+    # buffer = get_graph_buffer(S, timings, nodes)
+    # init_gs = GraphState(timings=timings, buffer=buffer)
 
     # Test graph
     _ = env.graph.max_eps()
@@ -105,6 +104,7 @@ def test_compiler():
 
     # Test compiled graph
     graph = CompiledGraph(nodes=nodes, root=nodes["agent"], S=S, default_timings=timings)
+    init_gs = graph.init(randomize_eps=True)
     _ = graph.max_starting_step(max_steps=10, graph_state=init_gs)
     _ = graph.max_starting_step(max_steps=10, graph_state=None)
     _ = graph.max_eps(graph_state=None)

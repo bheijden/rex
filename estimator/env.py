@@ -10,7 +10,7 @@ from rex.graph import BaseGraph
 from rex.constants import WARN, LATEST, PHASE, FAST_AS_POSSIBLE, SIMULATED
 from rex.base import StepState, GraphState, Empty, RexStepReturn, RexResetReturn
 from rex.node import Node
-from rex.agent import Agent as BaseAgent
+from rex.asynchronous import Agent as BaseAgent
 from rex.env import BaseEnv
 import rex.jumpy as rjp
 
@@ -174,11 +174,11 @@ class EstimatorEnv(BaseEnv):
 	def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState) -> GraphState:
 		"""Get the graph state."""
 		# Prepare new graph state
-		assert graph_state.step is not None, "Graph state must have a step index."
-		assert graph_state.eps is not None, "Graph state must have an episode index."
-		assert graph_state.nodes.get("estimator", None) is not None, "Graph state must have an estimator node."
-		assert graph_state.timings is not None, "Graph state must have a timings dict."
-		assert graph_state.buffer is not None, "Graph state must have a buffer."
+		assert graph_state.step is not None, "AsyncGraph state must have a step index."
+		assert graph_state.eps is not None, "AsyncGraph state must have an episode index."
+		assert graph_state.nodes.get("estimator", None) is not None, "AsyncGraph state must have an estimator node."
+		assert graph_state.timings is not None, "AsyncGraph state must have a timings dict."
+		assert graph_state.buffer is not None, "AsyncGraph state must have a buffer."
 		prev_graph_state = graph_state
 		starting_step = prev_graph_state.step
 		eps = prev_graph_state.eps

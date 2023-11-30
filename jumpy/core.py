@@ -44,7 +44,11 @@ except ImportError:
 
 def is_jitted() -> bool:
     """Returns true if currently inside a jax.jit call or jit is disabled."""
-    if jp.is_jax_installed is False:
+    if jax is None:
+        return False
+    elif len(jax._src.core.thread_local_state.trace_state.trace_stack.stack) > 1:
+        return True
+    elif jp.is_jax_installed is False:
         return False
     elif jax.config.jax_disable_jit:
         return True

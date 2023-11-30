@@ -26,14 +26,13 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.base_class import BaseAlgorithm
 
 import rex.utils as utils
-from rex.graph import Graph
 from rex.compiled import CompiledGraph
 import rex.supergraph as supergraph
 from rex.plot import plot_graph, plot_computation_graph, plot_grouped, plot_input_thread, plot_event_thread
 from rex.gmm_estimator import GMMEstimator
 from rex.env import BaseEnv
 from rex.node import Node
-from rex.agent import Agent
+from rex.asynchronous import AsyncGraph
 from rex.proto import log_pb2
 from rex.distributions import Distribution, Gaussian
 from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, WARN, REAL_TIME, \
@@ -106,7 +105,7 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
     env_name.append("blocking" if blocking else "nonblocking")
     env_name.append("advance" if advance else "noadvance")
     env_name = "_".join(env_name)
-    graph = Graph(nodes, root=agent, clock=clock, real_time_factor=real_time_factor)
+    graph = AsyncGraph(nodes, root=agent, clock=clock, real_time_factor=real_time_factor)
     env = env_cls(graph, max_steps=max_steps, name=env_name)
     return env
 

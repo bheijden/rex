@@ -13,9 +13,10 @@ from google.protobuf.pyext._message import RepeatedCompositeContainer
 import networkx as nx
 
 import rex.open_colors as oc
+from rex.utils import deprecation_warning
 from rex.node import Node
 from rex.proto import log_pb2
-from rex.base import SeqsMapping, BufferSizes, NodeTimings, Timings, Output, GraphBuffer
+from rex.base import SeqsMapping, BufferSizes, NodeTimings, Timings, Output, GraphBuffer, GraphState
 import supergraph
 
 
@@ -174,21 +175,21 @@ def create_graph(record: log_pb2.EpisodeRecord, excludes_inputs: List[str] = Non
     return G_full
 
 
-def prune_graph(G: nx.DiGraph) -> nx.DiGraph:
-    G = prune_nodes(G)
-    G = prune_edges(G)
+def prune_graph(G: nx.DiGraph, copy: bool = True) -> nx.DiGraph:
+    G = prune_nodes(G, copy=copy)
+    G = prune_edges(G, copy=copy)
     return G
 
 
-def prune_edges(G: nx.DiGraph) -> nx.DiGraph:
-    G_pruned = G.copy(as_view=False)
+def prune_edges(G: nx.DiGraph, copy: bool = True) -> nx.DiGraph:
+    G_pruned = G.copy(as_view=False) if copy else G
     remove_edges = [(u, v) for u, v, data in G_pruned.edges(data=True) if data["pruned"]]
     G_pruned.remove_edges_from(remove_edges)
     return G_pruned
 
 
-def prune_nodes(G: nx.DiGraph) -> nx.DiGraph:
-    G_pruned = G.copy(as_view=False)
+def prune_nodes(G: nx.DiGraph, copy: bool = True) -> nx.DiGraph:
+    G_pruned = G.copy(as_view=False) if copy else G
     remove_nodes = [n for n, data in G_pruned.nodes(data=True) if data["pruned"]]
     G_pruned.remove_nodes_from(remove_nodes)
     return G_pruned
@@ -635,25 +636,25 @@ def get_buffer_sizes_from_timings(S: nx.DiGraph, timings: Timings) -> BufferSize
     for n, inputs in name_mapping.items():
         t = masked_timings[n]
         for input_name, output_name in inputs.items():
-            # Determine min input sequence per generation
+            # Determine min input sequence per generation (i.e. we reduce over all slots within a generation & window)
             seq_in = onp.amin(t["inputs"][input_name]["seq"], axis=(2, 4))
-            seq_in = seq_in.reshape(*seq_in.shape[:-2], -1)
+            seq_in = seq_in.reshape(*seq_in.shape[:-2], -1)   # flatten over generation & step dimension (i.e. [s1g1, s1g2, ..], [s2g1, s2g2, ..], ..)
             # NOTE: fill masked steps with max value (to not influence buffer size)
-            ma.set_fill_value(seq_in, onp.iinfo(onp.int32).max)
+            ma.set_fill_value(seq_in, onp.iinfo(onp.int32).max)  # Fill with max value, because it will not influence the min
             filled_seq_in = seq_in.filled()
             max_seq_in = onp.minimum.accumulate(filled_seq_in[:, ::-1], axis=-1)[:, ::-1]
 
             # Determine max output sequence per generation
-            seq_out = onp.amax(masked_timings[output_name]["seq"], axis=(2,))
-            seq_out = seq_out.reshape(*seq_out.shape[:-2], -1)
-            ma.set_fill_value(seq_out, -1)
+            seq_out = onp.amax(masked_timings[output_name]["seq"], axis=(2,))  #  (i.e. we reduce over all slots within a generation)
+            seq_out = seq_out.reshape(*seq_out.shape[:-2], -1)  # flatten over generation & step dimension (i.e. [s1g1, s1g2, ..], [s2g1, s2g2, ..], ..)
+            ma.set_fill_value(seq_out, onp.iinfo(onp.int32).min)  # todo: CHECK! changed from -1 to onp.iinfo(onp.int32).min to deal with negative seq numbers
             filled_seq_out = seq_out.filled()
             max_seq_out = onp.maximum.accumulate(filled_seq_out, axis=-1)
 
             # Calculate difference to determine buffer size
             # NOTE: Offset output sequence by +1, because the output is written to the buffer AFTER the buffer is read
             offset_max_seq_out = onp.roll(max_seq_out, shift=1, axis=1)
-            offset_max_seq_out[:, 0] = -1  # NOTE: First step is always -1, because no node has run at this point.
+            offset_max_seq_out[:, 0] = onp.iinfo(onp.int32).min  # todo: CHANGED to min value compared to --> NOTE: First step is always -1, because no node has run at this point.
             s = offset_max_seq_out - max_seq_in
 
             # NOTE! +1, because, for example, when offset_max_seq_out = 0, and max_seq_in = 0, we need to buffer 1 step.
@@ -667,8 +668,11 @@ def get_buffer_sizes_from_timings(S: nx.DiGraph, timings: Timings) -> BufferSize
 
 
 def get_graph_buffer(
-    S: nx.DiGraph, timings: Timings, nodes: Dict[str, "Node"], sizes: BufferSizes = None, extra_padding: int = 0
+    S: nx.DiGraph, timings: Timings, nodes: Dict[str, "Node"], sizes: BufferSizes = None, extra_padding: int = 0, graph_state: GraphState = None,
 ) -> GraphBuffer:
+    if graph_state is None:
+        deprecation_warning("graph_state should be provided per default.", stacklevel=2)
+
     # Get buffer sizes if not provided
     if sizes is None:
         sizes = get_buffer_sizes_from_timings(S, timings)
@@ -680,13 +684,9 @@ def get_graph_buffer(
     for n, s in sizes.items():
         assert n in nodes, f"Node `{n}` not found in nodes."
         buffer_size = max(s) + extra_padding if len(s) > 0 else max(1, extra_padding)
-        b = jax.tree_util.tree_map(stack_fn, *[nodes[n].default_output(rng)] * buffer_size)
+        b = jax.tree_util.tree_map(stack_fn, *[nodes[n].default_output(rng, graph_state=graph_state)] * buffer_size)
         buffers[n] = b
-
-    # Get dummy timings (to infer static shapes)
-    eps_timing = jax.tree_util.tree_map(lambda x: x[0], timings)
-
-    return GraphBuffer(outputs=FrozenDict(buffers), timings=eps_timing)
+    return FrozenDict(buffers)
 
 
 def get_seqs_mapping(S: nx.DiGraph, timings: Timings, buffer: GraphBuffer) -> Tuple[SeqsMapping, SeqsMapping]:
@@ -698,7 +698,7 @@ def get_seqs_mapping(S: nx.DiGraph, timings: Timings, buffer: GraphBuffer) -> Tu
         return size
 
     # Get buffer sizes
-    buffer_sizes = {n: _get_buffer_size(b) for n, b in buffer.outputs.items()}
+    buffer_sizes = {n: _get_buffer_size(b) for n, b in buffer.items()}
 
     # Get masked timings:= [eps, step, slot_idx, gen_idx, window=optional]
     masked_timings = get_masked_timings(S, timings)

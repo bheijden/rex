@@ -10,7 +10,6 @@ from rex.graph import BaseGraph
 from rex.base import StepState, GraphState, RexStepReturn, RexResetReturn
 from rex.env import BaseEnv
 from rex.node import Node
-from rex.agent import Agent as BaseAgent
 from rex.spaces import Box
 
 
@@ -33,7 +32,7 @@ class Output:
 	action: jp.ndarray
 
 
-class Agent(BaseAgent):
+class Agent(Node):
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 

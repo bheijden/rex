@@ -7,6 +7,7 @@ import yaml
 
 import jumpy.numpy as jp
 import jumpy.random
+import numpy as onp
 import jax
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
@@ -25,14 +26,13 @@ import matplotlib
 matplotlib.use("TkAgg")
 
 import rex
-from rex.utils import timer
+import rex.jumpy as rjp
+from rex.utils import timer, make_put_output_on_device
 import rex.utils as utils
-from rex.multiprocessing import new_process
 from rex.base import StepState
 from rex.supergraph import create_graph
 from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, WARN, REAL_TIME, \
 	ASYNC, WALL_CLOCK, SCHEDULING_MODES, JITTER_MODES, CLOCK_MODES, INFO, DEBUG
-from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 import experiments as exp
 import envs.vx300s as vx300s
 
@@ -48,11 +48,17 @@ RECORD_SETTINGS = {"planner": dict(node=False, outputs=False, rngs=False, states
 PATH_VX300S = os.path.dirname(vx300s.__file__)
 CONFIG = {"mjx": {"xml_path": f"{PATH_VX300S}/assets/vx300s_mjx.xml"},
           "brax": {"xml_path": f"{PATH_VX300S}/assets/vx300s_brax.xml"},
-          "real": {"cam_trans": [0.589, 0.598, 0.355], "cam_rot": [0.252,  0.855, -0.436, -0.125], "cam_idx": 0,
+          "real": {"cam_trans": [0.589, 0.598, 0.355], "cam_rot": [0.252,  0.855, -0.436, -0.125], "cam_idx": 2,
                    "z_fixed": 0.051,
                    "cam_intrinsics": f"{PATH_VX300S}/assets/logitech_c170.yaml"},
-          "planner": {"brax_xml_path": f"{PATH_VX300S}/assets/vx300s_cem_brax.xml",
+          "planner": {"type": "brax",
+	                  "brax_xml_path": f"{PATH_VX300S}/assets/vx300s_cem_brax.xml",
+                      "rex_xml_path": f"{PATH_VX300S}/assets/vx300s_cem_brax.xml",
                       "mjx_xml_path": f"{PATH_VX300S}/assets/vx300s_cem_mjx.xml",
+                      # "rex_graph_path": "/home/r2ci/rex/logs/real_0.35umax_vx300s_2023-11-20-1759/record_pre.pb",
+                      "rex_graph_path": "/home/r2ci/rex/logs/real_3winplanner_2eps_vx300s_2023-11-27-1708/record_pre.pb",
+                      # "rex_graph_path": "/home/r2ci/rex/logs/vx300s_3winplanner_vx300s_2023-11-23-1722/record_pre.pb",
+                      "supergraph_mode": "MCS",
                       "horizon": 2, "u_max": 0.35*3.14, "dt": 0.15, "dt_substeps": 0.015, "num_samples": 75, "max_iter": 3},
           "viewer": {"xml_path": f"{PATH_VX300S}/assets/vx300s_cem_mjx.xml"}}
 
@@ -61,21 +67,22 @@ if __name__ == "__main__":
 	# jax.config.update("jax_debug_nans", True)
 	# Environment
 	ENV = "vx300s"  # "disc_pendulum"
-	DIST_FILE = None #"real_faster_nomovement_vx300s_2023-11-20-1548.pkl"  # f"vx300s_vx300s_2023-10-19-1629.pkl"
+	DIST_FILE = "real_3winplanner_vx300s_2023-11-27-1647.pkl"  # "real_faster_nomovement_vx300s_2023-11-20-1548.pkl"  # f"vx300s_vx300s_2023-10-19-1629.pkl"
 	JITTER = BUFFER
 	SCHEDULING = PHASE
 
-	ENV_FN = vx300s.mjx.build_vx300s  # vx300s.brax.build_vx300s
+	ENV_FN = vx300s.brax.build_vx300s  # vx300s.brax.build_vx300s
 	CLOCK = SIMULATED
 	RTF = FAST_AS_POSSIBLE
 	RATES = dict(world=80, supervisor=8, planner=5.0, controller=20, armactuator=20, armsensor=80, boxsensor=10, viewer=20)
 	# RATES = dict(world=25, planner=25, controller=25, armactuator=25, armsensor=25, boxsensor=25)
 	MAX_STEPS = int(10 * RATES["supervisor"])
+	WIN_PLANNER = 3
 	USE_DELAYS = True
 	DELAY_FN = lambda d: d.quantile(0.99)*int(USE_DELAYS)  # todo: this is slow (takes 3 seconds).
 
 	# Logging
-	NAME = f"vx300s_{ENV}"
+	NAME = f"real_3winplanner_2eps_{ENV}"
 	LOG_DIR = os.path.dirname(rex.__file__) + f"/../logs/{NAME}_{datetime.datetime.today().strftime('%Y-%m-%d-%H%M')}"
 	MUST_LOG = False
 	MUST_DIST = False
@@ -83,49 +90,39 @@ if __name__ == "__main__":
 	SHOW_PLOTS = True
 
 	# Training
-	# CONTINUE = True
 	SEED = 0
 	RNG = jumpy.random.PRNGKey(0)
-	# NUM_ENVS = 10
-	# SAVE_FREQ = 40_000
-	# NSTEPS = 200_000
 	NUM_EVAL = 20
-	# NUM_EVAL_POST = 20
 
 	# Load distributions
 	delays_sim = exp.load_distributions(DIST_FILE, module=vx300s.dists) if DIST_FILE is not None else vx300s.get_default_distributions()
 	# delays_sim = vx300s.get_nodelay_distributions()
 	fig_sim_step, fig_sim_inputs = vx300s.plot_dists(delays_sim) if MUST_DIST and MUST_PLOT else (None, None)
-	# delays_sim = {}
 
 	# Prepare environment
-	env = vx300s.make_env(delays_sim, DELAY_FN, RATES, CONFIG, win_planner=1, scheduling=SCHEDULING, jitter=JITTER,
+	env = vx300s.make_env(delays_sim, DELAY_FN, RATES, CONFIG, win_planner=WIN_PLANNER, scheduling=SCHEDULING, jitter=JITTER,
 	                      env_fn=ENV_FN, name=ENV, clock=CLOCK, real_time_factor=RTF,
 	                      max_steps=MAX_STEPS, use_delays=USE_DELAYS)
 
-
-	def make_put_on_device_fn(jitted_fn, device):
-		def put_on_device(step_state: StepState):
-			new_step_state, output = jitted_fn(step_state)
-			# todo: use jax.device_get(x) (transfers "x" to host) instead of jax.device_put(x, device)?
-			output_on_device = jax.tree_util.tree_map(lambda x: jax.device_put(x, device), output)
-			return new_step_state, output_on_device
-		return put_on_device
-
 	# Jit functions
-	env._get_graph_state = jax.jit(env._get_graph_state, device=cpu_device)
+	env.graph.init = jax.jit(env.graph.init, static_argnames=["order"], device=cpu_device)
 	env._get_cost = jax.jit(env._get_cost, device=cpu_device)
 	env.graph.nodes_and_root["world"].step = jax.jit(env.graph.nodes_and_root["world"].step, device=cpu_device)
-	env.graph.nodes_and_root["planner"].step = make_put_on_device_fn(jax.jit(env.graph.nodes_and_root["planner"].step, device=gpu_device), cpu_device)
+	env.graph.nodes_and_root["planner"].step = make_put_output_on_device(jax.jit(env.graph.nodes_and_root["planner"].step, device=gpu_device), cpu_device)
+	# env.graph.nodes_and_root["planner"].step = jax.jit(env.graph.nodes_and_root["planner"].step, device=gpu_device)
 	env.graph.nodes_and_root["controller"].step = jax.jit(env.graph.nodes_and_root["controller"].step, device=cpu_device)
 	if "viewer" in env.graph.nodes:
 		env.graph.nodes_and_root["viewer"].step = jax.jit(env.graph.nodes_and_root["viewer"].step, device=cpu_device)
 
 	# Warmup
 	with timer(f"warmup[graph_state]", log_level=100):
-		graph_state = env._get_graph_state(RNG)
+		graph_state = env.graph.init(RNG, order=("supervisor", "world"))
 	with timer(f"eval[graph_state]", log_level=100):
-		_ = env._get_graph_state(RNG)
+		_ = env.graph.init(RNG, order=("supervisor", "world"))
+	# with rjp.use("numpy"):
+	# 	np_ss_planner = jax.tree_util.tree_map(lambda x: onp.array(x), graph_state.nodes["planner"])
+	# 	with timer(f"warmup[planner]", log_level=100):
+	# 		_, _ = env.graph.nodes["planner"].step(np_ss_planner)
 	with timer(f"warmup[cost]", log_level=100):
 		cost, info = env._get_cost(graph_state)
 	with timer(f"eval[cost]", log_level=100):
@@ -134,13 +131,19 @@ if __name__ == "__main__":
 		if name not in ["world", "planner", "controller", "viewer"]:
 			continue
 		with timer(f"warmup[{name}]", log_level=100):
-			_, _ = node.step(graph_state.nodes[name])
+			ss, o = node.step(graph_state.nodes[name])
+			if name == "planner":
+				print(o.jpos.device())
 		with timer(f"eval[{name}]", log_level=100):
 			_, _ = node.step(graph_state.nodes[name])
 			jax.tree_util.tree_map(lambda x: x.block_until_ready(), _)
+	with timer(f"warmup[dist]", log_level=100):
+		for name, node in env.graph.nodes_and_root.items():
+			node.warmup()
 
 	policy = lambda step_state: 1
 	# _, _ = vx300s.eval_env(env, policy, 1, progress_bar=True, record_settings=RECORD_SETTINGS, seed=0)
+	# with jax.log_compiles(True):
 	record_pre, rwds = vx300s.eval_env(env, policy, NUM_EVAL, progress_bar=True, record_settings=RECORD_SETTINGS, seed=0)
 
 	# Save html
@@ -148,8 +151,8 @@ if __name__ == "__main__":
 	# todo: modify timestep.
 	if "viewer" in env.graph.nodes:
 		env.graph.nodes["viewer"].close()
-	rollout = [ss.state.pipeline_state for ss in env.world._record_step_states]
-	env.world.view_rollout(rollout=rollout, path="./vx300s_render.html")
+	# rollout = [ss.state.pipeline_state for ss in env.world._record_step_states]
+	# env.world.view_rollout(rollout=rollout, path="./vx300s_render.html")
 
 	# Plot computation graph
 	G = create_graph(record_pre.episode[-1])

@@ -14,9 +14,9 @@ from rex.proto import log_pb2
 from rex.node import Node
 from rex.graph import BaseGraph
 from rex.base import InputState, StepState, GraphState, Output
-from rex.agent import Agent
+from rex.asynchronous import Agent
 
-# Graph modes
+# AsyncGraph modes
 INTERPRETED = 0
 VECTORIZED = 1
 SEQUENTIAL = 2
@@ -75,7 +75,7 @@ def make_depth_grouping(trace: log_pb2.TraceRecord, graph: int) -> List[List[log
         assert onp.all(onp.diff(topological_order) > 0), "Topological order is not respected."
         depths = new_depths
     else:
-        raise NotImplementedError(f"Graph type {graph} not implemented.")
+        raise NotImplementedError(f"AsyncGraph type {graph} not implemented.")
 
     return depths
 

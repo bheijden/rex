@@ -13,7 +13,7 @@ from sbx import SAC
 import rex.utils as utils
 from rex.supergraph import get_network_record, get_timings_from_network_record
 from rex.compiled import CompiledGraph
-from rex.graph import Graph
+from rex.asynchronous import AsyncGraph
 from rex.proto import log_pb2
 from rex.distributions import Gaussian, Distribution
 from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, WARN, REAL_TIME, ASYNC, WALL_CLOCK
@@ -96,7 +96,7 @@ if __name__ == "__main__":
 	[n.warmup() for n in nodes_real.values()]
 
 	# Create environment
-	graph = Graph(nodes_real, root=agent_real, clock=clock, real_time_factor=real_time_factor)
+	graph = AsyncGraph(nodes_real, root=agent_real, clock=clock, real_time_factor=real_time_factor)
 	env_real = PendulumEnv(graph=graph, max_steps=max_steps)
 	env_real = GymWrapper(env_real)  # Wrap into gym wrapper
 

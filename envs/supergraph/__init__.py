@@ -12,9 +12,9 @@ from rex.constants import INFO, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, LATEST
 from rex.base import InputState, StepState, GraphState, RexResetReturn, RexStepReturn, Empty
 from rex.env import BaseEnv
 from rex.node import Node
-from rex.agent import Agent
+from rex.asynchronous import Agent, AsyncGraph
 from rex.spaces import Box
-from rex.graph import BaseGraph, Graph
+from rex.graph import BaseGraph
 from rex.compiled import CompiledGraph
 from rex.supergraph import get_network_record, get_timings_from_network_record
 
@@ -52,7 +52,7 @@ def build_dummy_compiled_env() -> Tuple["DummyEnv", "DummyEnv", Dict[str, Node]]
 def build_dummy_env() -> Tuple["DummyEnv", Dict[str, Union[Agent, Node]]]:
     nodes = build_dummy_graph()
     agent: DummyAgent = nodes["agent"]  # type: ignore
-    graph = Graph(nodes, root=agent, clock=SIMULATED, real_time_factor=FAST_AS_POSSIBLE)
+    graph = AsyncGraph(nodes, root=agent, clock=SIMULATED, real_time_factor=FAST_AS_POSSIBLE)
     env = DummyEnv(graph=graph, max_steps=100, name="dummy_env")
     return env, nodes
 

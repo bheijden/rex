@@ -12,7 +12,7 @@ from rex.utils import set_log_level
 from rex.wrappers import GymWrapper, VecGymWrapper
 from rex.constants import WARN, ERROR, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, DEBUG
 from rex.proto import log_pb2
-from rex.graph import Graph
+from rex.asynchronous import AsyncGraph
 from scripts.dummy import build_dummy_env, DummyEnv
 
 
@@ -114,7 +114,7 @@ def test_reinitialize_nodes_from_recording():
 	data = process_record(exp_record)
 	nodes_copy = {name: n["obj"] for name, n in data[0].items()}
 	agent_copy = nodes_copy["agent"]  # type: ignore
-	graph = Graph(nodes_copy, agent_copy, clock=SIMULATED, real_time_factor=FAST_AS_POSSIBLE)
+	graph = AsyncGraph(nodes_copy, agent_copy, clock=SIMULATED, real_time_factor=FAST_AS_POSSIBLE)
 	env_copy = DummyEnv(graph=graph, max_steps=100, name="env_copy")
 
 	# Apply wrapper
