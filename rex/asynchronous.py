@@ -183,18 +183,18 @@ class AsyncGraph(BaseGraph):
         # next_graph_state = GraphState(nodes=FrozenDict(nodes))
         # return next_graph_state, next_step_state
 
-    def step(self, graph_state: GraphState, step_state: StepState = None, output: Output = None) -> Tuple[GraphState, StepState]:
-        # Set the result to be the step_state and output (action)  of the root.
-        self._synchronizer.action[-1].set_result((step_state, output))
-
-        # Retrieve the first obs
-        next_step_state = self._synchronizer.observation.popleft().result()
-
-        # Create the next graph state
-        nodes = {name: node._step_state for name, node in self.nodes_and_root.items()}
-        nodes[self.root.name] = next_step_state
-        next_graph_state = GraphState(nodes=FrozenDict(nodes))
-        return next_graph_state, next_step_state
+    # def step(self, graph_state: GraphState, step_state: StepState = None, output: Output = None) -> Tuple[GraphState, StepState]:
+    #     # Set the result to be the step_state and output (action)  of the root.
+    #     self._synchronizer.action[-1].set_result((step_state, output))
+    #
+    #     # Retrieve the first obs
+    #     next_step_state = self._synchronizer.observation.popleft().result()
+    #
+    #     # Create the next graph state
+    #     nodes = {name: node._step_state for name, node in self.nodes_and_root.items()}
+    #     nodes[self.root.name] = next_step_state
+    #     next_graph_state = GraphState(nodes=FrozenDict(nodes))
+    #     return next_graph_state, next_step_state
 
     def get_episode_record(self) -> log_pb2.EpisodeRecord:
         record = log_pb2.EpisodeRecord()

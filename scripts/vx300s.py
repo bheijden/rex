@@ -76,7 +76,7 @@ if __name__ == "__main__":
 	RTF = REAL_TIME
 	RATES = dict(world=80, supervisor=8, planner=5.0, controller=20, armactuator=20, armsensor=80, boxsensor=10, viewer=20)
 	# RATES = dict(world=25, planner=25, controller=25, armactuator=25, armsensor=25, boxsensor=25)
-	MAX_STEPS = int(20 * RATES["supervisor"])
+	MAX_STEPS = int(10 * RATES["supervisor"])
 	WIN_PLANNER = 3
 	USE_DELAYS = True
 	DELAY_FN = lambda d: d.quantile(0.99)*int(USE_DELAYS)  # todo: this is slow (takes 3 seconds).
