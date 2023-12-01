@@ -4,6 +4,8 @@ from concurrent.futures import ThreadPoolExecutor, Future, CancelledError
 from threading import RLock
 from typing import Optional, Any, Deque, TYPE_CHECKING, Tuple, Callable, Dict
 import jumpy.numpy as jp
+import jumpy
+import jax
 from jax import numpy as jnp
 from jax import jit
 import jax.random as rnd
@@ -31,6 +33,7 @@ from rex.constants import (
 from rex.distributions import Distribution, DistState
 from rex.proto import log_pb2 as log_pb2
 from rex.utils import log
+from rex.base import GraphState
 
 if TYPE_CHECKING:
     from rex.node import BaseNode
@@ -65,8 +68,12 @@ class Input:
 
         # Jit function (call self.warmup() to pre-compile)
         self._num_buffer = 50
-        self._jit_reset = jit(self.delay_sim.reset)
-        self._jit_sample = jit(self.delay_sim.sample, static_argnums=1)
+        self._jit_update_input_state = None
+        self._jit_reset = None
+        self._jit_sample = None
+        self._has_warmed_up = False
+        # self._jit_reset = jit(self.delay_sim.reset)
+        # self._jit_sample = jit(self.delay_sim.sample, static_argnums=1)
 
         # Executor
         node_name = self.node if isinstance(node, str) else self.node.name
@@ -148,10 +155,25 @@ class Input:
         else:
             return self._phase_dist
 
-    def warmup(self):
+    def warmup(self, graph_state: GraphState, device):
+        _ = self.phase_dist
+
+        # Warmup input update
+        self._jit_update_input_state = jumpy.jit(update_input_state, device=device)
+        i = graph_state.nodes[self.node.name].inputs[self.input_name]
+        new_i = self._jit_update_input_state(i, 0, 0., 0., i[0].data)
+
+        self._jit_reset = jit(self.delay_sim.reset, device=device)
+        self._jit_sample = jit(self.delay_sim.sample, static_argnums=1, device=device)
         dist_state = self._jit_reset(rnd.PRNGKey(0))
         new_dist_state, samples = self._jit_sample(dist_state, shape=self._num_buffer)
+
+        # Wait for the results to be ready
         samples.block_until_ready()  # Only to trigger jit compilation
+        if isinstance(new_i.seq, jax.Array):
+            new_i.seq.block_until_ready()
+
+        self._has_warmed_up = True
 
     def sample_delay(self) -> float:
         # Generate samples batch-wise
@@ -257,6 +279,7 @@ class Input:
         assert self._state in [
             READY
         ], f"Input {self.name} of {self.node.name} must first be reset, before it can start running."
+        assert self._has_warmed_up, f"Input {self.name} of {self.node.name} must first be warmed up, before it can start."
 
         # Set running state
         self._state = RUNNING
@@ -439,10 +462,13 @@ class Input:
                     grouped.append((seq, ts_sent, ts_recv, msg))
 
                 # Only add messages that will not get pushed out immediately.
-                for seq, ts_sent, ts_recv, msg in grouped[-self.window :]:
+                for seq, ts_sent, ts_recv, msg in grouped[-self.window:]:
                     # self._input_state.push(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=msg)
                     # todo: makes a copy of the message. Is this necessary?
-                    self._input_state = self._input_state.push(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=msg)
+                    self._input_state = self._jit_update_input_state(self._input_state, seq, ts_sent, ts_recv, msg)
+                    # if self.node.name in ["planner", "world", "armsensor", "armactuator"]:
+                    #     print(f"{self.node.name}.{self.input_name} |  seq={type(seq)} | ts_sent={type(ts_sent)} | ts_recv={type(ts_recv)} | msg={type(msg)}")
+                    # self._input_state = self._input_state.push(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=msg)
 
                 # Add grouped message to queue
                 self.q_grouped.append(self._input_state)
@@ -570,3 +596,8 @@ class Input:
 
             # See if we can prepare tuple for next step
             self.push_selection()
+
+
+def update_input_state(input_state: InputState, seq: int, ts_sent: float, ts_recv: float, data: Any) -> InputState:
+    new_input_state = input_state.push(seq, ts_sent, ts_recv, data)
+    return new_input_state

@@ -35,9 +35,6 @@ def test_wallclock():
     actuator.connect(agent, blocking=False, delay_sim=Gaussian(0.003, 0.001), skip=False, jitter=BUFFER, delay=0.05)
     world.connect(actuator, blocking=False, delay_sim=Gaussian(0.004), skip=True, jitter=BUFFER)
 
-    # Warmup nodes (pre-compile jitted functions)
-    [n.warmup() for n in nodes]
-
     # Get graph state
     def reset_node(node, rng):
         rng_params, rng_state, rng_inputs, rng_step, rng_reset = jumpy.random.split(rng, num=5)
@@ -57,6 +54,9 @@ def test_wallclock():
     real_time_factor, clock = 20, WALL_CLOCK
     graph = AsyncGraph({n.name: n for n in nodes if n.name != agent.name}, root=agent, real_time_factor=real_time_factor, clock=clock)
     graph_state = graph.init(step_states=node_ss, randomize_eps=True)
+
+    # Warmup nodes (pre-compile jitted functions)
+    [n.warmup(graph_state) for n in nodes]
 
     # Run
     num_steps = 500

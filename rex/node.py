@@ -55,6 +55,7 @@ class BaseNode:
         advance: bool = True,
         stateful: bool = True,
         scheduling: int = PHASE,
+
     ):
         self.name = name
         self.rate = rate
@@ -72,6 +73,7 @@ class BaseNode:
         self._from_info = False  # Used to determine whether this node is created from an InputInfo proto log.
 
         # State and episode counter
+        self._has_warmed_up = False
         self._eps = 0
         self._state = STOPPED
 
@@ -146,12 +148,27 @@ class BaseNode:
         # For example, some attributes may need to be replaced with references to objects, initialized somewhere else.
         self._unpickled = True
 
-    def warmup(self):
+    def warmup(self, graph_state: GraphState, device=None):
+        if device is None:
+            # gpu_devices = jax.devices('gpu')
+            cpu_device = jax.devices('cpu')[0]
+            device = cpu_device
+        # device = None
+
         # Warms-up jitted functions in the output (i.e. pre-compiles)
-        self.output.warmup()
+        self.output.warmup(graph_state, device=device)
 
         # Warms-up jitted functions in the inputs (i.e. pre-compiles)
-        [i.warmup() for i in self.inputs]
+        [i.warmup(graph_state, device=device) for i in self.inputs]
+
+        # Warm-up phase_dist
+        _ = self.phase_dist
+
+        # Warmup random number generators
+        _ = [r for r in rnd.split(graph_state.nodes[self.name].rng, num=len(self.inputs))]
+
+        # Warms-up jitted functions in the node
+        self._has_warmed_up = True
 
     @property
     def unpickled(self):
@@ -466,7 +483,7 @@ class BaseNode:
 
         # Update step_state (increment sequence number)
         if new_step_state is not None:
-            new_step_state = new_step_state.replace(seq=new_step_state.seq + 1)
+            new_step_state = new_step_state.replace(seq=jp.int32(new_step_state.seq + 1))
 
         return new_step_state, output
 
@@ -486,6 +503,10 @@ class BaseNode:
         assert not (
             clock in [WALL_CLOCK] and self._sync in [SYNC]
         ), "You can only simulate synchronously, if the clock=`SIMULATED`."
+
+        # Warmup the node
+        if not self._has_warmed_up:
+            self.warmup(graph_state)
 
         # Save run configuration
         self._clock = clock  #: Simulate timesteps
@@ -537,6 +558,7 @@ class BaseNode:
 
     def _start(self, start: float):
         assert self._state in [READY], f"{self.name} must first be reset, before it can start running."
+        assert self._has_warmed_up, f"{self.name} must first be warmed up, before it can start running."
 
         # Set running state
         self._state = RUNNING

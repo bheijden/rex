@@ -56,7 +56,7 @@ class BaseGraph:
                 order.append(name)
 
         # Initialize temporary graph state
-        graph_state = GraphState(eps=starting_eps, nodes=step_states)
+        graph_state = GraphState(eps=jp.int32(starting_eps), nodes=step_states)
 
         # Initialize step states
         rngs = jumpy.random.split(rng, num=len(order*4)).reshape((len(order), 4, 2))
@@ -78,7 +78,7 @@ class BaseGraph:
         for name, rng_inputs in rngs_inputs.items():
             node = self.nodes_and_root[name]
             step_states[name] = step_states[name].replace(inputs=node.default_inputs(rng_inputs, graph_state))
-        return GraphState(eps=starting_eps, nodes=FrozenDict(step_states))
+        return GraphState(eps=jp.int32(starting_eps), nodes=FrozenDict(step_states))
 
     def start(self, graph_state: GraphState, timeout: float = None) -> GraphState:
         return graph_state

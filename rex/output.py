@@ -8,6 +8,7 @@ from rex.distributions import Gaussian, Distribution, DistState
 from rex.input import Input
 from rex.proto import log_pb2 as log_pb2
 from rex.utils import log
+from rex.base import GraphState
 
 if TYPE_CHECKING:
     from rex.node import Node
@@ -24,8 +25,11 @@ class Output:
 
         # Jit function (call self.warmup() to pre-compile)
         self._num_buffer = 50
-        self._jit_reset = jit(self.delay_sim.reset)
-        self._jit_sample = jit(self.delay_sim.sample, static_argnums=1)
+        self._jit_reset = None
+        self._jit_sample = None
+        self._has_warmed_up = False
+        # self._jit_reset = jit(self.delay_sim.reset)
+        # self._jit_sample = jit(self.delay_sim.sample, static_argnums=1)
 
         # Reset every run
         self._phase_dist = None
@@ -70,10 +74,15 @@ class Output:
         else:
             return self._phase_dist
 
-    def warmup(self):
+    def warmup(self, graph_state: GraphState, device):
+        _ = self.phase_dist
+
+        self._jit_reset = jit(self.delay_sim.reset, device=device)
+        self._jit_sample = jit(self.delay_sim.sample, static_argnums=1, device=device)
         dist_state = self._jit_reset(rnd.PRNGKey(0))
         new_dist_state, samples = self._jit_sample(dist_state, shape=self._num_buffer)
         samples.block_until_ready()  # Only to trigger jit compilation
+        self._has_warmed_up = True
 
     def sample_delay(self) -> float:
         # Generate samples batch-wise
@@ -106,6 +115,7 @@ class Output:
 
     def start(self):
         assert self._state in [READY], f"The output of {self.name} must first be reset, before it can start running."
+        assert self._has_warmed_up, f"The output of {self.name} must first be warmed up, before it can start running."
 
         # Set running state
         self._state = RUNNING

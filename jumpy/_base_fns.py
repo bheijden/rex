@@ -6,6 +6,7 @@ from typing import Callable, Sequence, TypeVar
 
 import numpy as onp
 
+import jumpy
 from jumpy import is_jax_installed
 from jumpy.core import is_jitted, which_np
 from jumpy.numpy import ndarray, take
@@ -71,3 +72,11 @@ def vmap(fun: F, include: Sequence[bool] | None = None) -> F:
         return jax.tree_util.tree_map(lambda *x: onp.stack(x), *rets)
 
     return _batched
+
+
+def jit(fun: F, *args, **kwargs) -> F:
+    """Creates a function which is jitted if the current function is jitted."""
+    if not jumpy.is_jax_installed:
+        return fun
+    else:
+        return jax.jit(fun, *args, **kwargs)

@@ -102,7 +102,8 @@ class AsyncGraph(BaseGraph):
 
         # Start nodes (provide same starting timestamp to every node)
         start = time.time()
-        [n._start(start=start) for n in self.nodes_and_root.values()]
+        for node in self.nodes_and_root.values():
+            node._start(start=start)
         return graph_state
 
     def stop(self, timeout: float = None):
@@ -142,7 +143,7 @@ class AsyncGraph(BaseGraph):
             new_ss, new_output = step_state, output
 
         # Update step_state (increment sequence number)
-        next_step_state = new_ss.replace(seq=new_ss.seq + 1)
+        next_step_state = new_ss.replace(seq=jp.int32(new_ss.seq + 1))
 
         # Set the result to be the step_state and output (action)  of the root.
         self._synchronizer.action[-1].set_result((new_ss, new_output))
@@ -152,49 +153,6 @@ class AsyncGraph(BaseGraph):
         nodes[self.root.name] = next_step_state
         next_graph_state = GraphState(nodes=FrozenDict(nodes))
         return next_graph_state
-    # def reset(self, graph_state: GraphState, timeout: float = None) -> Tuple[GraphState, StepState]:
-        # # Stop first, if we were previously running.
-        # self.stop()
-        #
-        # # An additional reset is required when running async (futures, etc..)
-        # self._synchronizer.reset()
-        #
-        # # Prepare inputs
-        # no_inputs = {k: (k in graph_state.nodes and graph_state.nodes[k].inputs) is not None for k, v in graph_state.nodes.items()}
-        # assert all(no_inputs.values()), "No inputs provided to all entries in graph_state. Use graph.init()."
-        #
-        # # Reset async backend of every node
-        # for node in self.nodes_and_root.values():
-        #     node._reset(graph_state, clock=self.clock, real_time_factor=self.real_time_factor)
-        #
-        # # Check that all nodes have the same episode counter
-        # assert len({n.eps for n in self.nodes_and_root.values()}) == 1, "All nodes must have the same episode counter."
-        #
-        # # Start nodes (provide same starting timestamp to every node)
-        # start = time.time()
-        # [n._start(start=start) for n in self.nodes_and_root.values()]
-        #
-        # # Retrieve first obs
-        # next_step_state = self._synchronizer.observation.popleft().result()
-        #
-        # # Create the next graph state
-        # nodes = {name: node._step_state for name, node in self.nodes_and_root.items()}
-        # nodes[self.root.name] = next_step_state
-        # next_graph_state = GraphState(nodes=FrozenDict(nodes))
-        # return next_graph_state, next_step_state
-
-    # def step(self, graph_state: GraphState, step_state: StepState = None, output: Output = None) -> Tuple[GraphState, StepState]:
-    #     # Set the result to be the step_state and output (action)  of the root.
-    #     self._synchronizer.action[-1].set_result((step_state, output))
-    #
-    #     # Retrieve the first obs
-    #     next_step_state = self._synchronizer.observation.popleft().result()
-    #
-    #     # Create the next graph state
-    #     nodes = {name: node._step_state for name, node in self.nodes_and_root.items()}
-    #     nodes[self.root.name] = next_step_state
-    #     next_graph_state = GraphState(nodes=FrozenDict(nodes))
-    #     return next_graph_state, next_step_state
 
     def get_episode_record(self) -> log_pb2.EpisodeRecord:
         record = log_pb2.EpisodeRecord()
@@ -202,10 +160,10 @@ class AsyncGraph(BaseGraph):
         return record
 
     def max_eps(self, graph_state: GraphState = None):
-        return 1
+        return jp.int32(1)
 
     def max_steps(self, graph_state: GraphState = None) -> int:
         return jp.inf
 
     def max_starting_step(self, max_steps: int, graph_state: GraphState = None) -> int:
-        return 0
+        return jp.int32(0)

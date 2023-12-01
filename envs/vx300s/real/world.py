@@ -391,7 +391,6 @@ class ArmActuator(Node):
         """Default output of the node."""
         jpos = self._client.get_joint_states().position
         jpos = np.array(jpos, dtype="float32")
-        # jpos = np.zeros((6,), dtype="float32")
         return ActuatorOutput(jpos=jpos)
 
     def step(self, step_state: StepState) -> Tuple[StepState, ActuatorOutput]:
@@ -405,7 +404,7 @@ class ArmActuator(Node):
 
         # Prepare output
         actuator_output = inputs["controller"][-1].data
-        # self._client.write_commands(actuator_output.jpos.tolist())
+        self._client.write_commands(actuator_output.jpos.tolist())
         return new_step_state, actuator_output
 
 

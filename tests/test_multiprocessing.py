@@ -100,4 +100,5 @@ def test_mp_with_rex_nodes():
 	sensor.step = new_process(sensor.step, max_workers=2, initializer=initializer, initargs=(False,))
 
 	# Step
-	step_state = sensor.step(step_state)
+	numpy_ss = jax.tree_util.tree_map(lambda x: onp.array(x), step_state)
+	step_state = sensor.step(numpy_ss)

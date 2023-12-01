@@ -9,7 +9,7 @@ except ImportError:
 
 
 from jumpy import core, lax, ops, random
-from jumpy._base_fns import index_update, vmap
+from jumpy._base_fns import index_update, vmap, jit
 
 __all__ = [
     # === primitives ===
@@ -22,4 +22,5 @@ __all__ = [
     # === base functions ==
     "index_update",
     "vmap",
+    "jit",
 ]
