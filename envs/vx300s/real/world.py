@@ -341,10 +341,10 @@ class BoxSensor(Node):
     def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> BoxState:
         """Default state of the node."""
         box_output, image = self._get_output()
-        if box_output.boxpos is None:
-            box_output = box_output.replace(boxpos=jp.array([0.35, 0.0, 0.051], dtype=jp.float32),
-                                            boxorn=jp.array([0.0, 0.0, 0.0, 1.0], dtype=jp.float32))
-            print("WARNING: Box position could not be detected. Using default position.")
+        # if box_output.boxpos is None:
+        #     box_output = box_output.replace(boxpos=jp.array([0.35, 0.0, 0.051], dtype=jp.float32),
+        #                                     boxorn=jp.array([0.0, 0.0, 0.0, 1.0], dtype=jp.float32))
+        #     print("WARNING: Box position could not be detected. Using default position.")
         while box_output.boxpos is None or box_output.boxorn is None:
 
             # Wait until box is detected

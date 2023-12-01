@@ -17,7 +17,7 @@ cpu_device = jax.devices('cpu')[0]
 # from jax.experimental.compilation_cache import compilation_cache as cc
 # cc.initialize_cache("./cache")
 # import logging
-# logging.getLogger("jax").setLevel(logging.INFO)
+# logging.getLogger("jax").setLevel(logging.DEBUG)
 
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -71,7 +71,7 @@ if __name__ == "__main__":
 	JITTER = BUFFER
 	SCHEDULING = PHASE
 
-	ENV_FN = vx300s.real.build_vx300s  # vx300s.brax.build_vx300s
+	ENV_FN = vx300s.brax.build_vx300s  # vx300s.brax.build_vx300s
 	CLOCK = WALL_CLOCK
 	RTF = REAL_TIME
 	RATES = dict(world=80, supervisor=8, planner=5.0, controller=20, armactuator=20, armsensor=80, boxsensor=10, viewer=20)
@@ -109,7 +109,6 @@ if __name__ == "__main__":
 	env._get_cost = jax.jit(env._get_cost, device=cpu_device)
 	env.graph.nodes_and_root["world"].step = jax.jit(env.graph.nodes_and_root["world"].step, device=cpu_device)
 	env.graph.nodes_and_root["planner"].step = make_put_output_on_device(jax.jit(env.graph.nodes_and_root["planner"].step, device=gpu_device), cpu_device)
-	# env.graph.nodes_and_root["planner"].step = jax.jit(env.graph.nodes_and_root["planner"].step, device=gpu_device)
 	env.graph.nodes_and_root["controller"].step = jax.jit(env.graph.nodes_and_root["controller"].step, device=cpu_device)
 	if "viewer" in env.graph.nodes:
 		env.graph.nodes_and_root["viewer"].step = jax.jit(env.graph.nodes_and_root["viewer"].step, device=cpu_device)
@@ -119,32 +118,30 @@ if __name__ == "__main__":
 		graph_state = env.graph.init(RNG, order=("supervisor", "world"))
 	with timer(f"eval[graph_state]", log_level=100):
 		_ = env.graph.init(RNG, order=("supervisor", "world"))
+	# with jax.log_compiles(True):
 	# with rjp.use("numpy"):
 	# 	np_ss_planner = jax.tree_util.tree_map(lambda x: onp.array(x), graph_state.nodes["planner"])
 	# 	with timer(f"warmup[planner]", log_level=100):
 	# 		_, _ = env.graph.nodes["planner"].step(np_ss_planner)
-	with timer(f"warmup[cost]", log_level=100):
-		cost, info = env._get_cost(graph_state)
-	with timer(f"eval[cost]", log_level=100):
-		_, _ = env._get_cost(graph_state)
 	for name, node in env.graph.nodes.items():
 		if name not in ["world", "planner", "controller", "viewer"]:
 			continue
 		with timer(f"warmup[{name}]", log_level=100):
 			ss, o = node.step(graph_state.nodes[name])
-			# if name == "planner":
-			# 	print(o.jpos.device())
 		with timer(f"eval[{name}]", log_level=100):
 			_, _ = node.step(graph_state.nodes[name])
 			jax.tree_util.tree_map(lambda x: x.block_until_ready(), _)
+	with timer(f"warmup[cost]", log_level=100):
+		cost, info = env._get_cost(graph_state)
+	with timer(f"eval[cost]", log_level=100):
+		_, _ = env._get_cost(graph_state)
 	with timer(f"warmup[dist]", log_level=100):
-		for name, node in env.graph.nodes_and_root.items():
-			node.warmup()
+		[n.warmup(graph_state) for n in env.graph.nodes_and_root.values()]
 
-	policy = lambda step_state: 1
-	# _, _ = vx300s.eval_env(env, policy, 1, progress_bar=True, record_settings=RECORD_SETTINGS, seed=0)
+	# Evaluate
 	# with jax.log_compiles(True):
-	record_pre, rwds = vx300s.eval_env(env, policy, NUM_EVAL, progress_bar=True, record_settings=RECORD_SETTINGS, seed=0)
+	record_pre, rwds = vx300s.eval_env(env, lambda step_state: 1, NUM_EVAL, progress_bar=True, record_settings=RECORD_SETTINGS, seed=0)
+	print("Done with eval.")
 
 	# Save html
 	# todo: brax timestamps are not correct.
@@ -158,6 +155,7 @@ if __name__ == "__main__":
 	g = create_graph(record_pre.episode[-1])
 	fig_gr, _ = vx300s.show_graph(record_pre.episode[-1]) if MUST_PLOT else (None, None)
 	fig_cg, _ = vx300s.show_computation_graph(g, root="supervisor", xmax=2.0) if MUST_PLOT else (None, None)
+	fig_com, _ = vx300s.show_communication(record_pre.episode[0]) if MUST_PLOT else (None, None)
 	fig_com, _ = vx300s.show_communication(record_pre.episode[-1]) if MUST_PLOT else (None, None)
 
 	# Fit distributions

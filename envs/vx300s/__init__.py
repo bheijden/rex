@@ -145,7 +145,7 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
                        delay_sim=delays_sim["inputs"]["supervisor"]["armsensor"], delay=delays["inputs"]["supervisor"]["armsensor"])
     supervisor.connect(boxsensor, name="boxsensor", window=1, blocking=False, jitter=LATEST,
                        delay_sim=delays_sim["inputs"]["supervisor"]["boxsensor"], delay=delays["inputs"]["supervisor"]["boxsensor"])
-    planner.connect(armsensor, name="armsensor", window=1, blocking=False, jitter=LATEST,
+    planner.connect(armsensor, name="armsensor", window=4, blocking=False, jitter=LATEST,
                     delay_sim=delays_sim["inputs"]["planner"]["armsensor"], delay=delays["inputs"]["planner"]["armsensor"])
     planner.connect(boxsensor, name="boxsensor", window=1, blocking=False, jitter=LATEST,
                     delay_sim=delays_sim["inputs"]["planner"]["boxsensor"], delay=delays["inputs"]["planner"]["boxsensor"])
