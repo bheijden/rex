@@ -83,11 +83,12 @@ class GraphState:
     nodes: FrozenDict[str, StepState] = struct.field(pytree_node=True, default_factory=lambda: None)
 
     def replace_eps(self, eps: jp.int32):
-        # Next(iter()) is a bit hacky, but it simply takes the first node in the final (i.e. [-1]) generations (i.e. the root).
-        max_eps, max_step = next(iter(self.timings[-1].values()))["run"].shape
-        eps = jp.clip(eps, jp.int32(0), max_eps - 1)
+        eps = jp.clip(eps, jp.int32(0), jp.int32(0))
         nodes = FrozenDict({n: ss.replace(eps=eps) for n, ss in self.nodes.items()})
         return self.replace(eps=eps, nodes=nodes)
+
+    def replace_nodes(self, nodes: Union[Dict[str, StepState], FrozenDict[str, StepState]]):
+        return self.replace(nodes=self.nodes.copy(nodes))
 
 
 @struct.dataclass

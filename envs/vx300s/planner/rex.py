@@ -10,6 +10,8 @@ import jax.numpy as jnp
 import jumpy.numpy as jp
 import rex.jumpy as rjp
 
+import jax.debug as jdb
+
 from brax import base, math
 from flax import struct
 
@@ -23,10 +25,10 @@ import rex.supergraph
 import supergraph as sg
 
 from envs.vx300s.planner.cost import CostParams, box_pushing_cost
-from envs.vx300s.planner.cem import CEMParams, cem_planner
+from envs.vx300s.planner.cem import CEMParams, cem_rex
 from envs.vx300s.env import PlannerOutput, get_next_jpos
 from envs.vx300s.env import Controller
-from envs.vx300s.brax.world import World, ArmActuator, BraxOutput
+from envs.vx300s.brax.world import World, ArmActuator, BraxOutput, State as WorldState, Params as WorldParams
 from envs.vx300s.planner.brax import print_sys_info
 
 import envs.vx300s as vx300s
@@ -63,30 +65,47 @@ class Cost(Node):
         return step_state, Empty()
 
 
-# class PlannerWrapper:
-#     def __init__(self, planner):
-#         self._planner = planner
-#
-#     # Redirect all calls to the planner unless they are explicitly defined here
-#     def __getattr__(self, item):
-#         return getattr(self._planner, item)
-#
-#     def step(self, step_state: StepState) -> Tuple[StepState, PlannerOutput]:
-#         # print("PlannerWrapper.step")
-#         # todo: index into pre-recorded
-#         output = step_state.state.last_plan
-#         return step_state, output
+@struct.dataclass
+class CostState:
+    cost_orn: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
+    cost_down: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
+    cost_align: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
+    cost_height: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
+    alpha: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
+    cost_force: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
+    cost_near: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
+    cost_dist: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
+    cum_cost: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
+    timestep: jp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
 
 
-class NodeWrapper:
-    def __init__(self, node: Node):
+@struct.dataclass
+class WrappedWorldState:
+    world_state: WorldState
+    cost_state: CostState
+
+
+@struct.dataclass
+class WrappedWorldParams:
+    world_params: WorldParams
+    cost_params: CostParams
+
+
+class WorldWrapper:
+    def __init__(self, node: World):
         self._node = node
+        # self._sys = _pytree_on_device(self._node.sys, jax.devices('gpu')[0])
 
     # Redirect all calls to the planner unless they are explicitly defined here
     def __getattr__(self, item):
         return getattr(self._node, item)
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BraxOutput:
+    # def dummy_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BraxOutput:
+    #     wss = graph_state.nodes["world"].replace(state=graph_state.nodes["world"].state.world_state)
+    #     graph_state.replace_nodes({"world": wss})
+    #     return
+    def dummy_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BraxOutput:
+        # todo: comment this function and use default_output of self._node (i.e. world)
         jpos = jnp.zeros((self.sys.act_size(),), dtype=jp.float32)
         eepos = jnp.zeros((3,), dtype=jp.float32)
         eeorn = jnp.array([0, 0, 0, 1], dtype=jp.float32)
@@ -94,12 +113,65 @@ class NodeWrapper:
         boxorn = jnp.array([0, 0, 0, 1], dtype=jp.float32)
         return BraxOutput(jpos=jpos, eepos=eepos, eeorn=eeorn, boxpos=boxpos, boxorn=boxorn)
 
-    def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
-        return State(pipeline_state=jp.float32(99), q_des=jp.float32(99))
+    # def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> WrappedWorldState:
+    #     # todo: comment this function and use default_output of self._node (i.e. world)
+    #     # world_state = self._node.default_state(rng, graph_state)
+    #     # cost_state = CostState(*jp.zeros((10,)))
+    #     return State(pipeline_state=jp.float32(99), q_des=jp.float32(99))
 
     def step(self, step_state: StepState) -> Tuple[StepState, BraxOutput]:
         # print("DummyWorld.step")
-        return step_state, self.default_output(step_state.rng)
+        ss = step_state
+
+        # Prepare world step_state
+        ss_world = step_state.replace(params=step_state.params.world_params, state=step_state.state.world_state)
+        new_ss_world, output = self._node.step(ss_world)  # TODO: UNCOMMENT
+        # new_ss_world, output = ss_world, self.dummy_output(step_state.rng)
+        new_world_state = new_ss_world.state
+
+        # Calculate cost
+        cp = step_state.params.cost_params
+        cs = step_state.state.cost_state
+        new_cs = self._cost(new_world_state, cp, cs)
+        new_ss = ss.replace(state=ss.state.replace(world_state=new_world_state, cost_state=new_cs))
+        return new_ss, output
+
+    def _cost(self, world_state: WorldState, cost_params: CostParams, cost_state: CostState) -> CostState:
+        """Calculate cost"""
+        time_step = cost_state.timestep
+        pipeline_state = world_state.pipeline_state
+        sys = self._node.sys
+
+        # Get indices
+        ee_arm_idx = sys.link_names.index("ee_link")
+        box_idx = sys.link_names.index("box")
+        goal_idx = sys.link_names.index("goal")
+
+        x_i = pipeline_state.x.vmap().do(
+            base.Transform.create(pos=sys.link.inertia.transform.pos)
+        )
+
+        boxpos = x_i.pos[box_idx]
+        eepos = x_i.pos[ee_arm_idx]
+        eeorn = self._node._convert_wxyz_to_xyzw(x_i.rot[ee_arm_idx])  # require xyzw convention
+        goalpos = x_i.pos[goal_idx][:2]
+        force = pipeline_state.qf_constraint
+        discounted_cost, info = box_pushing_cost(cost_params, boxpos, eepos, goalpos, eeorn, force, action=None, time_step=time_step)
+
+        # Update cost state
+        next_timestep = time_step + 1
+        cum_cost = cost_state.cum_cost + discounted_cost
+        next_cost_state = CostState(cost_orn=info["cost_orn"],
+                                    cost_down=info["cost_down"],
+                                    cost_align=info["cost_align"],
+                                    cost_height=info["cost_height"],
+                                    alpha=info["alpha"],
+                                    cost_force=info["cost_force"],
+                                    cost_near=info["cost_near"],
+                                    cost_dist=info["cost_dist"],
+                                    cum_cost=cum_cost,
+                                    timestep=next_timestep)
+        return next_cost_state
 
 
 class RexCEMPlanner(Node):
@@ -109,8 +181,11 @@ class RexCEMPlanner(Node):
                  mj_path: str,
                  supergraph_mode: str = "MCS",
                  episode_idx: int = -1,
-                 num_cost_est: int = 6,
-                 num_cost_mpc: int = 7,
+                 graph_idx: int = -1,
+                 num_cost_est: int = 14,  # 14,
+                 num_cost_mpc: int = 20,  # 20,
+                 randomize_eps: bool = True,
+                 use_estimator: bool = True,
                  pipeline: str = "generalized",
                  u_max: float = 0.35 * 3.14,
                  dt: float = 0.15,
@@ -125,8 +200,11 @@ class RexCEMPlanner(Node):
                  **kwargs):
         super().__init__(*args, **kwargs)
         self._episode_idx = episode_idx
+        self._graph_idx = graph_idx
         self._num_cost_est = num_cost_est
         self._num_cost_mpc = num_cost_mpc
+        self._randomize_eps = randomize_eps
+        self._use_estimator = use_estimator
         self._horizon = horizon
         self._u_max = u_max
         self._dt = dt
@@ -160,65 +238,41 @@ class RexCEMPlanner(Node):
                                                          progress_bar=progress_bar)
 
         # Get window of planner armsensor sufficiently large and select first jpos after boxsensor measurement.
-        self.window_prev_plans, _ = get_window_sizes(self._Gs_est)  # todo: infer armsensor window from _Gs
+        self.window_prev_plans = get_planner_window(self._Gs_est)
 
         # Initialize nodes
-        # todo: Accumulate costs in wrapped world state or send force as well?
         cost = Cost(name="cost", rate=1)  # dummy rate
-        planner = self  # PlannerWrapper(self)
+        planner = self
+
+        # Initialize actuator
+
+        # Initialize world
         args, kwargs, _ = super(nodes["world"].__class__, nodes["world"]).__getstate__()
         world = World(*args, xml_path=mj_path, dt_brax=dt_substeps, backend=pipeline, **kwargs)
         world.inputs = nodes["world"].inputs
-        world = NodeWrapper(world)  # todo: remove
-        # self._world = world
+        world = WorldWrapper(world)
+        self._world = world
         cost.connect(world, blocking=True)
 
-        # TODO: REMOVE ALL THIS WRAPPING!
-        nodes["world"].step = world.step
-        nodes["world"].default_output = world.default_output
-        world._node.default_output = world.default_output
-        nodes["world"].default_state = world.default_state
-        nodes["world"].default_params = world.default_params
+        # Initialize controller
+        args, kwargs, _ = super(nodes["controller"].__class__, nodes["controller"]).__getstate__()
+        controller = Controller(*args, **kwargs)
+        controller.inputs = nodes["controller"].inputs
+
+        # Define graph nodes
         graph_nodes = nodes.copy()
-        graph_nodes.update({"world": world, "planner": planner})
+        graph_nodes.update({"world": world, "planner": planner, "controller": controller})
 
         # Define compiled graphs
         self.graph_est = CompiledGraph(graph_nodes, root=cost, S=S_est, default_timings=timings_est, skip=["planner"])
         self.graph_mpc = CompiledGraph(graph_nodes, root=cost, S=S_mpc, default_timings=timings_mpc, skip=["planner"])
 
-        # TODO: JIT AGAIN!
-        # Wrap in jax.jit to avoid retracing on every call todo: needed?
-        # for name, node in nodes.items():
-        #     node.step = jax.jit(node.step)
-
-        # Get devices
-        self._gpu_device = jax.devices('gpu')[0] if len(jax.devices('gpu')) > 0 else None
-        self._cpu_device = jax.devices('cpu')[0]
-
-    def _test(self):
         # if False:
-        #     _ = vx300s.show_computation_graph(self._G, root=None, xmax=2.0, draw_pruned=False)
-        #     _ = vx300s.show_computation_graph(self._Gs["planner_6"], root=None, xmax=None, draw_pruned=True)
-        #     _ = vx300s.show_computation_graph(self._Gs_est["planner_6"], root=None, xmax=None, draw_pruned=True)
-        #     _ = vx300s.show_computation_graph(self._Gs_mpc["planner_6"], root=None, xmax=None, draw_pruned=True)
-
-        # Initialize graphs
-        gs_est = jax.jit(partial(self.graph_est.init, order=("supervisor", "world", "planner"), randomize_eps=True))()
-        gs_mpc = jax.jit(partial(self.graph_mpc.init, order=("supervisor", "world", "planner"), randomize_eps=False))(step_states=gs_est.nodes, starting_eps=gs_est.eps)
-
-        # Run graphs
-        est_reset = jax.jit(self.graph_est.reset)
-        mpc_reset = jax.jit(self.graph_mpc.reset)
-
-        # Profile
-        with jax.log_compiles(True):
-            new_gs_mpc, ss = est_reset(gs_est)
-            # new_gs_mpc, ss = mpc_reset(gs_mpc)
-        input("Press Enter to continue...")
-
-        # Initialize graphs
-        # self._jit_run_cem = jax.jit(self.run_cem, device=self._gpu_device if self._gpu_device else self._cpu_device)
-        # self._jit_get_init_jpos = jax.jit(self.get_init_plan)
+        # _ = vx300s.show_computation_graph(self._G, root=None, xmax=2.0, draw_pruned=False)
+        # _ = vx300s.show_computation_graph(self._Gs["planner_6"], root=None, xmax=None, draw_pruned=True)
+        # _ = vx300s.show_computation_graph(self._Gs_est["planner_6"], root=None, xmax=None, draw_pruned=True)
+        # _ = vx300s.show_computation_graph(self._Gs_mpc["planner_6"], root=None, xmax=None, draw_pruned=True)
+        # print("PLOTTING RexCEMPlanner")
 
     def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> RexCEMParams:
         cost_params = CostParams(orn=3.0,
@@ -232,7 +286,7 @@ class RexCEMPlanner(Node):
                                  bias_height=0.035,
                                  bias_near=0.07,
                                  alpha=0.0,
-                                 discount=0.98)
+                                 discount=1.0)
         cem_params = CEMParams(u_min=-self._u_max * jp.ones((6,), dtype=jp.float32),
                                u_max=self._u_max * jp.ones((6,), dtype=jp.float32),
                                sampling_smoothing=self._sampling_smoothing,
@@ -264,9 +318,6 @@ class RexCEMPlanner(Node):
         return PlannerOutput(jpos=jpos, jvel=jvel, timestamps=timestamps)
 
     def step(self, step_state: StepState):
-        # todo: infer ts_future for new plan (from graphs?).
-        # todo: replace gs_est.buffer["planner"].outputs[0] with to-be-computed plan
-        # todo: push new_plan to ss.state.prev_plans
         # Unpack StepState
         rng, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
 
@@ -278,140 +329,130 @@ class RexCEMPlanner(Node):
         jpos_now = jp.take(step_state.inputs["armsensor"].data.jpos, idx, axis=0)
         goalpos = state.goalpos
         boxpos_now = step_state.inputs["boxsensor"][-1].data.boxpos
-        boxyaw_now = step_state.inputs["boxsensor"][-1].data.wrapped_yaw
+        boxyaw_now = jp.array([step_state.inputs["boxsensor"][-1].data.wrapped_yaw])
 
-        # Prepare buffer for planner with previous plans
-        prev_plans = step_state.state.prev_plans.data
-        shifted_prev_plans = prev_plans.replace(timestamps=prev_plans.timestamps - step_state.ts)
-        # Extend shifted_prev_plans with an additional plan at the beginning --> is going to be the new plan (seq=0).
-        planner_buffer = jax.tree_util.tree_map(lambda x: jp.concatenate([jp.expand_dims(x[-1], axis=0), x], axis=0), shifted_prev_plans)
+        # Pre-initialize world step_state
+        qpos = jp.concatenate([boxpos_now, boxyaw_now, goalpos, jpos_now, jnp.array([0])])  # added [0] for additional ee joint.
+        qd = jp.zeros((qpos.shape[0],), dtype=jnp.float32)
+        pipeline_state = self._world._pipeline.init(self._world.sys, qpos, qd)
+        rng, rng_wss = jumpy.random.split(rng)
+        wss = StepState(rng=rng_wss, state=WorldState(pipeline_state=pipeline_state), params=WorldParams())
 
         # Initialize estimator graph
         rng, rng_est = jumpy.random.split(rng)
-        gs_est = self.graph_est.init(rng=rng_est, order=("supervisor", "world", "planner"), randomize_eps=True)
-        gs_est = gs_est.replace_buffer({"planner": planner_buffer})  # Update buffer
+        init_gs_est = self.graph_est.init(rng=rng_est, step_states={"world": wss}, order=("supervisor", "world", "planner"), starting_eps=jp.as_int32(self._graph_idx))
 
-        next_gs_est = gs_est
-        next_gs_est = self.graph_est.start(next_gs_est)
-        # next_gs_est, _ = self.graph_est.reset(next_gs_est)
-        for i in range(self.graph_est.max_runs()):
-            # print(next_gs_est.buffer["armactuator"].jpos)
-            # next_gs_est, _ = self.graph_est.step(next_gs_est)
-            next_gs_est = self.graph_est.run(next_gs_est)
-            print(next_gs_est.step)
+        # Infer future timestamp, which is the start of the next plan
+        dt_future = self.graph_est.nodes["planner"].output.delay + self.graph_est.nodes["planner"].get_connected_input("controller").delay
+        ts_future = step_state.ts + dt_future
+        timestamps = params.dt * jp.arange(0, self._horizon + 1, dtype=jp.float32) + ts_future
 
-        # Determine timestamps at t+t_offset --> time of applying the action.
-        ts_now = step_state.ts
-        ts_offset = self.output.delay
-        ts_future = ts_now + ts_offset
-        dt = params.dt_substeps * params.substeps
-        timestamps = dt * jp.arange(0, self._horizon + 1, dtype=jp.float32) + ts_future
+        # Prepare buffer for planner with previous plans
+        prev_plans = step_state.state.prev_plans.data
+        init_plan = get_init_plan(step_state.state.prev_plans[-1].data, timestamps)
+        # Shift timestamps of init_plan and prev_plans with step_state.ts
+        shifted_init_plan = init_plan.replace(timestamps=init_plan.timestamps - step_state.ts)
+        shifted_prev_plans = prev_plans.replace(timestamps=prev_plans.timestamps - step_state.ts)
+        # Extend shifted_prev_plans with an initial plan at the beginning --> is going to be the new plan (seq=0).
+        planner_buffer = jax.tree_util.tree_map(lambda x, y: jp.concatenate([x[None], y], axis=0), shifted_init_plan, shifted_prev_plans)
+        init_gs_est = init_gs_est.replace_buffer({"planner": planner_buffer})  # Update buffer with previous plans
 
-        # Determine where arm.jpos will be at t+t_offset
-        rng, rng_cem = jumpy.random.split(rng, num=2)
-        goalpos = state.goalpos
-        eepos_now = step_state.inputs["armsensor"][-1].data.eepos
-        eeorn_now = step_state.inputs["armsensor"][-1].data.eeorn
-        jpos_now = step_state.inputs["armsensor"][-1].data.jpos
-        # jpos_future = get_next_jpos(state.last_plan, timestamps[0])
-        boxpos_now = step_state.inputs["boxsensor"][-1].data.boxpos
-        boxyaw_now = jp.array([step_state.inputs["boxsensor"][-1].data.wrapped_yaw])
+        # Update wrapped world step_state
+        new_wss = init_gs_est.nodes["world"].replace(params=WrappedWorldParams(world_params=WorldParams(),
+                                                                               cost_params=step_state.params.cost_params),
+                                                     state=WrappedWorldState(world_state=WorldState(pipeline_state=pipeline_state),
+                                                                             cost_state=CostState(cum_cost=jp.array(0.), timestep=jp.int32(0)))
+                                                     )
+        init_gs_est = init_gs_est.replace_nodes({"world": new_wss})
 
-        # Run CEM todo: make sure box and ee are not in collision.
-        new_plan = self.run_cem(rng_cem, params, state.last_plan, timestamps, jpos_now, boxpos_now, boxyaw_now, goalpos)
-        # new_plan = self._jit_run_cem(rng_cem, params, state.last_plan, timestamps, jpos_now, boxpos_now, goalpos)
+        # Run estimator graph
+        _scan_est_fn = partial(_scan_graph_fn, self.graph_est, self._use_estimator)
+        final_gs_est, _ = jumpy.lax.scan(_scan_est_fn, init_gs_est, jp.arange(0, self.graph_est.max_runs()))
 
-        # Get output and step_state # todo: remove?
-        new_plan = jax.tree_util.tree_map(lambda x: jax.device_put(x, self._cpu_device), new_plan)
+        # Initialize MPC world state
+        rng, rng_wss = jumpy.random.split(rng)
+        wss = StepState(rng=rng_wss,
+                        state=final_gs_est.nodes["world"].state.world_state,
+                        params=final_gs_est.nodes["world"].params.world_params
+                        )
+        init_gs_mpc = final_gs_est.replace_nodes({"world": wss})
 
-        # print(f"new_plan.jpos: {new_plan.jpos} | jpos_now: {jpos_now} | diff: {new_plan.jpos - jpos_now}")
-        # jpos_diff = new_plan.jpos - jpos_now
-        # print(f"jpos diff | max={jpos_diff.max()} | min={jpos_diff.min()} | mean={jpos_diff.mean()}")
+        # Initialize estimator graph
+        rng, rng_mpc = jumpy.random.split(rng)
+        init_gs_mpc = self.graph_mpc.init(rng=rng_mpc, step_states=init_gs_mpc.nodes, order=("supervisor", "world", "planner"),
+                                          starting_eps=jp.as_int32(jp.as_int32(self._graph_idx)))
+        # init_gs_mpc = self._jit_graph_mpc_init(rng=rng_mpc, step_states=init_gs_mpc.nodes, order=("supervisor", "world", "planner"), starting_eps=jp.as_int32(2))
+        init_gs_mpc = init_gs_mpc.replace_nodes({"world": final_gs_est.nodes["world"]})  # Replace with wrapped world step_state
+        init_gs_mpc = init_gs_mpc.replace_buffer({"planner": planner_buffer})  # Update buffer with previous plans
 
-        # new_plan = PlannerOutput(jpos=jpos_now, jvel=mean, timestamps=timestamps)
-        new_state = state.replace(last_plan=new_plan)
-        new_step_state = step_state.replace(rng=rng, state=new_state)
-        return new_step_state, new_plan
+        # Initialize MPC
+        def _mpc_objective_fn(graph: CompiledGraph, eps_idx, controls, _init_gs_mpc):
+            # Replace eps
+            if self._randomize_eps:
+                eps = eps_idx % graph.max_eps(_init_gs_mpc)  # Makes sure eps is within bounds
+                _init_gs_mpc = _init_gs_mpc.replace_eps(eps)
 
-    def get_init_plan(self, last_plan: PlannerOutput, timestamps: jp.ndarray) -> PlannerOutput:
-        get_next_jpos_vmap = jax.vmap(get_next_jpos, in_axes=(None, 0))
-        jpos_timestamps = get_next_jpos_vmap(last_plan, timestamps)
-        jvel_timestamps = jpos_timestamps[1:] - jpos_timestamps[:-1]
-        return PlannerOutput(jpos=jpos_timestamps[0], jvel=jvel_timestamps, timestamps=timestamps)
+            # Add controls to planner_buffer.jvel[0] --> this is the to-be-optimized plan.
+            next_jvel = jumpy.index_update(planner_buffer.jvel, jp.array(0), controls)
+            next_p = _init_gs_mpc.buffer["planner"].replace(jvel=next_jvel)
+            next_gs = _init_gs_mpc.replace_buffer({"planner": next_p})
 
-    def run_cem(self, rng, params: RexCEMParams, last_plan: PlannerOutput, timestamps: jnp.ndarray, jpos: jnp.ndarray, boxpos: jnp.ndarray, boxyaw: jnp.ndarray, goalpos: jnp.ndarray) -> PlannerOutput:
-        # Update system with correct dt from parameters
-        params = params.replace(sys=params.sys.replace(dt=params.dt_substeps))
-        cem_params = params.cem_params
+            # Run mpc graph
+            _scan_mpc_fn = partial(_scan_graph_fn, graph, True)
+            _final_gs_mpc, _ = jumpy.lax.scan(_scan_mpc_fn, next_gs, jp.arange(0, graph.max_runs()))
 
-        # Determine initial plan from last_plan
-        init_plan = self.get_init_plan(last_plan, timestamps)
+            # Compute cost (subtract initial cost from forward estimation graph
+            cum_cost = _final_gs_mpc.nodes["world"].state.cost_state.cum_cost - _init_gs_mpc.nodes["world"].state.cost_state.cum_cost
+            return cum_cost
 
-        # Define cost function
-        def cost(_params: BraxCEMParams, state: State, action, time_step: int):
-            pipeline_state = state.pipeline_state
-            sys = params.sys
+        # Prepare objective function for CEM
+        mpc_objective_fn = partial(_mpc_objective_fn, self.graph_mpc)
 
-            # Get indices
-            ee_arm_idx = sys.link_names.index("ee_link")
-            box_idx = sys.link_names.index("box")
-            goal_idx = sys.link_names.index("goal")
-
-            x_i = pipeline_state.x.vmap().do(
-                base.Transform.create(pos=sys.link.inertia.transform.pos)
-            )
-
-            boxpos = x_i.pos[box_idx]
-            eepos = x_i.pos[ee_arm_idx]
-            eeorn = self._convert_wxyz_to_xyzw(x_i.rot[ee_arm_idx])  # require xyzw convention
-            goalpos = x_i.pos[goal_idx][:2]
-            force = pipeline_state.qf_constraint
-
-            total_cost, info = box_pushing_cost(_params.cost_params, boxpos, eepos, goalpos, eeorn, force, action, time_step)
-            return total_cost
-
-        # Define dynamics function
-        def dynamics(_params: BraxCEMParams, state: State, action, time_step):
-            def loop_cond(args):
-                i, _ = args
-                return i < _params.substeps
-
-            def loop_body(args):
-                i, state = args
-                q_des = state.q_des + action * params.sys.dt  # todo: clip to max angles?
-                pipeline_state = PIPELINES[self._pipeline].step(params.sys, state.pipeline_state, q_des)
-                return i + 1, State(pipeline_state=pipeline_state, q_des=q_des)
-
-            i, state = jax.lax.while_loop(loop_cond, loop_body, (0, state))
-
-            return state
-
-        # Get initial pose
-        qpos = jnp.concatenate([boxpos, boxyaw, goalpos, jpos, jnp.array([0])])  # added [0] for additional joint.
-
-        # Initialize pipeline state
-        pipeline_state = PIPELINES[self._pipeline].init(params.sys, qpos, jnp.zeros(params.sys.qd_size()))
-        # q_des = pipeline_state.q[params.sys.actuator.q_id]
-        q_des = init_plan.jpos
-        init_state = State(pipeline_state=pipeline_state, q_des=q_des)
+        def _vmap_mpc_objective_fn(eps_idx, controls, _init_gs_mpc):
+            _vmap_mpc_objective_fn = jax.vmap(mpc_objective_fn, in_axes=(0, None, None), out_axes=0)
+            eps_idx = jp.arange(2, 3)  # + eps_idx % 1
+            cum_cost = _vmap_mpc_objective_fn(eps_idx, controls, _init_gs_mpc)
+            return cum_cost.mean()
 
         # Run CEM
-        cem_hyperparams = dict(sampling_smoothing=cem_params.sampling_smoothing, evolution_smoothing=cem_params.evolution_smoothing,
+        objective_fn = _vmap_mpc_objective_fn if self._randomize_eps else mpc_objective_fn
+        rng, rng_cem = jumpy.random.split(rng)
+        cem_params = params.cem_params
+        cem_hyperparams = dict(sampling_smoothing=cem_params.sampling_smoothing,
+                               evolution_smoothing=cem_params.evolution_smoothing,
                                elite_portion=self._elite_portion, num_samples=self._num_samples, max_iter=self._max_iter)
-        _, mean, obj = cem_planner(cost, dynamics, params, init_state, init_plan.jvel, cem_params.u_min, cem_params.u_max, rng,
-                                   hyperparams=cem_hyperparams)
+        mean, obj = cem_rex(objective_fn, init_gs_mpc, shifted_init_plan.jvel, cem_params.u_min, cem_params.u_max, rng_cem, hyperparams=cem_hyperparams)
 
-        # Return new plan
-        new_plan = init_plan.replace(jvel=mean)
+        # Update plan
+        next_plan = init_plan.replace(jvel=mean)
 
-        return new_plan
+        # Update prev_plans
+        next_prev_plans = step_state.state.prev_plans.push(seq=step_state.seq, ts_sent=step_state.ts, ts_recv=ts_future, data=next_plan)
 
-    def print_sys_info(self):
-        print_sys_info(self._sys, self._pipeline)
+        # Update step_state
+        next_step_state = step_state.replace(rng=rng, state=step_state.state.replace(prev_plans=next_prev_plans))
+        return next_step_state, next_plan
 
     def _convert_wxyz_to_xyzw(self, quat: jp.ndarray):
         """Convert quaternion (w,x,y,z) -> (x,y,z,w)"""
         return jnp.array([quat[1], quat[2], quat[3], quat[0]], dtype="float32")
+
+
+def _scan_graph_fn(graph, run_graph, carry, x):
+    if run_graph:
+        next_carry = graph.run(carry)
+    else:
+        next_carry = carry
+    y = x
+    return next_carry, y
+
+
+def get_init_plan(last_plan: PlannerOutput, timestamps: jp.ndarray) -> PlannerOutput:
+    get_next_jpos_vmap = jumpy.vmap(get_next_jpos, include=(False, True))
+    jpos_timestamps = get_next_jpos_vmap(last_plan, timestamps)
+    dt = timestamps[1:] - timestamps[:-1]
+    jvel_timestamps = (jpos_timestamps[1:] - jpos_timestamps[:-1]) / dt[:, None]
+    return PlannerOutput(jpos=jpos_timestamps[0], jvel=jvel_timestamps, timestamps=timestamps)
 
 
 def calibrate_graph(G: nx.DiGraph, ts_offset: float = 0., relabel_nodes: bool = False) -> Tuple[nx.DiGraph, Dict[str, str]]:
@@ -879,6 +920,12 @@ def split_partitions_into_estimator_mpc_partitions(Gs: Dict[str, nx.DiGraph], nu
         G_mpc = G.subgraph(n_mpc).copy()
         G_est = G.subgraph(n_est).copy()
 
+        # Make sure all mpc controller nodes have window connected edges
+        n_controllers = [e[1] for e in G_mpc.out_edges(n_plan_relabeled)]
+        e_controllers = {u: edata for n_ctrl in n_controllers for u, v, edata in G_mpc.in_edges(n_ctrl, data=True) if u not in n_controllers}
+        for n_ctrl in n_controllers:
+            G_mpc.add_edges_from([(u, n_ctrl, edata) for u, edata in e_controllers.items()])
+
         # Calibrate the estimator and MPC partitions
         # G_mpc = calibrate_graph(G_mpc, ts_offset=ts_start, relabel_nodes=True)
         # G_est = calibrate_graph(G_est, ts_offset=ts_start, relabel_nodes=True)
@@ -954,11 +1001,10 @@ def make_supergraph_and_timings(Gs_raw: List[nx.DiGraph], root: str, num_cost: i
     return S, timings
 
 
-def get_window_sizes(Gs_est: Dict[str, nx.DiGraph]) -> Tuple[int, int]:
+def get_planner_window(Gs_est: Dict[str, nx.DiGraph]) -> int:
     num_planners = []
     for n_plan, G in Gs_est.items():
         num = len([n for n in G.nodes if G.nodes[n]["kind"] == "planner"])
         num_planners.append(num)
     window_prev_plans = max(num_planners)
-    window_armsensor = 3  # todo: avoid hardcoding here.
-    return window_prev_plans, window_armsensor
+    return window_prev_plans

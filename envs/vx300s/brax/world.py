@@ -178,8 +178,6 @@ class World(Node):
 
     def step(self, step_state: StepState) -> Tuple[StepState, BraxOutput]:
         """Step the node."""
-        # print("brax.World.step()")
-
         # Unpack StepState
         _, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
 
@@ -227,7 +225,7 @@ class ArmSensor(Node):
 
     def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ArmOutput:
         """Default output of the node."""
-        world = self.get_named_input_node("world")
+        world = self.get_connected_output("world").node
         brax_output = world.default_output(rng, graph_state)
         return ArmOutput(jpos=brax_output.jpos, eepos=brax_output.eepos, eeorn=brax_output.eeorn)
 
@@ -251,7 +249,7 @@ class BoxSensor(Node):
 
     def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BoxOutput:
         """Default output of the node."""
-        world = self.get_named_input_node("world")
+        world = self.get_connected_output("world").node
         brax_output = world.default_output(rng, graph_state)
         return BoxOutput(boxpos=brax_output.boxpos, boxorn=brax_output.boxorn)
 
@@ -275,7 +273,7 @@ class ArmActuator(Node):
 
     def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ActuatorOutput:
         """Default output of the node."""
-        world = self.get_named_output_node("world")
+        world = self.get_connected_input("world").node
         brax_output = world.default_output(rng, graph_state)
         return ActuatorOutput(jpos=brax_output.jpos)
 

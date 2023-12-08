@@ -87,8 +87,8 @@ def scan(
     unroll: int = 1,
 ) -> tuple[Carry, Y]:
     """Scan a function over leading array axes while carrying along state."""
-    if not is_jax_installed:
-        raise NotImplementedError("This function requires the jax module")
+    # if not is_jax_installed:
+    #     raise NotImplementedError("This function requires the jax module")
 
     if is_jitted():
         return jax.lax.scan(f, init, xs, length, reverse, unroll)
@@ -96,6 +96,7 @@ def scan(
         xs_flat, xs_tree = jax.tree_util.tree_flatten(xs)
         carry = init
         ys = []
+        length = length or len(xs_flat[0])
         maybe_reversed = reversed if reverse else lambda x: x
         for i in maybe_reversed(range(length)):
             xs_slice = [x[i] for x in xs_flat]

@@ -68,7 +68,7 @@ def single_loss(env: BaseEnv, graph_state: GraphState, seqs_step: SeqsMapping, p
 	def _step(carry, x):
 		gs, loss_step, loss = carry
 		new_gs, new_loss_step, _, terminated, truncated, info = env.step(gs, loss_step)
-		done = jp.logical_or(terminated, truncated) # todo: correct?
+		done = jp.logical_or(terminated, truncated)  # todo: correct?
 		# Only add dynamic loss to total loss
 		new_loss = (1-done)*(new_loss_step.loss) + loss
 		new_carry = (new_gs, new_loss_step, new_loss)

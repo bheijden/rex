@@ -452,23 +452,34 @@ class BaseNode:
         # Register the input with the output of the specified node
         node.output.connect(i)
 
-    def get_named_input_node(self, input_name: str):
-        node = None
+    def get_connected_output(self, input_name: str) -> Output:
+        """Get the output channel of a node that is connected to the input of this node based on the input name.
+
+        :param input_name: The name of the input corresponding to the connected output channel. This name may be different
+                           from the name of the connected node corresponding to the output channel.
+        :return: The connected output channel.
+        """
+        output = None
         for i in self.inputs:
             if i.input_name == input_name:
-                node = i.output.node
+                output = i.output
                 break
-        assert node is not None, f"No input named `{input_name}` found!"
-        return node
+        assert output is not None, f"No input named `{input_name}` found!"
+        return output
 
-    def get_named_output_node(self, output_name: str):
-        node = None
+    def get_connected_input(self, name: str) -> Input:
+        """Get the input channel of a node that is connected to the output of this node based.
+
+        :param name: The name of the node corresponding to the connected input channel.
+        :return: The connected input channel.
+        """
+        _input = None
         for i in self.output.inputs:
-            if i.node.name == output_name:
-                node = i.node
+            if i.node.name == name:
+                _input = i
                 break
-        assert node is not None, f"No connected output `{output_name}` found!"
-        return node
+        assert _input is not None, f"No connected input `{name}` found!"
+        return _input
 
     @abc.abstractmethod
     def step(self, step_state: StepState) -> Tuple[StepState, Output]:

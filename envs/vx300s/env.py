@@ -195,6 +195,14 @@ def get_global_plan(plan_history: PlannerOutput, debug: bool = False):
     return plan_global
 
 
+def get_init_plan(last_plan: PlannerOutput, timestamps: jp.ndarray) -> PlannerOutput:
+    get_next_jpos_vmap = jumpy.vmap(get_next_jpos, include=(False, True))
+    jpos_timestamps = get_next_jpos_vmap(last_plan, timestamps)
+    dt = timestamps[1:] - timestamps[:-1]
+    jvel_timestamps = (jpos_timestamps[1:] - jpos_timestamps[:-1]) / dt[:, None]
+    return PlannerOutput(jpos=jpos_timestamps[0], jvel=jvel_timestamps, timestamps=timestamps)
+
+
 class Controller(Node):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

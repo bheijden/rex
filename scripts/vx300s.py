@@ -5,6 +5,7 @@ import datetime
 import tqdm
 import yaml
 
+import jax.numpy as jnp
 import jumpy.numpy as jp
 import jumpy.random
 import numpy as onp
@@ -14,16 +15,13 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 gpu_device = jax.devices('gpu')[0]
 cpu_device = jax.devices('cpu')[0]
 
-# from jax.experimental.compilation_cache import compilation_cache as cc
-# cc.initialize_cache("./cache")
-# import logging
-# logging.getLogger("jax").setLevel(logging.DEBUG)
-
 import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set()
 import matplotlib
 matplotlib.use("TkAgg")
+
+jnp.set_printoptions(precision=2, suppress=True)
 
 import rex
 import rex.jumpy as rjp
@@ -36,7 +34,7 @@ from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHA
 import experiments as exp
 import envs.vx300s as vx300s
 
-RECORD_SETTINGS = {"planner": dict(node=False, outputs=False, rngs=False, states=False, params=False, step_states=False),
+RECORD_SETTINGS = {"planner": dict(node=False, outputs=True, rngs=False, states=False, params=False, step_states=True),
                    "world": dict(node=False, outputs=False, rngs=True, states=False, params=False, step_states=False),
                    "armactuator": dict(node=False, outputs=False, rngs=False, states=False, params=False, step_states=False),
                    "controller": dict(node=False, outputs=False, rngs=False, states=False, params=False, step_states=False),
@@ -51,7 +49,8 @@ CONFIG = {"mjx": {"xml_path": f"{PATH_VX300S}/assets/vx300s_mjx.xml"},
           "real": {"cam_trans": [0.589, 0.598, 0.355], "cam_rot": [0.252,  0.855, -0.436, -0.125], "cam_idx": 2,
                    "z_fixed": 0.051,
                    "cam_intrinsics": f"{PATH_VX300S}/assets/logitech_c170.yaml"},
-          "planner": {"type": "brax",
+          "planner": {"type": "rex",
+                      "use_estimator": True, "randomize_eps": False, "num_cost_mpc": 20, "num_cost_est": 14,
 	                  "brax_xml_path": f"{PATH_VX300S}/assets/vx300s_cem_brax.xml",
                       "rex_xml_path": f"{PATH_VX300S}/assets/vx300s_cem_brax.xml",
                       "mjx_xml_path": f"{PATH_VX300S}/assets/vx300s_cem_mjx.xml",
@@ -59,12 +58,11 @@ CONFIG = {"mjx": {"xml_path": f"{PATH_VX300S}/assets/vx300s_mjx.xml"},
                       "rex_graph_path": "/home/r2ci/rex/logs/real_3winplanner_2eps_vx300s_2023-11-27-1708/record_pre.pb",
                       # "rex_graph_path": "/home/r2ci/rex/logs/vx300s_3winplanner_vx300s_2023-11-23-1722/record_pre.pb",
                       "supergraph_mode": "MCS",
-                      "horizon": 2, "u_max": 0.35*3.14, "dt": 0.15, "dt_substeps": 0.015, "num_samples": 75, "max_iter": 3},
+                      "horizon": 2, "u_max": 0.25*3.14, "dt": 0.15, "dt_substeps": 0.015, "num_samples": 75, "max_iter": 2},
           "viewer": {"xml_path": f"{PATH_VX300S}/assets/vx300s_cem_mjx.xml"}}
 
 if __name__ == "__main__":
 	# todo: set advance=true && LATEST for armsensor and boxsensor --> why does planner have num_msgs=2 for t=0?
-	# jax.config.update("jax_debug_nans", True)
 	# Environment
 	ENV = "vx300s"  # "disc_pendulum"
 	DIST_FILE = "real_3winplanner_vx300s_2023-11-27-1647.pkl"  # "real_faster_nomovement_vx300s_2023-11-20-1548.pkl"  # f"vx300s_vx300s_2023-10-19-1629.pkl"
@@ -72,8 +70,8 @@ if __name__ == "__main__":
 	SCHEDULING = PHASE
 
 	ENV_FN = vx300s.brax.build_vx300s  # vx300s.brax.build_vx300s
-	CLOCK = WALL_CLOCK
-	RTF = REAL_TIME
+	CLOCK = SIMULATED
+	RTF = FAST_AS_POSSIBLE
 	RATES = dict(world=80, supervisor=8, planner=5.0, controller=20, armactuator=20, armsensor=80, boxsensor=10, viewer=20)
 	# RATES = dict(world=25, planner=25, controller=25, armactuator=25, armsensor=25, boxsensor=25)
 	MAX_STEPS = int(10 * RATES["supervisor"])
@@ -82,9 +80,10 @@ if __name__ == "__main__":
 	DELAY_FN = lambda d: d.quantile(0.99)*int(USE_DELAYS)  # todo: this is slow (takes 3 seconds).
 
 	# Logging
-	NAME = f"real_3winplanner_{ENV}"
+	NAME = f"bug_BraxCEMPlanner_{ENV}"
 	LOG_DIR = os.path.dirname(rex.__file__) + f"/../logs/{NAME}_{datetime.datetime.today().strftime('%Y-%m-%d-%H%M')}"
-	MUST_LOG = True
+	PROGRESS_BAR = True
+	MUST_LOG = False
 	MUST_DIST = False
 	MUST_PLOT = True
 	SHOW_PLOTS = True
@@ -92,7 +91,7 @@ if __name__ == "__main__":
 	# Training
 	SEED = 0
 	RNG = jumpy.random.PRNGKey(0)
-	NUM_EVAL = 3
+	NUM_EVAL = 10
 
 	# Load distributions
 	delays_sim = exp.load_distributions(DIST_FILE, module=vx300s.dists) if DIST_FILE is not None else vx300s.get_default_distributions()
@@ -118,11 +117,9 @@ if __name__ == "__main__":
 		graph_state = env.graph.init(RNG, order=("supervisor", "world"))
 	with timer(f"eval[graph_state]", log_level=100):
 		_ = env.graph.init(RNG, order=("supervisor", "world"))
-	# with jax.log_compiles(True):
-	# with rjp.use("numpy"):
-	# 	np_ss_planner = jax.tree_util.tree_map(lambda x: onp.array(x), graph_state.nodes["planner"])
-	# 	with timer(f"warmup[planner]", log_level=100):
-	# 		_, _ = env.graph.nodes["planner"].step(np_ss_planner)
+	with timer(f"warmup[planner]", log_level=100):
+		gpu_ss_planner = jax.tree_util.tree_map(lambda x: jax.device_put(x, gpu_device), graph_state.nodes["planner"])
+		_, _ = env.graph.nodes["planner"].step(gpu_ss_planner)
 	for name, node in env.graph.nodes.items():
 		if name not in ["world", "planner", "controller", "viewer"]:
 			continue
@@ -140,7 +137,7 @@ if __name__ == "__main__":
 
 	# Evaluate
 	# with jax.log_compiles(True):
-	record_pre, rwds = vx300s.eval_env(env, lambda step_state: 1, NUM_EVAL, progress_bar=True, record_settings=RECORD_SETTINGS, seed=0)
+	record_pre, rwds = vx300s.eval_env(env, lambda step_state: 1, NUM_EVAL, progress_bar=PROGRESS_BAR, record_settings=RECORD_SETTINGS, seed=0)
 	print("Done with eval.")
 
 	# Save html

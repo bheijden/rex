@@ -73,9 +73,9 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
     for n in ["supervisor", "world", "planner", "controller", "armactuator", "armsensor", "boxsensor", "viewer"]:
         delays_sim["step"][n] = delays_sim["step"].get(n, Gaussian(0.))
         delays_sim["inputs"][n] = delays_sim["inputs"].get(n, {})
-    # delays_sim["step"]["world"] = Gaussian(0.)
-    # delays_sim["step"]["armactuator"] = Gaussian(0.)
-    # delays_sim["step"]["armsensor"] = Gaussian(0.)
+    delays_sim["step"]["world"] = Gaussian(0.)
+    delays_sim["step"]["armactuator"] = Gaussian(0.)
+    delays_sim["step"]["armsensor"] = Gaussian(0.)
     # delays_sim["step"]["boxsensor"] = Gaussian(0.)
     # delays_sim["inputs"]["world"]["armactuator"] = Gaussian(0.)
     delays_sim["inputs"]["armactuator"]["controller"] = delays_sim["inputs"]["armactuator"].get("controller", Gaussian(0.))
@@ -128,6 +128,10 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
     elif config["planner"]["type"] == "rex":
         planner = envs.vx300s.planner.RexCEMPlanner(name="planner", rate=rates["planner"], advance=True,
                                                     nodes=nodes,
+                                                    num_cost_est=config["planner"]["num_cost_est"],
+                                                    num_cost_mpc=config["planner"]["num_cost_mpc"],
+                                                    use_estimator=config["planner"]["use_estimator"],
+                                                    randomize_eps=config["planner"]["randomize_eps"],
                                                     graph_path=config["planner"]["rex_graph_path"],
                                                     supergraph_mode=config["planner"]["supergraph_mode"],
                                                     delay_sim=delays_sim["step"]["planner"], delay=delays["step"]["planner"],

@@ -56,29 +56,32 @@ class BaseGraph:
                 order.append(name)
 
         # Initialize temporary graph state
-        graph_state = GraphState(eps=jp.int32(starting_eps), nodes=step_states)
+        graph_state = GraphState(eps=jp.as_int32(starting_eps), nodes=step_states)
 
         # Initialize step states
         rngs = jumpy.random.split(rng, num=len(order*4)).reshape((len(order), 4, 2))
         rngs_inputs = {}
         for rngs_ss, name in zip(rngs, order):
-            if name not in step_states:
-                rng_params, rng_state, rng_step, rng_inputs = rngs_ss
-                node = self.nodes_and_root[name]
-                # Params first, because the state may depend on them
-                params = node.default_params(rng_params, graph_state)
-                step_states[node.name] = StepState(rng=rng_step, params=params, state=None, inputs=None)
-                # Then, get the state (which may depend on the params)
-                state = node.default_state(rng_state, graph_state)  # Then, get the state
-                # Inputs are updated once all nodes have been initialized with their params and state
-                step_states[name] = StepState(rng=rng_step, params=params, state=state, inputs=None, eps=starting_eps, seq=jp.int32(0), ts=jp.float32(0))
-                rngs_inputs[name] = rng_inputs
+            # Unpack rngs
+            rng_params, rng_state, rng_step, rng_inputs = rngs_ss
+            node = self.nodes_and_root[name]
+            # Grab preset params and state if available
+            preset_params = step_states[name].params if name in step_states else None
+            preset_state = step_states[name].state if name in step_states else None
+            # Params first, because the state may depend on them
+            params = node.default_params(rng_params, graph_state) if preset_params is None else preset_params
+            step_states[node.name] = StepState(rng=rng_step, params=params, state=None, inputs=None)
+            # Then, get the state (which may depend on the params)
+            state = node.default_state(rng_state, graph_state) if preset_state is None else preset_state
+            # Inputs are updated once all nodes have been initialized with their params and state
+            step_states[name] = StepState(rng=rng_step, params=params, state=state, inputs=None, eps=starting_eps, seq=jp.int32(0), ts=jp.float32(0.))
+            rngs_inputs[name] = rng_inputs
 
         # Initialize inputs
         for name, rng_inputs in rngs_inputs.items():
             node = self.nodes_and_root[name]
             step_states[name] = step_states[name].replace(inputs=node.default_inputs(rng_inputs, graph_state))
-        return GraphState(eps=jp.int32(starting_eps), nodes=FrozenDict(step_states))
+        return GraphState(eps=jp.as_int32(starting_eps), nodes=FrozenDict(step_states))
 
     def start(self, graph_state: GraphState, timeout: float = None) -> GraphState:
         return graph_state
