@@ -28,7 +28,7 @@ from envs.vx300s.planner.cost import CostParams, box_pushing_cost
 from envs.vx300s.planner.cem import CEMParams, cem_rex
 from envs.vx300s.env import PlannerOutput, get_next_jpos
 from envs.vx300s.env import Controller
-from envs.vx300s.brax.world import World, ArmActuator, BraxOutput, State as WorldState, Params as WorldParams
+from envs.vx300s.brax.world import World, ArmActuator, BoxSensor, ArmSensor, BraxOutput, State as WorldState, Params as WorldParams
 from envs.vx300s.planner.brax import print_sys_info
 
 import envs.vx300s as vx300s
@@ -94,30 +94,10 @@ class WrappedWorldParams:
 class WorldWrapper:
     def __init__(self, node: World):
         self._node = node
-        # self._sys = _pytree_on_device(self._node.sys, jax.devices('gpu')[0])
 
     # Redirect all calls to the planner unless they are explicitly defined here
     def __getattr__(self, item):
         return getattr(self._node, item)
-
-    # def dummy_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BraxOutput:
-    #     wss = graph_state.nodes["world"].replace(state=graph_state.nodes["world"].state.world_state)
-    #     graph_state.replace_nodes({"world": wss})
-    #     return
-    def dummy_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BraxOutput:
-        # todo: comment this function and use default_output of self._node (i.e. world)
-        jpos = jnp.zeros((self.sys.act_size(),), dtype=jp.float32)
-        eepos = jnp.zeros((3,), dtype=jp.float32)
-        eeorn = jnp.array([0, 0, 0, 1], dtype=jp.float32)
-        boxpos = jnp.zeros((3,), dtype=jp.float32)
-        boxorn = jnp.array([0, 0, 0, 1], dtype=jp.float32)
-        return BraxOutput(jpos=jpos, eepos=eepos, eeorn=eeorn, boxpos=boxpos, boxorn=boxorn)
-
-    # def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> WrappedWorldState:
-    #     # todo: comment this function and use default_output of self._node (i.e. world)
-    #     # world_state = self._node.default_state(rng, graph_state)
-    #     # cost_state = CostState(*jp.zeros((10,)))
-    #     return State(pipeline_state=jp.float32(99), q_des=jp.float32(99))
 
     def step(self, step_state: StepState) -> Tuple[StepState, BraxOutput]:
         # print("DummyWorld.step")
@@ -125,8 +105,7 @@ class WorldWrapper:
 
         # Prepare world step_state
         ss_world = step_state.replace(params=step_state.params.world_params, state=step_state.state.world_state)
-        new_ss_world, output = self._node.step(ss_world)  # TODO: UNCOMMENT
-        # new_ss_world, output = ss_world, self.dummy_output(step_state.rng)
+        new_ss_world, output = self._node.step(ss_world)
         new_world_state = new_ss_world.state
 
         # Calculate cost
@@ -186,6 +165,7 @@ class RexCEMPlanner(Node):
                  num_cost_mpc: int = 20,  # 20,
                  randomize_eps: bool = True,
                  use_estimator: bool = True,
+                 z_fixed: float = 0.051,
                  pipeline: str = "generalized",
                  u_max: float = 0.35 * 3.14,
                  dt: float = 0.15,
@@ -205,8 +185,10 @@ class RexCEMPlanner(Node):
         self._num_cost_mpc = num_cost_mpc
         self._randomize_eps = randomize_eps
         self._use_estimator = use_estimator
+        self._z_fixed = z_fixed
         self._horizon = horizon
-        self._u_max = u_max
+        self._u_max = u_max * jp.ones((6,), dtype=jp.float32) if isinstance(u_max, float) else jp.array(u_max, dtype=jp.float32)
+        assert self._u_max.shape == (6,)
         self._dt = dt
         self._dt_substeps = dt_substeps
         self._num_samples = num_samples
@@ -244,49 +226,44 @@ class RexCEMPlanner(Node):
         cost = Cost(name="cost", rate=1)  # dummy rate
         planner = self
 
-        # Initialize actuator
-
-        # Initialize world
-        args, kwargs, _ = super(nodes["world"].__class__, nodes["world"]).__getstate__()
-        world = World(*args, xml_path=mj_path, dt_brax=dt_substeps, backend=pipeline, **kwargs)
-        world.inputs = nodes["world"].inputs
-        world = WorldWrapper(world)
-        self._world = world
-        cost.connect(world, blocking=True)
-
         # Initialize controller
         args, kwargs, _ = super(nodes["controller"].__class__, nodes["controller"]).__getstate__()
         controller = Controller(*args, **kwargs)
         controller.inputs = nodes["controller"].inputs
 
+        # Initialize actuator
+        args, kwargs, _ = super(nodes["armactuator"].__class__, nodes["armactuator"]).__getstate__()
+        armactuator = ArmActuator(*args, **kwargs)
+        armactuator.inputs = nodes["armactuator"].inputs
+
+        # Initialize world
+        args, kwargs, _ = super(nodes["world"].__class__, nodes["world"]).__getstate__()
+        world = World(*args, xml_path=mj_path, dt_brax=dt_substeps, backend=pipeline, **kwargs)
+        world: Node = WorldWrapper(world)
+        self._world = world
+        cost.connect(world, blocking=True)
+        world.connect(armactuator, window=1, blocking=False)
+
         # Define graph nodes
-        graph_nodes = nodes.copy()
-        graph_nodes.update({"world": world, "planner": planner, "controller": controller})
+        graph_nodes = {"supervisor": nodes["supervisor"], "planner": planner, "controller": controller,
+                       "armactuator": armactuator, "world": world}
 
         # Define compiled graphs
-        self.graph_est = CompiledGraph(graph_nodes, root=cost, S=S_est, default_timings=timings_est, skip=["planner"])
-        self.graph_mpc = CompiledGraph(graph_nodes, root=cost, S=S_mpc, default_timings=timings_mpc, skip=["planner"])
+        skip = ["planner", "supervisor", "armsensor", "boxsensor"]
+        self.graph_est = CompiledGraph(graph_nodes, root=cost, S=S_est, default_timings=timings_est, skip=skip)
+        self.graph_mpc = CompiledGraph(graph_nodes, root=cost, S=S_mpc, default_timings=timings_mpc, skip=skip)
 
         # if False:
         # _ = vx300s.show_computation_graph(self._G, root=None, xmax=2.0, draw_pruned=False)
-        # _ = vx300s.show_computation_graph(self._Gs["planner_6"], root=None, xmax=None, draw_pruned=True)
-        # _ = vx300s.show_computation_graph(self._Gs_est["planner_6"], root=None, xmax=None, draw_pruned=True)
-        # _ = vx300s.show_computation_graph(self._Gs_mpc["planner_6"], root=None, xmax=None, draw_pruned=True)
+        # _ = vx300s.show_computation_graph(self._Gs["planner_4"], root=None, xmax=None, draw_pruned=True)
+        # _ = vx300s.show_computation_graph(self._Gs_est["planner_4"], root=None, xmax=None, draw_pruned=True)
+        # _ = vx300s.show_computation_graph(self._Gs_mpc["planner_4"], root=None, xmax=None, draw_pruned=True)
+        # import matplotlib.pyplot as plt
+        # plt.show()
         # print("PLOTTING RexCEMPlanner")
 
     def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> RexCEMParams:
-        cost_params = CostParams(orn=3.0,
-                                 down=3.0,
-                                 height=1.0,
-                                 force=1.0,  # 1.0 works
-                                 near=5.0,
-                                 dist=50.0,
-                                 align=2.0,
-                                 ctrl=0.1,
-                                 bias_height=0.035,
-                                 bias_near=0.07,
-                                 alpha=0.0,
-                                 discount=1.0)
+        cost_params = CostParams.default()
         cem_params = CEMParams(u_min=-self._u_max * jp.ones((6,), dtype=jp.float32),
                                u_max=self._u_max * jp.ones((6,), dtype=jp.float32),
                                sampling_smoothing=self._sampling_smoothing,
@@ -328,8 +305,11 @@ class RexCEMPlanner(Node):
         idx = jp.argmax(idx_all)
         jpos_now = jp.take(step_state.inputs["armsensor"].data.jpos, idx, axis=0)
         goalpos = state.goalpos
-        boxpos_now = step_state.inputs["boxsensor"][-1].data.boxpos
         boxyaw_now = jp.array([step_state.inputs["boxsensor"][-1].data.wrapped_yaw])
+        boxpos_now = step_state.inputs["boxsensor"][-1].data.boxpos
+
+        # Fixe boxpos_now[z] to be self._z_fixed
+        boxpos_now = boxpos_now.at[2].set(self._z_fixed)
 
         # Pre-initialize world step_state
         qpos = jp.concatenate([boxpos_now, boxyaw_now, goalpos, jpos_now, jnp.array([0])])  # added [0] for additional ee joint.
@@ -939,7 +919,11 @@ def split_partitions_into_estimator_mpc_partitions(Gs: Dict[str, nx.DiGraph], nu
             n_worlds = sorted(n_worlds, key=lambda n: G_split.nodes[n]["seq"])
 
             worlds_partitions = partition_list(list(reversed(n_worlds)), num_cost)
-            n_connect_to_cost = [l[0] for l in reversed(worlds_partitions)]
+            try:
+                n_connect_to_cost = [l[0] for l in reversed(worlds_partitions)]
+            except IndexError:
+                print("SELECT smaller num_cost_mpc, num_cost_est.(")
+                raise IndexError
 
             # Add cost nodes
             for i, n_world in enumerate(n_connect_to_cost):

@@ -9,8 +9,6 @@ import rex.jumpy as rjp
 
 from flax import struct
 
-from trajax.optimizers import cem as cem_planner
-
 import trajax.optimizers as opt
 
 

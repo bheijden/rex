@@ -227,6 +227,22 @@ def get_delay_data(record: log_pb2.ExperimentRecord, concatenate: bool = True):
     return data, info
 
 
+def get_timestamps(record: log_pb2.ExperimentRecord):
+    # Get timestamps
+    ts_data = []
+    for e in record.episode:
+        ts = dict()
+        ts_data.append(ts)
+        for n in e.node:
+            node_name = n.info.name
+            ts_node = dict()
+            ts[node_name] = ts_node
+
+            ts_node["ts_step"] = onp.array([s.ts_output for s in n.steps])
+            ts_node["ts_output"] = onp.array([s.ts_output for s in n.steps])
+    return ts_data
+
+
 def make_put_output_on_device(wrapped_fn, device):
     def put_output_on_device(step_state: StepState):
         new_step_state, output = wrapped_fn(step_state)

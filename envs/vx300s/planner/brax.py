@@ -24,7 +24,7 @@ from rex.node import Node
 from rex.utils import deprecation_warning
 
 from envs.vx300s.planner.cost import CostParams, box_pushing_cost
-from envs.vx300s.planner.cem import CEMParams, cem_planner, cem_rex
+from envs.vx300s.planner.cem import CEMParams, cem_rex
 from envs.vx300s.env import PlannerOutput, get_next_jpos
 
 PIPELINES = {"generalized": gen_pipeline,
@@ -59,6 +59,7 @@ class BraxCEMState:
 class BraxCEMPlanner(Node):
     def __init__(self, *args,
                  mj_path: str,
+                 z_fixed: float = 0.051,
                  pipeline: str = "generalized",
                  u_max: float = 0.35 * 3.14,
                  dt: float = 0.15,
@@ -72,9 +73,11 @@ class BraxCEMPlanner(Node):
                  **kwargs):
         super().__init__(*args, **kwargs)
         self.window_prev_plans = 4
+        self._z_fixed = z_fixed
         self._pipeline = pipeline
         self._horizon = horizon
-        self._u_max = u_max
+        self._u_max = u_max * jp.ones((6,), dtype=jp.float32) if isinstance(u_max, float) else jp.array(u_max, dtype=jp.float32)
+        assert self._u_max.shape == (6,)
         self._dt = dt
         self._dt_substeps = dt_substeps
         self._num_samples = num_samples
@@ -95,18 +98,7 @@ class BraxCEMPlanner(Node):
         else:
             dt, dt_substeps, substeps = get_stepsizes(dt=self._dt, dt_substeps=self._dt_substeps)
             # params_sup = graph_state.nodes["supervisor"].params
-            cost_params = CostParams(orn=3.0,
-                                     down=3.0,
-                                     height=1.0,
-                                     force=1.0,  # 1.0 works
-                                     near=5.0,
-                                     dist=50.0,
-                                     align=2.0,
-                                     ctrl=0.1,
-                                     bias_height=0.035,
-                                     bias_near=0.07,
-                                     alpha=0.0,
-                                     discount=1.0)  # 0.98
+            cost_params = CostParams.default()
             cem_params = CEMParams(u_min=-self._u_max * jp.ones((6,), dtype=jp.float32),
                                    u_max=self._u_max * jp.ones((6,), dtype=jp.float32),
                                    sampling_smoothing=self._sampling_smoothing,
@@ -161,6 +153,9 @@ class BraxCEMPlanner(Node):
         # jpos_future = get_next_jpos(last_plan, timestamps[0])
         boxpos_now = step_state.inputs["boxsensor"][-1].data.boxpos
         boxyaw_now = jp.array([step_state.inputs["boxsensor"][-1].data.wrapped_yaw])
+
+        # Fixe boxpos_now[z] to be self._z_fixed
+        boxpos_now = boxpos_now.at[2].set(self._z_fixed)
 
         # Run CEM
         new_plan = self.run_cem(rng_cem, params, last_plan, timestamps, jpos_now, boxpos_now, boxyaw_now, goalpos)
@@ -218,7 +213,8 @@ class BraxCEMPlanner(Node):
             def loop_body(args):
                 i, state = args
                 q_des = state.q_des + action * params.sys.dt  # todo: clip to max angles?
-                pipeline_state = PIPELINES[self._pipeline].step(params.sys, state.pipeline_state, q_des)
+                q_qd_des = self._get_PD(params.sys, q_des)
+                pipeline_state = PIPELINES[self._pipeline].step(params.sys, state.pipeline_state, q_qd_des)
                 next_state = state.replace(pipeline_state=pipeline_state, q_des=q_des)
 
                 # Add cost at every step
@@ -272,6 +268,13 @@ class BraxCEMPlanner(Node):
     def _convert_wxyz_to_xyzw(self, quat: jp.ndarray):
         """Convert quaternion (w,x,y,z) -> (x,y,z,w)"""
         return jnp.array([quat[1], quat[2], quat[3], quat[0]], dtype="float32")
+
+    def _get_PD(self, sys, q_des):
+        if sys.act_size() == 12:
+            action = jnp.concatenate([q_des, 0 * jnp.ones(q_des.shape)])
+        else:
+            action = q_des
+        return action
 
 
 def print_sys_info(sys: base.System = None, pipeline: str = "generalized"):

@@ -56,27 +56,21 @@
         <!-- Joints & controllers -->
         <default class="waist">
             <joint range="-3.14159265359 3.14159265359"/>
-            <position ctrlrange="-3.14159265359 3.14159265359" kp="10"/>
         </default>
         <default class="shoulder">
             <joint range="-1.8500490071139892 1.2566370614359172"/>
-            <position ctrlrange="-1.8500490071139892 1.2566370614359172" kp="10"/>
         </default>
         <default class="elbow">
             <joint range="-1.7627825445142729 1.6057029118347832"/>
-            <position ctrlrange="-1.7627825445142729 1.6057029118347832" kp="10"/>
         </default>
         <default class="forearm_roll">
             <joint range="-3.14159265359 3.14159265359"/>
-            <position ctrlrange="-3.14159265359 3.14159265359" kp="10"/>
         </default>
         <default class="wrist_angle">
             <joint range="-1.8675022996339325 2.234021442552742"/>
-            <position ctrlrange="-1.8675022996339325 2.234021442552742" kp="10"/>
         </default>
         <default class="wrist_rotate">
             <joint range="-3.14159265359 3.14159265359"/>
-            <position ctrlrange="-3.14159265359 3.14159265359" kp="10"/>
         </default>
         <default class="left_finger">
             <joint range="0.0 0.036"/>
@@ -197,12 +191,20 @@
 
 
     <actuator>
-        <position class="waist" name="waist" joint="waist"/>
-        <position class="shoulder" name="shoulder" joint="shoulder"/>
-        <position class="elbow" name="elbow" joint="elbow"/>
-        <position class="forearm_roll" name="forearm_roll" joint="forearm_roll"/>
-        <position class="wrist_angle" name="wrist_angle" joint="wrist_angle"/>
-        <position class="wrist_rotate" name="wrist_rotate" joint="wrist_rotate"/>
+        <!-- P-control -->
+        <position class="waist" name="waist" joint="waist" ctrlrange="-3.14159265359 3.14159265359" kp="20"/>
+        <position class="shoulder" name="shoulder" joint="shoulder" ctrlrange="-1.8500490071139892 1.2566370614359172" kp="50"/>
+        <position class="elbow" name="elbow" joint="elbow" ctrlrange="-1.7627825445142729 1.6057029118347832" kp="50"/>
+        <position class="forearm_roll" name="forearm_roll" joint="forearm_roll" ctrlrange="-3.14159265359 3.14159265359" kp="20"/>
+        <position class="wrist_angle" name="wrist_angle" joint="wrist_angle" ctrlrange="-1.8675022996339325 2.234021442552742" kp="20"/>
+        <position class="wrist_rotate" name="wrist_rotate" joint="wrist_rotate" ctrlrange="-3.14159265359 3.14159265359" kp="20"/>
+        <!-- D-control -->
+        <velocity class="waist" name="waist_vel" joint="waist" ctrlrange="-1 1" kv="2"/>
+        <velocity class="shoulder" name="shoulder_vel" joint="shoulder" ctrlrange="-1 1" kv="10"/>
+        <velocity class="elbow" name="elbow_vel" joint="elbow" ctrlrange="-1 1" kv="10"/>
+        <velocity class="forearm_roll" name="forearm_roll_vel" joint="forearm_roll" ctrlrange="-1 1" kv="2"/>
+        <velocity class="wrist_angle" name="wrist_angle_vel" joint="wrist_angle" ctrlrange="-1 1" kv="2"/>
+        <velocity class="wrist_rotate" name="wrist_rotate_vel" joint="wrist_rotate" ctrlrange="-1 1" kv="2"/>
         <!-- Moving gripper -->
 <!--        <position class="left_finger" name="left_finger" joint="left_finger"/>-->
 <!--        <position class="right_finger" name="right_finger" joint="right_finger"/>-->

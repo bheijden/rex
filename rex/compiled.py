@@ -13,11 +13,28 @@ from rex.utils import deprecation_warning
 from rex.node import Node
 from rex.graph import BaseGraph
 from rex.base import InputState, StepState, StepStates, CompiledGraphState, GraphState, Output, Timings, GraphBuffer
-from rex.supergraph import get_node_data, get_graph_buffer
+from rex.supergraph import get_node_data, get_graph_buffer, check_generations_uniformity
 
 
 int32 = Union[jnp.int32, onp.int32]
 float32 = Union[jnp.float32, onp.float32]
+
+def invert_dict_with_list_values(input_dict):
+    """
+    Inverts a dictionary to create a new dictionary where the keys are the unique values
+    of the input dictionary, and the values are lists of keys from the input dictionary
+    that corresponded to each unique value.
+
+    :param input_dict: The dictionary to invert.
+    :return: An inverted dictionary with lists as values.
+    """
+    inverted_dict = {}
+    for key, value in input_dict.items():
+        # Add the key to the list of keys for the particular value
+        if value not in inverted_dict:
+            inverted_dict[value] = []
+        inverted_dict[value].append(key)
+    return inverted_dict
 
 
 def get_buffer_size(buffer: GraphBuffer) -> jp.int32:
@@ -83,14 +100,24 @@ def old_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, generations: List[Li
     #       This is currently not yet enforced.
     INTERMEDIATE_UPDATE = False
 
-    # Determine which slots to skip
-    skip_slots = [n for n, data in S.nodes(data=True) if data["kind"] in skip] if skip is not None else []
-
     # Define update function
     root_slot = generations[-1][0]
     root = S.nodes[root_slot]["kind"]
     node_data = get_node_data(S)
     update_input_fns = {name: make_update_inputs(name, data["inputs"]) for name, data in node_data.items()}
+
+    # Determine if all generations contain all slot_kinds
+    is_uniform = check_generations_uniformity(S, generations[:-1])
+    slots_to_kinds = {n: data["kind"] for n, data in S.nodes(data=True)}
+    kinds_to_slots = invert_dict_with_list_values(slots_to_kinds)
+    kinds_to_slots.pop(root)  # remove root from kinds_to_slots
+    for key, value in kinds_to_slots.items():
+        # sort value based on the generation they belong to.
+        kinds_to_slots[key] = sorted(value, key=lambda x: S.nodes[x]["seq"])
+
+    # Determine which slots to skip
+    skip_slots = [n for n, data in S.nodes(data=True) if data["kind"] in skip] if skip is not None else []
+    skip_slots = skip_slots + skip if skip is not None else skip_slots  # also add kinds to skip slots, because if uniform, then kinds are also slots.
 
     def _run_node(kind: str, graph_state: CompiledGraphState, timings_node: Dict):
         # Update inputs
@@ -159,7 +186,7 @@ def old_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, generations: List[Li
             graph_state = graph_state.replace_buffer(new_outputs)
             # new_buffer = graph_state.buffer.replace(outputs=graph_state.buffer.outputs.copy(new_outputs))
             new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes))
-        return new_graph_state
+        return new_graph_state, new_graph_state
 
     def _run_S(graph_state: CompiledGraphState) -> CompiledGraphState:
         # Get eps & step  (used to index timings)
@@ -177,10 +204,22 @@ def old_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, generations: List[Li
         )
 
         # Run generations
+        # todo: implement uniform generation implementation.
         # NOTE! len(generations)+1 = len(timings_mcs) --> last generation is the root.
-        for gen, timings_gen in zip(generations[:-1], timings_mcs):
-            assert all([node in gen for node in timings_gen.keys()]), f"Missing nodes in timings: {gen}"
-            graph_state = _run_generation(graph_state, timings_gen)
+        if not is_uniform:
+            for gen, timings_gen in zip(generations[:-1], timings_mcs):
+                assert all([node in gen for node in timings_gen.keys()]), f"Missing nodes in timings: {gen}"
+                graph_state, _ = _run_generation(graph_state, timings_gen)
+        else:
+            flattened_timings = dict()
+            [flattened_timings.update(timings_gen) for timings_gen in timings_mcs[:-1]]  # Remember: this does include root_slot
+            slots_timings = {}
+            for kind, slots in kinds_to_slots.items():  # Remember: kinds_to_slots does not include root_slot
+                timings_to_stack = [flattened_timings[slot] for slot in slots]
+                slots_timings[slots[0]] = jax.tree_util.tree_map(lambda *args: jnp.stack(args, axis=0), *timings_to_stack)
+            all_shapes = [v["run"].shape for k, v in slots_timings.items()]
+            assert all([s == all_shapes[0] for s in all_shapes]), "Shapes of slots are not equal"
+            graph_state, _ = jumpy.lax.scan(_run_generation, graph_state, slots_timings)
 
         # Run root input update
         new_ss_root = update_input_fns[root](graph_state, timings_mcs[-1][root_slot])
@@ -285,92 +324,11 @@ def new_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, generations: List[Li
 make_run_S = old_make_run_S
 
 
-# def make_graph_reset(
-#     S: nx.DiGraph, generations: List[List[str]], run_S: Callable, default_timings: Timings, default_buffer: GraphBuffer
-# ):
-#     # Determine root node (always in the last generation)
-#     root_slot = generations[-1][0]
-#     root = S.nodes[root_slot]["kind"]
-#
-#     # Define update function
-#     node_data = get_node_data(S)
-#     update_input_fns = {name: make_update_inputs(name, data["inputs"]) for name, data in node_data.items()}
-#
-#     def _graph_reset(graph_state: CompiledGraphState) -> Tuple[CompiledGraphState, StepState]:
-#         # Get buffer
-#         buffer = graph_state.buffer  # if graph_state.buffer is not None else default_buffer
-#         assert buffer is not None, "The graph_state.buffer is None and no default_buffer was provided."
-#
-#         # Get timings
-#         timings = graph_state.timings  # if graph_state.timings is not None else default_timings
-#         assert timings is not None, "The graph_state.timings is None and no default_timings were provided."
-#
-#         # Determine episode timings
-#         # NOTE! The graph_state.step indexes into the timings and indicates what subgraphs have run.
-#         #       All subgraphs up until (and including) the graph.state'th subgraph have run.
-#         #       I.E., graph_state.step=0 means that we have run the first subgraph AFTER this function has run.
-#         #       We do not increment step+1 here, because we increment before running a chunk in graph_step.
-#         max_eps, max_step = timings[-1][root_slot]["run"].shape
-#         eps = jp.clip(graph_state.eps, jp.int32(0), max_eps - 1)
-#         step = jp.clip(graph_state.step, jp.int32(0), max_step - 1)
-#
-#         # Replace buffer
-#         graph_state = graph_state.replace_eps(eps)  # replaces timings according to eps
-#         graph_state = graph_state.replace(step=step)  # replaces step
-#
-#         # Run initial chunk.
-#         _next_graph_state = run_S(graph_state)
-#
-#         # Update input
-#         next_timing = rjp.tree_take(graph_state.timings_eps[-1][root_slot], i=step)
-#         next_ss = update_input_fns[root](_next_graph_state, next_timing)
-#         next_graph_state = _next_graph_state.replace(nodes=_next_graph_state.nodes.copy({root: next_ss}))
-#         return next_graph_state, next_ss
-#
-#     return _graph_reset
-#
-#
-# def make_graph_step(S: nx.DiGraph, generations: List[List[str]], run_S: Callable):
-#     # Determine root node (always in the last generation)
-#     root_slot = generations[-1][0]
-#     root = S.nodes[root_slot]["kind"]
-#
-#     # Define update function
-#     node_data = get_node_data(S)
-#     update_state = make_update_state(root)
-#     update_input = make_update_inputs(root, node_data[root]["inputs"])
-#
-#     def _graph_step(graph_state: CompiledGraphState, step_state: StepState, action: Any) -> Tuple[CompiledGraphState, StepState]:
-#         # Update graph_state with action
-#         timing = rjp.tree_take(graph_state.timings_eps[-1][root_slot], i=graph_state.step)
-#         new_graph_state = update_state(graph_state, timing, step_state, action)
-#
-#         # Grab step
-#         # NOTE! The graph_state.step is used to index into the timings.
-#         #       Therefore, we increment it before running the subgraph so that we index into the timings of the next step.
-#         #       Hence, graph_state.step indicates what subgraphs have run.
-#         max_step = new_graph_state.timings_eps[-1][root_slot]["run"].shape[0]
-#         next_step = jp.clip(new_graph_state.step + 1, jp.int32(0), max_step - 1)
-#         graph_state = new_graph_state.replace(step=next_step)
-#
-#         # Run chunk of next step.
-#         _next_graph_state = run_S(graph_state)
-#
-#         # Update input
-#         next_timing = rjp.tree_take(graph_state.timings_eps[-1][root_slot], i=next_step)
-#         next_ss = update_input(_next_graph_state, next_timing)
-#         next_graph_state = _next_graph_state.replace(nodes=_next_graph_state.nodes.copy({root: next_ss}))
-#         return next_graph_state, next_ss
-#
-#     return _graph_step
-#
-
 class CompiledGraph(BaseGraph):
     def __init__(self, nodes: Dict[str, "Node"], root: Node, S: nx.DiGraph, default_timings: Timings = None, skip: List[str] = None):
-        super().__init__(root=root, nodes=nodes)
+        super().__init__(root=root, nodes=nodes, skip=skip)
         self._S = S
         self._default_timings = default_timings
-        self._skip = skip if isinstance(skip, list) else [skip]
 
         if default_timings is None:
             deprecation_warning("default_timings is None. This means that the graph will not be able to run without a buffer.", stacklevel=2)
@@ -449,46 +407,6 @@ class CompiledGraph(BaseGraph):
         graph_state = jumpy.lax.cond(graph_state.step == 0, _skip_root_step, _run_root_step)
         return graph_state
 
-    # def run(self, graph_state: CompiledGraphState) -> CompiledGraphState:
-    #     # todo: can this be standardized (i.e. moved to BaseGraph)?
-    #     """Runs graph (incl. root) for one step and returns new graph state.
-    #     This means the graph_state *after* the root step is returned.
-    #     """
-    #     # Runs supergraph (except for root)
-    #     graph_state = self.run_until_root(graph_state)
-    #
-    #     # Runs root node if no step_state or output is provided, otherwise uses provided step_state and output
-    #     graph_state = self.run_root(graph_state)
-    #     return graph_state
-    #
-    # def reset(self, graph_state: CompiledGraphState) -> Tuple[CompiledGraphState, StepState]:
-    #     # todo: can this be standardized (i.e. moved to BaseGraph)?
-    #     """Resets graph and returns before root node would run (follows gym API)."""
-    #     # Runs supergraph (except for root)
-    #     next_graph_state = self.run_until_root(graph_state)
-    #     next_step_state = self.root.get_step_state(next_graph_state)  # Return root node's step state
-    #     return next_graph_state, next_step_state
-    #
-    # def step(self, graph_state: CompiledGraphState, step_state: StepState = None, output: Output = None) -> Tuple[CompiledGraphState, StepState]:
-    #     # todo: can this be standardized (i.e. moved to BaseGraph)?
-    #     """Runs graph for one step and returns before root node would run (follows gym API).
-    #     - If step_state and output are provided, the root node's step is not run and the
-    #     provided step_state and output are used instead.
-    #     - Calling step() repeatedly is equivalent to calling run() repeatedly, except that
-    #     step() returns the root node's step state *before* the root node is run, while run()
-    #     returns the root node's step state *after* the root node is run.
-    #     - Only calling step() after init() without reset() is possible, but note that step()
-    #     starts by running the root node. But, because an episode should start with a run_until_root(),
-    #     the first root step call is skipped.
-    #     """
-    #     # Runs root node (if step_state and output are not provided, otherwise overrides step_state and output with provided values)
-    #     new_graph_state = self.run_root(graph_state, step_state, output)
-    #
-    #     # Runs supergraph (except for root)
-    #     next_graph_state = self.run_until_root(new_graph_state)
-    #     next_step_state = self.root.get_step_state(next_graph_state)  # Return root node's step state
-    #     return next_graph_state, next_step_state
-
     def max_eps(self, graph_state: CompiledGraphState = None):
         if graph_state is None or graph_state.timings is None:
             assert self._default_timings is not None, "No default timings provided. Cannot determine max episode."
@@ -512,3 +430,4 @@ class CompiledGraph(BaseGraph):
             max_starting_steps >= 0
         ), f"max_steps ({max_steps}) must be smaller than the max number of compiled steps in the graph ({max_steps_graph})"
         return max_starting_steps
+

@@ -753,3 +753,29 @@ def get_step_seqs_mapping(S: nx.DiGraph, timings: Timings, buffer: GraphBuffer) 
     before_seqs_step = {n: onp.concatenate([init_seqs_step[n], arr], axis=1) for n, arr in after_seqs_step.items()}
 
     return before_seqs_step, updated_step
+
+
+def check_generations_uniformity(S: nx.DiGraph, generations: List[List]):
+    """
+    Checks if all generations have the same kinds of nodes and the same number of instances of each kind.
+
+    :param generations: A list of generations, where each generation is a set of node IDs.
+    :return: True if all generations are uniform in terms of node kinds and their counts, False otherwise.
+    """
+
+    # Dictionary to store the kind count of the first generation
+    first_gen_kind_count = None
+
+    for gen in generations:
+        gen_kind_count = dict()
+        for node_id in gen:
+            kind = S.nodes[node_id]["kind"]
+            gen_kind_count[kind] = gen_kind_count.get(kind, 0) + 1
+
+        if first_gen_kind_count is None:
+            first_gen_kind_count = gen_kind_count
+        else:
+            if gen_kind_count != first_gen_kind_count:
+                return False
+
+    return True

@@ -687,6 +687,9 @@ class RecordHelper:
         # Get delays
         self._delays, _ = utils.get_delay_data(self._record, concatenate=False)
 
+        # Get timestamps
+        self._timestamps = utils.get_timestamps(self._record)
+
         # Get data
         self._data = []
         self._nodes = []
@@ -725,9 +728,11 @@ class RecordHelper:
         if method == "truncated":
             self._data_stacked = tree_map(_truncated_stack, *self._data)
             self._delays_stacked = tree_map(_truncated_stack, *self._delays)
+            self._timestamps_stacked = tree_map(_truncated_stack, *self._timestamps)
         elif method == "padded":
             self._data_stacked = tree_map(_padded_stack, *self._data)
             self._delays_stacked = tree_map(_padded_stack, *self._delays)
+            self._timestamps_stacked = tree_map(_padded_stack, *self._timestamps)
         else:
             raise NotImplementedError
 

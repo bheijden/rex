@@ -1,5 +1,5 @@
 import time
-from typing import Tuple, Deque, Dict, Union
+from typing import Tuple, Deque, Dict, Union, List
 from collections import deque
 from concurrent.futures import Future, CancelledError
 
@@ -70,8 +70,9 @@ class AsyncGraph(BaseGraph):
         root: Node,
         clock: int = SIMULATED,
         real_time_factor: Union[int, float] = FAST_AS_POSSIBLE,
+        skip: List[str] = None,
     ):
-        super().__init__(root=root, nodes=nodes)
+        super().__init__(root=root, nodes=nodes, skip=skip)
         self.clock = clock
         self.real_time_factor = real_time_factor
         self._synchronizer = _Synchronizer(root)

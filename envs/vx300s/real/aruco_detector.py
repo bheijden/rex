@@ -16,11 +16,17 @@ class VideoCapture:
         t.daemon = True
         t.start()
 
+        self.q_img = queue.Queue()
+        t = threading.Thread(target=self._viewer)
+        t.daemon = True
+        t.start()
+
     def set(self, prop, val):
         self.cap.set(prop, val)
 
     def release(self):
         self.cap.release()
+        cv2.destroyAllWindows()
 
     # read frames as soon as they are available, keeping only most recent one
     def _reader(self):
@@ -39,6 +45,17 @@ class VideoCapture:
 
     def read(self):
         return self.q.get()
+
+    def _viewer(self):
+        while True:
+            # print("get image")
+            image = self.q_img.get(block=True)
+            # print("view image")
+            cv2.imshow("image", image)
+            key = cv2.waitKey(1)
+
+    def view(self, image):
+        self.q_img.put(image)
 
 
 class ArucoPoseDetector:

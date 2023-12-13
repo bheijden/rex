@@ -106,7 +106,7 @@ class World(Node):
         self.sys = self.sys.replace(dt=self.dt_brax)
 
         # Get indices
-        self._joint_idx = self.sys.actuator.q_id.tolist()
+        self._joint_idx = self.sys.actuator.q_id[:6].tolist()
         self._joint_slice = slice(self._joint_idx[0], self._joint_idx[-1] + 1)
         self._ee_arm_idx = self.sys.link_names.index("ee_link")
         self._box_idx = self.sys.link_names.index("box")
@@ -176,6 +176,13 @@ class World(Node):
         """Convert quaternion (w,x,y,z) -> (x,y,z,w)"""
         return jnp.array([quat[1], quat[2], quat[3], quat[0]], dtype="float32")
 
+    def _get_PD(self, sys: BraxSystem, q_des):
+        if sys.act_size() == 12:
+            action = jnp.concatenate([q_des, 0 * jnp.ones(q_des.shape)])
+        else:
+            action = q_des
+        return action
+
     def step(self, step_state: StepState) -> Tuple[StepState, BraxOutput]:
         """Step the node."""
         # Unpack StepState
@@ -184,9 +191,12 @@ class World(Node):
         # Get action
         action = inputs["armactuator"].data.jpos[-1]
 
+        # Convert to PD action (if needed)
+        action_pd = self._get_PD(self.sys, action)
+
         def f(state, _):
             return (
-                self._pipeline.step(self.sys, state, action, self.debug),
+                self._pipeline.step(self.sys, state, action_pd, self.debug),
                 None,
             )
 

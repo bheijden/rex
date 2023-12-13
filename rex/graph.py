@@ -1,5 +1,5 @@
 import abc
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 import jumpy
 import jumpy.numpy as jp
 from flax.core import FrozenDict
@@ -10,7 +10,7 @@ from rex.node import Node
 
 
 class BaseGraph:
-    def __init__(self, root: Node, nodes: Dict[str, Node]):
+    def __init__(self, root: Node, nodes: Dict[str, Node], skip: List[str]):
         # Exclude the node for which this environment is a drop-in replacement (i.e. the root)
         nodes = {node.name: node for _, node in nodes.items() if node.name != root.name}
         _assert = len([n for n in nodes.values() if n.name == root.name]) == 0
@@ -18,6 +18,7 @@ class BaseGraph:
         self.root = root
         self.nodes = nodes
         self.nodes_and_root: Dict[str, Node] = {**nodes, root.name: root}
+        self._skip = skip if isinstance(skip, list) else [skip] if isinstance(skip, str) else []
 
     def __getstate__(self):
         raise NotImplementedError
@@ -79,6 +80,8 @@ class BaseGraph:
 
         # Initialize inputs
         for name, rng_inputs in rngs_inputs.items():
+            if name in self._skip:
+                continue
             node = self.nodes_and_root[name]
             step_states[name] = step_states[name].replace(inputs=node.default_inputs(rng_inputs, graph_state))
         return GraphState(eps=jp.as_int32(starting_eps), nodes=FrozenDict(step_states))

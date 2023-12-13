@@ -10,6 +10,8 @@ import jumpy.numpy as jp
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import jax
+import jax.debug as jdb
+import jax.experimental.host_callback as hcb
 from math import ceil
 from flax import struct
 
@@ -87,7 +89,8 @@ def build_vx300s(rates: Dict[str, float],
     trans = delays["inputs"]
 
     # Create nodes
-    world = World(client, gripper, name="world", rate=rates["world"], scheduling=scheduling, advance=False,
+    world = World(client, gripper, block_between_episodes=config["real"]["block_between_episodes"],
+                  name="world", rate=rates["world"], scheduling=scheduling, advance=False,
                   delay=process["world"], delay_sim=process_sim["world"])
     armsensor = ArmSensor(client, name="armsensor", rate=rates["armsensor"], scheduling=scheduling, advance=False,
                           delay=process["armsensor"], delay_sim=process_sim["armsensor"])
@@ -99,7 +102,7 @@ def build_vx300s(rates: Dict[str, float],
                           cam_rot=config["real"]["cam_rot"],
                           cam_intrinsics=ci,
                           cam_idx=config["real"]["cam_idx"],
-                          z_fixed=config["real"]["z_fixed"],
+                          block_until_detection=config["real"]["block_until_detection"],
                           name="boxsensor", rate=rates["boxsensor"], scheduling=scheduling, advance=False,
                           delay=process["boxsensor"], delay_sim=process_sim["boxsensor"])
     armactuator = ArmActuator(client, name="armactuator", rate=rates["armactuator"], scheduling=scheduling, advance=False,
@@ -122,10 +125,11 @@ class State:
 
 
 class World(Node):
-    def __init__(self, client: Client, gripper, *args, **kwargs):
+    def __init__(self, client: Client, gripper, block_between_episodes: bool, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._client = client
         self._gripper: interbotix_gripper.InterbotixRobotXSCore = gripper
+        self._block_between_episodes = block_between_episodes
         f = self._client.wait_for_feedthrough()
         f.result()  # Wait for feedthrough to be toggled on.
         print("Arm feedthrough enabled.")
@@ -150,6 +154,9 @@ class World(Node):
         self._gripper.close(delay=0.)  # Close gripper
         f.result()  # Block until at home position
         print("Arm at home position.")
+        if self._block_between_episodes:
+            input("Press enter to continue...")
+            print("Continuing...")
         return StepState(rng=rng, params=params, state=state, inputs=inputs)
 
     def step(self, step_state: StepState) -> Tuple[StepState, Empty]:
@@ -164,22 +171,23 @@ class ArmSensor(Node):
     def __init__(self, client: Client, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._client = client
+        self._dummy_output = ArmOutput(jpos=jp.zeros((6,), dtype=jp.float32),
+                                       eepos=jp.array([0.2, 0.2, 0.2], dtype=jp.float32),
+                                       eeorn=jp.array([0, 0, 0, 1], dtype=jp.float32))
 
-    def _get_output(self):
+    def _get_output(self, _dummy):
         jpos = self._client.get_joint_states().position
         jpos = np.array(jpos, dtype="float32")
         rot_matrix, eepos, eeorn = self._client.get_ee_pose()
         eepos = eepos.astype("float32")
         eeorn = R.from_matrix(rot_matrix).as_quat().astype("float32")  # quaternion: (x, y, z, w)
         output = ArmOutput(jpos=jpos, eepos=eepos, eeorn=eeorn)
-        # output = ArmOutput(jpos=jp.zeros((6,), dtype=jp.float32),
-        #                    eepos=jp.array([0.2, 0.2, 0.2], dtype=jp.float32),
-        #                    eeorn=jp.array([0, 0, 0, 1], dtype=jp.float32))
         return output
 
     def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ArmOutput:
         """Default output of the node."""
-        arm_output = self._get_output()
+
+        arm_output = hcb.call(self._get_output, 0, result_shape=self._dummy_output)
         return arm_output
 
     def step(self, step_state: StepState) -> Tuple[StepState, ArmOutput]:
@@ -192,7 +200,8 @@ class ArmSensor(Node):
         new_step_state = step_state
 
         # Prepare output
-        arm_output = self._get_output()
+        arm_output = hcb.call(self._get_output, 0, result_shape=self._dummy_output)
+        arm_output = arm_output.replace(jpos=arm_output.jpos * 1)
         return new_step_state, arm_output
 
 
@@ -204,10 +213,13 @@ class BoxState:
 class BoxSensor(Node):
     def __init__(self, aruco_id: int, aruco_size: float, aruco_type: str,
                  aruco_trans: List[float], cam_trans: List[float], cam_rot: List[float],
-                 cam_intrinsics: Dict[str, Any], cam_idx: int, z_fixed: float,
+                 cam_intrinsics: Dict[str, Any], cam_idx: int,
+                 block_until_detection: bool,
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._z_fixed = z_fixed
+        self._block_until_detection = block_until_detection
+        self._dummy_output = BoxOutput(boxpos=jp.array([0.35, 0.0, 0.051], dtype=jp.float32),
+                                       boxorn=jp.array([0.0, 0.0, 0.0, 1.0], dtype=jp.float32))
 
         # Initialize detector
         from envs.vx300s.real.aruco_detector import ArucoPoseDetector
@@ -262,7 +274,6 @@ class BoxSensor(Node):
         # Release camera resources
         if self._cam is not None:
             self._cam.release()
-            cv2.destroyAllWindows()
             self._cam = None
 
     def _get_output(self):
@@ -285,7 +296,6 @@ class BoxSensor(Node):
         # Get pose
         image, corners, ids, rvec, tvec = self._detector.estimate_pose(image, draw=True)
 
-        # boxpos = np.array([0.35, 0.0, 0.051], dtype="float32")
         if rvec is not None and (ids == self._aruco_id)[:, 0].any():
             mask = (ids == self._aruco_id)[:, 0]
             rvec = rvec[mask]
@@ -308,7 +318,6 @@ class BoxSensor(Node):
             boxorn = jp.array([0, 0, sin_half_yaw, cos_half_yaw], dtype=jp.float32)
             # Store last position
             boxpos = np.mean(pos_aib, axis=0, dtype="float32")[:, 0]
-            boxpos[2] = self._z_fixed
 
             # Plot position
             cv2.putText(image, f"pos: {[round(pos, 2) for pos in boxpos]}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
@@ -316,7 +325,9 @@ class BoxSensor(Node):
         else:
             boxorn = None
             boxpos = None
-        # boxorn = np.array([0.0, 0.0, 0.0, 1.0], dtype="float32")   # quaternion: (x, y, z, w)
+
+        # Display result frame (Must always be called from the same thread that created the window)
+        self._cam.view(image)
         return BoxOutput(boxpos=boxpos, boxorn=boxorn), image
 
     def _apply_aruco_translation(self, rvec, tvec):
@@ -331,27 +342,32 @@ class BoxSensor(Node):
         position = (T_a2c @ self._aruco_trans[:, :])[:, :3, :]
         return position
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BoxOutput:
-        """Default output of the node."""
+    def _get_box_output(self, last_detection: BoxOutput) -> BoxOutput:
         box_output, image = self._get_output()
         if box_output.boxpos is None or box_output.boxorn is None:
-            box_output = graph_state.nodes[self.name].state.last_detection
+            box_output = last_detection
+        return box_output
+
+    def _wait_for_detection(self, dummy) -> BoxOutput:
+        box_output, image = self._get_output()
+        if box_output.boxpos is None and not self._block_until_detection:
+            box_output = box_output.replace(boxpos=jp.array([0.35, 0.0, 0.051], dtype=jp.float32),
+                                            boxorn=jp.array([0.0, 0.0, 0.0, 1.0], dtype=jp.float32))
+            print("WARNING: Box position could not be detected. Using default position.")
+        while box_output.boxpos is None or box_output.boxorn is None:
+            # Wait until box is detected
+            input("No box detected. Place the box in front of the camera and press enter...")
+            box_output, image = self._get_output()
+        return box_output
+
+    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BoxOutput:
+        """Default output of the node."""
+        box_output = hcb.call(self._get_box_output, graph_state.nodes[self.name].state.last_detection, result_shape=self._dummy_output)
         return box_output
 
     def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> BoxState:
         """Default state of the node."""
-        box_output, image = self._get_output()
-        # if box_output.boxpos is None:
-        #     box_output = box_output.replace(boxpos=jp.array([0.35, 0.0, 0.051], dtype=jp.float32),
-        #                                     boxorn=jp.array([0.0, 0.0, 0.0, 1.0], dtype=jp.float32))
-        #     print("WARNING: Box position could not be detected. Using default position.")
-        while box_output.boxpos is None or box_output.boxorn is None:
-
-            # Wait until box is detected
-            input("Please place the box in front of the camera and press enter.")
-            box_output, image = self._get_output()
-
-
+        box_output = hcb.call(self._wait_for_detection, 0, result_shape=self._dummy_output)
         return BoxState(last_detection=box_output)
 
     def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
@@ -365,20 +381,11 @@ class BoxSensor(Node):
         # Unpack StepState
         _, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
 
-        box_output, image = self._get_output()
-        if box_output.boxpos is None or box_output.boxorn is None:
-            box_output = state.last_detection
-            new_step_state = step_state
-        else:
-            # Update state
-            new_state = state.replace(last_detection=box_output)
-            new_step_state = step_state.replace(state=new_state)
-
-        # Display result frame
-        cv2.imshow("image", image)
-        key = cv2.waitKey(1)
-
-        # print(f"Box position: {box_output.boxpos} | Box orientation: {box_output.boxorn}")
+        # Get box output
+        box_output = hcb.call(self._get_box_output, state.last_detection, result_shape=self._dummy_output)
+        # Update StepState
+        new_state = state.replace(last_detection=box_output)
+        new_step_state = step_state.replace(state=new_state)
         return new_step_state, box_output
 
 
@@ -386,11 +393,19 @@ class ArmActuator(Node):
     def __init__(self, client: Client, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._client = client
+        self._dummy_output = self._get_current_position(None)
+
+    def _get_current_position(self, dummy):
+        return np.array(self._client.get_joint_states().position, dtype="float32")
+
+    def _set_position(self, jpos):
+        self._client.write_commands(jpos.tolist())
+        return jp.array(1.0)
 
     def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ActuatorOutput:
         """Default output of the node."""
-        jpos = self._client.get_joint_states().position
-        jpos = np.array(jpos, dtype="float32")
+
+        jpos = hcb.call(self._get_current_position, 0, result_shape=self._dummy_output)
         return ActuatorOutput(jpos=jpos)
 
     def step(self, step_state: StepState) -> Tuple[StepState, ActuatorOutput]:
@@ -404,11 +419,14 @@ class ArmActuator(Node):
 
         # Prepare output
         actuator_output = inputs["controller"][-1].data
-        self._client.write_commands(actuator_output.jpos.tolist())
+
+        # Send commands
+        dummy_output = hcb.call(self._set_position, actuator_output.jpos, result_shape=jp.array(1.0))
+        actuator_output = actuator_output.replace(jpos=actuator_output.jpos*dummy_output)
         return new_step_state, actuator_output
 
 
-def unwrap_angles(angles, wrap_point = np.pi/4):   # --> wrap_point=half the domain
+def unwrap_angles(angles, wrap_point=np.pi/4):   # --> wrap_point=half the domain
     """
     Unwrap angles by adjusting those that exceed the wrap point.
     """

@@ -8,6 +8,9 @@ import envs.vx300s.planner
 
 
 # From experiments.__init__.py
+import itertools
+import pandas as pd
+
 import tqdm
 import os
 from functools import partial
@@ -27,10 +30,13 @@ import jumpy.numpy as jp
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
+import seaborn as sns
 
-from stable_baselines3.common.vec_env import VecMonitor
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.base_class import BaseAlgorithm
+from flax import struct
+from brax.base import Transform, System
+from brax.io import mjcf
+from brax.spring import pipeline as s_pipeline
+
 
 import rex.utils as utils
 from rex.compiled import CompiledGraph
@@ -45,20 +51,21 @@ from rex.distributions import Distribution, Gaussian
 from rex.constants import LATEST, BUFFER, FAST_AS_POSSIBLE, SIMULATED, SYNC, PHASE, FREQUENCY, WARN, REAL_TIME, \
     ASYNC, WALL_CLOCK, SCHEDULING_MODES, JITTER_MODES, CLOCK_MODES, INFO, LATEST
 import rex.open_colors as oc
-from rex.wrappers import GymWrapper, AutoResetWrapper, VecGymWrapper
 
-from envs.vx300s.env import Vx300sEnv, Controller, Supervisor
+from envs.vx300s.env import Vx300sEnv, Controller, Supervisor, get_global_plan, get_next_jpos
 import envs.vx300s.dists
 import envs.vx300s.models
+import experiments as exp
 
 
 def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distribution]]]],
              delay_fn: Callable[[Distribution], float],
              rates: Dict[str, float],
              config: Dict[str, Dict[str, Any]],
-             scheduling: int = PHASE,
+             scheduling: int = FREQUENCY,
              win_planner: int = 2,
-             jitter: int = BUFFER,
+             delay_planner: float = None,
+             jitter: int = LATEST,
              env_fn: Callable = brax.build_vx300s,
              name: str = "vx300s",
              max_steps: int = 20,
@@ -93,6 +100,9 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
     delays_sim = tree_map(lambda d: Gaussian(0), delays_sim) if not use_delays else delays_sim
     delays = jax.tree_map(delay_fn, delays_sim)
 
+    # Overwrite delay if
+    delays["step"]["planner"] = delays["step"]["planner"] if delay_planner is None else delay_planner
+
     # Determine whether we use the real system
     real = True if "real" in env_fn.__module__ else False
     if real:
@@ -107,26 +117,27 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
     world, armactuator, armsensor, boxsensor = nodes["world"], nodes["armactuator"], nodes["armsensor"], nodes["boxsensor"]
 
     # Define supervisor
-    supervisor = Supervisor("supervisor", rate=rates["supervisor"], advance=True,
+    supervisor = Supervisor("supervisor", rate=rates["supervisor"], advance=True, scheduling=scheduling,
                             delay_sim=delays_sim["step"]["supervisor"], delay=delays["step"]["supervisor"])
     nodes["supervisor"] = supervisor
 
     # Define controller
-    controller = Controller("controller", rate=rates["controller"], advance=False,
+    controller = Controller("controller", rate=rates["controller"], advance=False, scheduling=scheduling,
                             delay_sim=delays_sim["step"]["controller"], delay=delays["step"]["controller"])
     nodes["controller"] = controller
 
     # Define planner
     if config["planner"]["type"] == "brax":
-        planner = envs.vx300s.planner.BraxCEMPlanner(name="planner", rate=rates["planner"], advance=True,
+        planner = envs.vx300s.planner.BraxCEMPlanner(name="planner", rate=rates["planner"], advance=True, scheduling=scheduling,
                                                      delay_sim=delays_sim["step"]["planner"], delay=delays["step"]["planner"],
                                                      mj_path=config["planner"]["brax_xml_path"], pipeline="generalized",
+                                                     z_fixed=config["planner"]["z_fixed"],
                                                      horizon=config["planner"]["horizon"], u_max=config["planner"]["u_max"],
                                                      dt=config["planner"]["dt"], dt_substeps=config["planner"]["dt_substeps"],
                                                      num_samples=config["planner"]["num_samples"],
                                                      max_iter=config["planner"]["max_iter"])
     elif config["planner"]["type"] == "rex":
-        planner = envs.vx300s.planner.RexCEMPlanner(name="planner", rate=rates["planner"], advance=True,
+        planner = envs.vx300s.planner.RexCEMPlanner(name="planner", rate=rates["planner"], advance=True, scheduling=scheduling,
                                                     nodes=nodes,
                                                     num_cost_est=config["planner"]["num_cost_est"],
                                                     num_cost_mpc=config["planner"]["num_cost_mpc"],
@@ -136,6 +147,7 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
                                                     supergraph_mode=config["planner"]["supergraph_mode"],
                                                     delay_sim=delays_sim["step"]["planner"], delay=delays["step"]["planner"],
                                                     mj_path=config["planner"]["rex_xml_path"], pipeline="generalized",
+                                                    z_fixed=config["planner"]["z_fixed"],
                                                     horizon=config["planner"]["horizon"], u_max=config["planner"]["u_max"],
                                                     dt=config["planner"]["dt"], dt_substeps=config["planner"]["dt_substeps"],
                                                     num_samples=config["planner"]["num_samples"],
@@ -145,17 +157,17 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
     nodes["planner"] = planner
 
     # Connect
-    supervisor.connect(armsensor, name="armsensor", window=1, blocking=False, jitter=LATEST,
+    supervisor.connect(armsensor, name="armsensor", window=1, blocking=False, jitter=jitter,
                        delay_sim=delays_sim["inputs"]["supervisor"]["armsensor"], delay=delays["inputs"]["supervisor"]["armsensor"])
-    supervisor.connect(boxsensor, name="boxsensor", window=1, blocking=False, jitter=LATEST,
+    supervisor.connect(boxsensor, name="boxsensor", window=1, blocking=False, jitter=jitter,
                        delay_sim=delays_sim["inputs"]["supervisor"]["boxsensor"], delay=delays["inputs"]["supervisor"]["boxsensor"])
-    planner.connect(armsensor, name="armsensor", window=4, blocking=False, jitter=LATEST,
+    planner.connect(armsensor, name="armsensor", window=4, blocking=False, jitter=jitter,
                     delay_sim=delays_sim["inputs"]["planner"]["armsensor"], delay=delays["inputs"]["planner"]["armsensor"])
-    planner.connect(boxsensor, name="boxsensor", window=1, blocking=False, jitter=LATEST,
+    planner.connect(boxsensor, name="boxsensor", window=1, blocking=False, jitter=jitter,
                     delay_sim=delays_sim["inputs"]["planner"]["boxsensor"], delay=delays["inputs"]["planner"]["boxsensor"])
-    controller.connect(planner, name="planner", window=win_planner, blocking=False, jitter=LATEST, skip=False,
+    controller.connect(planner, name="planner", window=win_planner, blocking=False, jitter=jitter, skip=False,
                        delay_sim=delays_sim["inputs"]["controller"]["planner"], delay=delays["inputs"]["controller"]["planner"])
-    armactuator.connect(controller, name="controller", window=1, blocking=True, jitter=LATEST,
+    armactuator.connect(controller, name="controller", window=1, blocking=True, jitter=jitter,
                         delay_sim=delays_sim["inputs"]["armactuator"]["controller"], delay=delays["inputs"]["armactuator"]["controller"])
 
     # Define viewer
@@ -164,16 +176,16 @@ def make_env(delays_sim: Dict[str, Dict[str, Union[Distribution, Dict[str, Distr
                             delay=delays["step"]["viewer"], delay_sim=delays_sim["step"]["viewer"])
         nodes["viewer"] = viewer
 
-        viewer.connect(supervisor, name="supervisor", window=1, blocking=False, jitter=LATEST,
+        viewer.connect(supervisor, name="supervisor", window=1, blocking=False, jitter=jitter,
                        delay_sim=delays_sim["inputs"]["viewer"]["supervisor"], delay=delays["inputs"]["viewer"]["supervisor"])
-        viewer.connect(armsensor, name="armsensor", window=1, blocking=False, jitter=LATEST,
+        viewer.connect(armsensor, name="armsensor", window=1, blocking=False, jitter=jitter,
                        delay_sim=delays_sim["inputs"]["viewer"]["armsensor"], delay=delays["inputs"]["viewer"]["armsensor"])
-        viewer.connect(boxsensor, name="boxsensor", window=1, blocking=False, jitter=LATEST,
+        viewer.connect(boxsensor, name="boxsensor", window=1, blocking=False, jitter=jitter,
                        delay_sim=delays_sim["inputs"]["viewer"]["boxsensor"], delay=delays["inputs"]["viewer"]["boxsensor"])
 
     # Create environment
     env_name = [name]
-    env_name.append(f"{'real' if real else 'brax'}")
+    env_name.append(f"{'real' if real else 'sim'}")
     env_name.append(JITTER_MODES[jitter])
     env_name.append(SCHEDULING_MODES[scheduling])
     env_name = "_".join(env_name)
@@ -529,3 +541,311 @@ def get_nodelay_distributions() -> Dict[str, Dict[str, Union[Distribution, Dict[
     delays_sim["inputs"]["planner"]["armsensor"] = Gaussian(0.0)
     delays_sim["inputs"]["planner"]["boxsensor"] = Gaussian(0.0)
     return delays_sim
+
+
+def show_box_pushing_experiment(record: log_pb2.EpisodeRecord, xml_path: str, plot_ee: bool = True, plot_jpos: bool = True, plot_cost: bool = True):
+
+    @struct.dataclass
+    class EEPose:
+        eepos: jp.ndarray
+        eeorn: jp.ndarray
+
+    def get_ee_pose(sys: System, jpos: jp.ndarray) -> EEPose:
+        # Set
+        qpos = jp.concatenate([sys.init_q[:6], jpos, jp.array([0])])
+        pipeline_state = s_pipeline.init(sys, qpos, jp.zeros_like(sys.init_q))
+        x_i = pipeline_state.x.vmap().do(
+            Transform.create(pos=sys.link.inertia.transform.pos)
+        )
+
+        # Get position
+        ee_arm_idx = sys.link_names.index("ee_link")
+        eepos = x_i.pos[ee_arm_idx]
+
+        # Get orientation
+        quat = x_i.rot[ee_arm_idx]
+        eeorn = jnp.array([quat[1], quat[2], quat[3], quat[0]], dtype="float32")
+        return EEPose(eepos, eeorn)
+
+    CSCHEME = {"planner": "indigo", "controller": "violet", "armactuator": "grape", "armsensor": "pink"}
+    CSCHEME.update({"cm": "blue", "cost": "red", "cost_orn": "pink", "cost_down": "grape", "cost_align": "violet",
+                    "cost_height": "indigo", "cost_near": "blue", "cost_dist": "cyan"})
+    ECOLOR, FCOLOR = oc.cscheme_fn(CSCHEME)
+
+    # Get data
+    helper = exp.RecordHelper(record)
+    timestamps = helper._timestamps[0]
+    data = helper._data[0]
+    data = jax.tree_util.tree_map(lambda x: x.tree if hasattr(x, "tree") else None, data)
+
+    # Get jit functions
+    jit_vmap_get_ee_pose = jax.jit(jax.vmap(get_ee_pose, in_axes=(None, 0)))
+    jit_vmap_get_global_plan = jax.jit(get_global_plan)
+    jit_vmap_get_next_jpos = jax.jit(jax.vmap(get_next_jpos, in_axes=(None, 0)))
+    jit_vmap_interp = jax.jit(jax.vmap(jnp.interp, in_axes=(None, None, 1), out_axes=1))
+    jit_vmap_cost_fn = jax.jit(jax.vmap(envs.vx300s.planner.cost.box_pushing_cost, in_axes=(None, 0, 0, None, 0)))
+
+    # Get global plan
+    global_plan = jit_vmap_get_global_plan(data["planner"]["outputs"])
+    planner_jpos = jit_vmap_get_next_jpos(global_plan, global_plan.timestamps)
+
+    # Load system
+    sys = mjcf.load(xml_path)
+
+    # Interpolate jpos
+    timestamps_interp = timestamps["controller"]["ts_output"]
+    planner_jpos_interp = jit_vmap_interp(timestamps_interp, global_plan.timestamps, planner_jpos)
+    controller_jpos_interp = jit_vmap_interp(timestamps_interp, timestamps["controller"]["ts_output"], data["controller"]["outputs"].jpos)
+    armactuator_jpos_interp = jit_vmap_interp(timestamps_interp, timestamps["armactuator"]["ts_output"], data["armactuator"]["outputs"].jpos)
+    armsensor_jpos_interp = jit_vmap_interp(timestamps_interp, timestamps["armsensor"]["ts_output"], data["armsensor"]["outputs"].jpos)
+
+    # Interpolate boxpos
+    boxpos_interp = jit_vmap_interp(timestamps_interp, timestamps["boxsensor"]["ts_output"], data["boxsensor"]["outputs"].boxpos)
+
+    # Get joint errors
+    planner_jpos_error = planner_jpos_interp - armsensor_jpos_interp
+    controller_jpos_error = controller_jpos_interp - armsensor_jpos_interp
+    armactuator_jpos_error = armactuator_jpos_interp - armsensor_jpos_interp
+
+    # Get ee positions
+    planner_eepose = jit_vmap_get_ee_pose(sys, planner_jpos_interp)
+    controller_eepose = jit_vmap_get_ee_pose(sys, controller_jpos_interp)
+    armactuator_eepose = jit_vmap_get_ee_pose(sys, armactuator_jpos_interp)
+    armsensor_eepose = jit_vmap_get_ee_pose(sys, armsensor_jpos_interp)
+
+    # Get Euclidean distance between sensor and other eepos
+    planner_ee_error = planner_eepose.eepos - armsensor_eepose.eepos
+    controller_ee_error = controller_eepose.eepos - armsensor_eepose.eepos
+    armactuator_ee_error = armactuator_eepose.eepos - armsensor_eepose.eepos
+
+    # Get cost
+    cost_params = jax.tree_util.tree_map(lambda x: x[0], data["planner"]["step_states"].params.cost_params)
+    goalpos = jax.tree_util.tree_map(lambda x: x[0], data["planner"]["step_states"].state.goalpos)
+    _, cost_info = jit_vmap_cost_fn(cost_params, boxpos_interp, armsensor_eepose.eepos, goalpos, armsensor_eepose.eeorn)
+    cost = cost_info.pop("cost")
+    cm = cost_info.pop("cm")
+    _ = cost_info.pop("alpha")
+
+    # Plot cost
+    fig_cost, axes_cost = plt.subplots(1, 3, figsize=(14, 5))
+    axes_cost[0].plot(timestamps_interp, cm, label="cm", color=ECOLOR["cm"])  # Distance plot
+    axes_cost[0].set_title("Distance")
+    axes_cost[0].set_ylabel("cm")
+    axes_cost[0].set_xlabel("time (s)")
+
+    for key, c in cost_info.items():
+        if key not in CSCHEME: continue
+        axes_cost[1].plot(timestamps_interp, 100*c / cost, label=key, color=ECOLOR[key])  # Percentage of total cost
+    axes_cost[1].set_title("Percentage of total cost")
+    axes_cost[1].set_ylabel("%")
+    axes_cost[1].set_xlabel("time (s)")
+
+    for key, c in cost_info.items():
+        if key not in CSCHEME: continue
+        axes_cost[2].plot(timestamps_interp, c, label=key, color=ECOLOR[key])  # Absolute cost
+    axes_cost[2].plot(timestamps_interp, cost, label="cost", color=ECOLOR["cost"])  # Absolute cost
+    axes_cost[2].set_title("cost")
+    axes_cost[2].set_xlabel("time (s)")
+    axes_cost[-1].legend(ncol=1, loc='center left', fancybox=True, shadow=False, bbox_to_anchor=(1.0, 0.50))
+
+    # Plot plans
+    fig_ee, axes_ee = plt.subplots(2, 4, figsize=(16, 8))
+    fig_ee.delaxes(axes_ee[0, 0])
+    for ee_idx in range(0, 3):
+        ax_pos = axes_ee[0, ee_idx+1]
+        ax_err = axes_ee[1, ee_idx+1]
+        ax_pos.plot(timestamps_interp, planner_eepose.eepos[:, ee_idx]*100, label=f"planner", color=ECOLOR["planner"])
+        ax_pos.plot(timestamps_interp, controller_eepose.eepos[:, ee_idx]*100, label=f"controller", color=ECOLOR["controller"])
+        ax_pos.plot(timestamps_interp, armactuator_eepose.eepos[:, ee_idx]*100, label=f"armactuator", color=ECOLOR["armactuator"])
+        ax_pos.plot(timestamps_interp, armsensor_eepose.eepos[:, ee_idx]*100, label=f"armsensor", color=ECOLOR["armsensor"])
+        ax_pos.set_title(f"ee_pos({['x', 'y', 'z'][ee_idx]})")
+
+        ax_err.plot(timestamps_interp, jnp.abs(planner_ee_error[:, ee_idx])*100, label=f"planner", color=ECOLOR["planner"])
+        ax_err.plot(timestamps_interp, jnp.abs(controller_ee_error[:, ee_idx])*100, label=f"controller", color=ECOLOR["controller"])
+        ax_err.plot(timestamps_interp, jnp.abs(armactuator_ee_error[:, ee_idx])*100, label=f"armactuator", color=ECOLOR["armactuator"])
+        ax_err.set_ylim([0, 7])
+        ax_err.set_xlabel("time (s)")
+    axes_ee[0, -1].legend(ncol=1, loc='center left', fancybox=True, shadow=False, bbox_to_anchor=(1.0, 0.50))
+    axes_ee[0, 1].set_ylabel("pos (cm)")
+    axes_ee[1, 0].set_ylabel("error (cm)")
+    axes_ee[1, 0].set_xlabel("time (s)")
+    axes_ee[1, 0].set_ylim([0, 7])
+    axes_ee[1, 0].set_title("Euclidean error")
+    axes_ee[1, 0].plot(timestamps_interp, jnp.linalg.norm(planner_ee_error, axis=-1)*100, label=f"planner", color=ECOLOR["planner"])
+    axes_ee[1, 0].plot(timestamps_interp, jnp.linalg.norm(controller_ee_error, axis=-1)*100, label=f"controller", color=ECOLOR["controller"])
+    axes_ee[1, 0].plot(timestamps_interp, jnp.linalg.norm(armactuator_ee_error, axis=-1)*100, label=f"armactuator", color=ECOLOR["armactuator"])
+
+    # Plot jpos
+    fig_jpos, axes_jpos = plt.subplots(2, 6, figsize=(24, 8))
+    for joint_idx in range(6):
+        ax_jpos = axes_jpos[0, joint_idx]
+        ax_err = axes_jpos[1, joint_idx]
+
+        joint_labels = ["waist", "shoulder", "elbow", "forearm_roll", "wrist_angle", "wrist_rotate"]
+
+        # Set axis labels
+        ax_jpos.set_title(f"{joint_labels[joint_idx]}")
+        ax_err.set_ylim([0, 0.3])
+        ax_err.set_xlabel("time (s)")
+
+        # Plot planner output
+        ax_jpos.plot(global_plan.timestamps, planner_jpos[:, joint_idx], label=f"planner", color=ECOLOR["planner"])
+        ax_err.plot(timestamps_interp, jnp.abs(planner_jpos_error[:, joint_idx]), label=f"planner", color=ECOLOR["planner"])
+
+        # Plot controller output
+        controller_jpos = data["controller"]["outputs"].jpos
+        controller_ts = timestamps["controller"]["ts_output"]
+        ax_jpos.plot(controller_ts, controller_jpos[:, joint_idx], label=f"controller", color=ECOLOR["controller"])
+        ax_err.plot(timestamps_interp, jnp.abs(controller_jpos_error[:, joint_idx]), label=f"controller", color=ECOLOR["controller"])
+
+        # Plot controller output
+        armactuator_jpos = data["armactuator"]["outputs"].jpos
+        armactuator_ts = timestamps["controller"]["ts_output"]
+        ax_jpos.plot(armactuator_ts, armactuator_jpos[:, joint_idx], label=f"armactuator", color=ECOLOR["armactuator"])
+        ax_err.plot(timestamps_interp, jnp.abs(armactuator_jpos_error[:, joint_idx]), label=f"armactuator", color=ECOLOR["armactuator"])
+
+        # Plot armsensor output
+        armsensor_jpos = data["armsensor"]["outputs"].jpos
+        armsensor_ts = timestamps["armsensor"]["ts_output"]
+        ax_jpos.plot(armsensor_ts, armsensor_jpos[:, joint_idx], label=f"armsensor", color=ECOLOR["armsensor"])
+    axes_jpos[0, -1].legend(ncol=1, loc='center left', fancybox=True, shadow=False, bbox_to_anchor=(1.0, 0.50))
+    axes_jpos[0, 0].set_ylabel("joint position (rad)")
+    axes_jpos[1, 0].set_ylabel("error (rad)")
+    return fig_ee, fig_jpos, fig_cost
+
+
+def show_box_pushing_performance(records: Dict[str, log_pb2.ExperimentRecord], xml_path: str):
+    records = records if isinstance(records, dict) else {"1": records}
+
+    @struct.dataclass
+    class EEPose:
+        eepos: jp.ndarray
+        eeorn: jp.ndarray
+
+    def get_ee_pose(sys: System, jpos: jp.ndarray) -> EEPose:
+        # Set
+        qpos = jp.concatenate([sys.init_q[:6], jpos, jp.array([0])])
+        pipeline_state = s_pipeline.init(sys, qpos, jp.zeros_like(sys.init_q))
+        x_i = pipeline_state.x.vmap().do(
+            Transform.create(pos=sys.link.inertia.transform.pos)
+        )
+
+        # Get position
+        ee_arm_idx = sys.link_names.index("ee_link")
+        eepos = x_i.pos[ee_arm_idx]
+
+        # Get orientation
+        quat = x_i.rot[ee_arm_idx]
+        eeorn = jnp.array([quat[1], quat[2], quat[3], quat[0]], dtype="float32")
+        return EEPose(eepos, eeorn)
+
+    DATA = {}
+    TIMESTAMPS = {}
+    ts = []
+    for name, record in records.items():
+        # Get data
+        helper = exp.RecordHelper(record, method="truncated")
+
+        # Interpolate all data to the same timestamps.
+        DATA[name] = helper._data_stacked
+        TIMESTAMPS[name] = helper._timestamps_stacked
+
+        # Get max timestamps
+        ts.append(min(helper._timestamps_stacked["armsensor"]["ts_output"].max(),
+                      helper._timestamps_stacked["boxsensor"]["ts_output"].max()))
+
+    # Get jit functions
+    jit_vmap_interp = jax.jit(jax.vmap(jnp.interp, in_axes=(None, None, 1), out_axes=1))
+    jit_vmap_get_ee_pose = jax.jit(jax.vmap(get_ee_pose, in_axes=(None, 0)))
+    jit_vmap_cost_fn = jax.jit(jax.vmap(planner.cost.box_pushing_cost, in_axes=(None, 0, 0, None, 0)))
+
+    # Load system
+    m = mjcf.load(xml_path)
+
+    # Interpolate all data to timestamps of the shortest experiment
+    # print(f"Interpolating to {min(ts)} seconds: {ts}")
+    ts = min(ts)
+    timestamps_interp = onp.arange(0, ts, 0.05)
+
+    # Interpolate
+    DATA_INTERP = {}
+    for name, data in DATA.items():
+        timestamps = TIMESTAMPS[name]
+        num_eps = timestamps["armsensor"]["ts_output"].shape[0]
+
+        # Store all of the below in a dict
+        eps_data = []
+        for eps_idx in range(num_eps):
+            jpos_target = jit_vmap_interp(timestamps_interp, timestamps["armactuator"]["ts_output"][eps_idx],
+                                          data["armactuator"]["outputs"].jpos[eps_idx])
+            jpos = jit_vmap_interp(timestamps_interp, timestamps["armsensor"]["ts_output"][eps_idx],
+                                   data["armsensor"]["outputs"].jpos[eps_idx])
+            boxpos = jit_vmap_interp(timestamps_interp, timestamps["boxsensor"]["ts_output"][eps_idx],
+                                     data["boxsensor"]["outputs"].boxpos[eps_idx])
+            ee_pose = jit_vmap_get_ee_pose(m, jpos)
+            ee_pose_target = jit_vmap_get_ee_pose(m, jpos_target)
+            cost_params = jax.tree_util.tree_map(lambda x: x[eps_idx, 0],
+                                                 data["planner"]["step_states"].params.cost_params)
+            goalpos = jax.tree_util.tree_map(lambda x: x[eps_idx, 0], data["planner"]["step_states"].state.goalpos)
+
+            # Get cost
+            _, cost_info = jit_vmap_cost_fn(cost_params, boxpos, ee_pose.eepos, goalpos, ee_pose.eeorn)
+            cost = cost_info.pop("cost")
+            cm = cost_info.pop("cm")
+            _ = cost_info.pop("alpha")
+
+            # Get error
+            jpos_err_abs = jnp.abs(jpos_target - jpos)
+            ee_error = (ee_pose_target.eepos - ee_pose.eepos) * 100
+            ee_error_abs = jnp.abs(ee_error)
+            ee_error_norm = jnp.linalg.norm(ee_error, axis=-1)
+
+            # Store all of the above in eps_data
+            eps_data.append({
+                "jpos_target": jpos_target,
+                "jpos": jpos,
+                "boxpos": boxpos,
+                "ee_pose": ee_pose,
+                "ee_pose_target": ee_pose_target,
+                "cost_params": cost_params,
+                "goalpos": goalpos,
+                "cost": cost,
+                "cm": cm,
+                "jpos_err_abs": jpos_err_abs,
+                "ee_error": ee_error,
+                "ee_error_abs": ee_error_abs,
+                "ee_error_norm": ee_error_norm,
+            })
+
+        # stack eps_data
+        DATA_INTERP[name] = jax.tree_util.tree_map(lambda *args: jnp.stack(args), *eps_data)
+
+    # Get colors
+    CWHEEL = itertools.cycle({c for c in oc.CWHEEL.keys() if c not in ["white", "black", "gray"]})
+    CSCHEME = {k: next(CWHEEL) for k in DATA_INTERP.keys()}
+    ECOLOR, FCOLOR = oc.cscheme_fn(CSCHEME)
+
+    # Prepare dfs
+    perf_df = []
+    for k, v in DATA_INTERP.items():
+        timestamps_tiled = onp.tile(timestamps_interp, v["cost"].shape[0])
+        for t, cost, cm in zip(timestamps_tiled, onp.array(v["cost"]).flatten(), onp.array(v["cm"]).flatten()):
+            # For each cost, create a dictionary with 'key' and 'cost'
+            perf_df.append({"experiment": k, "time": t, "cost": cost, "cm": cm})
+
+    # Convert the list of dictionaries to a DataFrame
+    perf_df = pd.DataFrame(perf_df)
+
+    # Plot cost
+    fig_perf, axes_perf = plt.subplots(1, 2, figsize=(10, 5))
+    sns.lineplot(ax=axes_perf[0], data=perf_df, x="time", y="cm", palette=ECOLOR, hue="experiment",
+                 errorbar="sd")  # Distance plot
+    sns.lineplot(ax=axes_perf[1], data=perf_df, x="time", y="cost", palette=ECOLOR, hue="experiment",
+                 errorbar="sd")  # Distance plot
+    axes_perf[0].set_title("Distance")
+    axes_perf[0].set_ylabel("cm")
+    axes_perf[0].set_xlabel("time (s)")
+    axes_perf[1].set_title("Cost")
+    axes_perf[1].set_ylabel("cost")
+    axes_perf[1].set_xlabel("time (s)")
+    return fig_perf

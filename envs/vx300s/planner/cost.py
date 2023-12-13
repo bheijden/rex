@@ -27,6 +27,21 @@ class CostParams:
     alpha: jp.float32   # Larger alpha increases penalty on near and dist once (orn, down, height, align) are satisfied
     discount: jp.float32   # Discount factor
 
+    @classmethod
+    def default(cls):
+        return cls(orn=3.0,
+                   down=3.0,
+                   height=10.0,
+                   force=1.0,  # 1.0 works
+                   near=5.0,
+                   dist=50.0,
+                   align=2.0,
+                   ctrl=0.1,
+                   bias_height=0.045,
+                   bias_near=0.07,
+                   alpha=0.0,
+                   discount=1.0)
+
 
 def box_pushing_cost(cp: CostParams, boxpos, eepos, goalpos, eeorn, force=None, action=None, time_step=None):
     rot_mat = ArmOutput(jpos=None, eeorn=eeorn, eepos=None).orn_to_3x3
