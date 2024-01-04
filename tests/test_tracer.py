@@ -6,7 +6,7 @@ import rex.supergraph as tracer
 from scripts.dummy import build_dummy_env
 
 
-@pytest.mark.parametrize("supergraph_mode", ["MCS", "topological", "generational"])
+@pytest.mark.parametrize("supergraph_mode", ["topological", "MCS", "generational"])
 def test_tracer(supergraph_mode):
 	env, nodes = build_dummy_env()
 
@@ -43,3 +43,9 @@ def test_tracer(supergraph_mode):
 	seqs_step, updated_step = tracer.get_step_seqs_mapping(S, timings, buffer)
 
 	G = Gs[0]
+
+
+if __name__ == "__main__":
+	test_tracer("topological")
+	test_tracer("MCS")
+	test_tracer("generational")

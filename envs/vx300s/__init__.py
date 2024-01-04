@@ -715,6 +715,40 @@ def show_box_pushing_experiment(record: log_pb2.EpisodeRecord, xml_path: str, pl
 
 
 def show_box_pushing_performance(records: Dict[str, log_pb2.ExperimentRecord], xml_path: str):
+    DATA, TIMESTAMPS, DELAYS, DATA_INTERP, TIMESTAMPS_INTERP = process_box_pushing_performance_data(records, xml_path)
+
+    # Get colors
+    CWHEEL = itertools.cycle({c for c in oc.CWHEEL.keys() if c not in ["white", "black", "gray"]})
+    CSCHEME = {k: next(CWHEEL) for k in DATA_INTERP.keys()}
+    ECOLOR, FCOLOR = oc.cscheme_fn(CSCHEME)
+
+    # Prepare dfs
+    perf_df = []
+    for k, v in DATA_INTERP.items():
+        timestamps_tiled = onp.tile(TIMESTAMPS_INTERP, v["cost"].shape[0])
+        for t, cost, cm in zip(timestamps_tiled, onp.array(v["cost"]).flatten(), onp.array(v["cm"]).flatten()):
+            # For each cost, create a dictionary with 'key' and 'cost'
+            perf_df.append({"experiment": k, "time": t, "cost": cost, "cm": cm})
+
+    # Convert the list of dictionaries to a DataFrame
+    perf_df = pd.DataFrame(perf_df)
+
+    # Plot cost
+    fig_perf, axes_perf = plt.subplots(1, 2, figsize=(10, 5))
+    sns.lineplot(ax=axes_perf[0], data=perf_df, x="time", y="cm", palette=ECOLOR, hue="experiment",
+                 errorbar="sd")  # Distance plot
+    sns.lineplot(ax=axes_perf[1], data=perf_df, x="time", y="cost", palette=ECOLOR, hue="experiment",
+                 errorbar="sd")  # Distance plot
+    axes_perf[0].set_title("Distance")
+    axes_perf[0].set_ylabel("cm")
+    axes_perf[0].set_xlabel("time (s)")
+    axes_perf[1].set_title("Cost")
+    axes_perf[1].set_ylabel("cost")
+    axes_perf[1].set_xlabel("time (s)")
+    return fig_perf
+
+
+def process_box_pushing_performance_data(records: Dict[str, log_pb2.ExperimentRecord], xml_path: str, step_size: float = 0.05, max_time: float = 100.0):
     records = records if isinstance(records, dict) else {"1": records}
 
     @struct.dataclass
@@ -740,6 +774,7 @@ def show_box_pushing_performance(records: Dict[str, log_pb2.ExperimentRecord], x
         return EEPose(eepos, eeorn)
 
     DATA = {}
+    DELAYS = {}
     TIMESTAMPS = {}
     ts = []
     for name, record in records.items():
@@ -749,6 +784,7 @@ def show_box_pushing_performance(records: Dict[str, log_pb2.ExperimentRecord], x
         # Interpolate all data to the same timestamps.
         DATA[name] = helper._data_stacked
         TIMESTAMPS[name] = helper._timestamps_stacked
+        DELAYS[name] = helper._delays_stacked
 
         # Get max timestamps
         ts.append(min(helper._timestamps_stacked["armsensor"]["ts_output"].max(),
@@ -765,7 +801,8 @@ def show_box_pushing_performance(records: Dict[str, log_pb2.ExperimentRecord], x
     # Interpolate all data to timestamps of the shortest experiment
     # print(f"Interpolating to {min(ts)} seconds: {ts}")
     ts = min(ts)
-    timestamps_interp = onp.arange(0, ts, 0.05)
+    ts = min(ts, max_time)
+    TIMESTAMPS_INTERP = onp.arange(0, ts, step_size)
 
     # Interpolate
     DATA_INTERP = {}
@@ -776,11 +813,11 @@ def show_box_pushing_performance(records: Dict[str, log_pb2.ExperimentRecord], x
         # Store all of the below in a dict
         eps_data = []
         for eps_idx in range(num_eps):
-            jpos_target = jit_vmap_interp(timestamps_interp, timestamps["armactuator"]["ts_output"][eps_idx],
+            jpos_target = jit_vmap_interp(TIMESTAMPS_INTERP, timestamps["armactuator"]["ts_output"][eps_idx],
                                           data["armactuator"]["outputs"].jpos[eps_idx])
-            jpos = jit_vmap_interp(timestamps_interp, timestamps["armsensor"]["ts_output"][eps_idx],
+            jpos = jit_vmap_interp(TIMESTAMPS_INTERP, timestamps["armsensor"]["ts_output"][eps_idx],
                                    data["armsensor"]["outputs"].jpos[eps_idx])
-            boxpos = jit_vmap_interp(timestamps_interp, timestamps["boxsensor"]["ts_output"][eps_idx],
+            boxpos = jit_vmap_interp(TIMESTAMPS_INTERP, timestamps["boxsensor"]["ts_output"][eps_idx],
                                      data["boxsensor"]["outputs"].boxpos[eps_idx])
             ee_pose = jit_vmap_get_ee_pose(m, jpos)
             ee_pose_target = jit_vmap_get_ee_pose(m, jpos_target)
@@ -820,32 +857,7 @@ def show_box_pushing_performance(records: Dict[str, log_pb2.ExperimentRecord], x
         # stack eps_data
         DATA_INTERP[name] = jax.tree_util.tree_map(lambda *args: jnp.stack(args), *eps_data)
 
-    # Get colors
-    CWHEEL = itertools.cycle({c for c in oc.CWHEEL.keys() if c not in ["white", "black", "gray"]})
-    CSCHEME = {k: next(CWHEEL) for k in DATA_INTERP.keys()}
-    ECOLOR, FCOLOR = oc.cscheme_fn(CSCHEME)
-
-    # Prepare dfs
-    perf_df = []
-    for k, v in DATA_INTERP.items():
-        timestamps_tiled = onp.tile(timestamps_interp, v["cost"].shape[0])
-        for t, cost, cm in zip(timestamps_tiled, onp.array(v["cost"]).flatten(), onp.array(v["cm"]).flatten()):
-            # For each cost, create a dictionary with 'key' and 'cost'
-            perf_df.append({"experiment": k, "time": t, "cost": cost, "cm": cm})
-
-    # Convert the list of dictionaries to a DataFrame
-    perf_df = pd.DataFrame(perf_df)
-
-    # Plot cost
-    fig_perf, axes_perf = plt.subplots(1, 2, figsize=(10, 5))
-    sns.lineplot(ax=axes_perf[0], data=perf_df, x="time", y="cm", palette=ECOLOR, hue="experiment",
-                 errorbar="sd")  # Distance plot
-    sns.lineplot(ax=axes_perf[1], data=perf_df, x="time", y="cost", palette=ECOLOR, hue="experiment",
-                 errorbar="sd")  # Distance plot
-    axes_perf[0].set_title("Distance")
-    axes_perf[0].set_ylabel("cm")
-    axes_perf[0].set_xlabel("time (s)")
-    axes_perf[1].set_title("Cost")
-    axes_perf[1].set_ylabel("cost")
-    axes_perf[1].set_xlabel("time (s)")
-    return fig_perf
+    # Convert all data to numpy
+    DATA = jax.tree_util.tree_map(lambda x: onp.array(x), DATA)
+    DATA_INTERP = jax.tree_util.tree_map(lambda x: onp.array(x), DATA_INTERP)
+    return DATA, TIMESTAMPS, DELAYS, DATA_INTERP, TIMESTAMPS_INTERP

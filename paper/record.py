@@ -156,10 +156,12 @@ if __name__ == "__main__":
     # Load models. PPO=[64, 64], SAC=[256, 256]
     MODEL_CLS = sbx.SAC  # sbx.SAC  sb3.SAC
     MODEL_MODULE = pend.models
-    MODEL_PRELOAD = "sbx_sac_pendulum_det_best"  # "sbx_sac_pendulum_async"   # sbx_sac_pendulum
+    # MODEL_PRELOAD = "sbx_sac_pendulum_det_best"  # "sbx_sac_pendulum_async"   # sbx_sac_pendulum
+    # MODEL_PRELOAD = "sbx_rural-pine-1261_async_model_best"  # "sbx_sac_pendulum_async"   # sbx_sac_pendulum
+    MODEL_PRELOAD = "sbx_stellar_gorge-1277_det_model_best"  # "sbx_sac_pendulum_async"   # sbx_sac_pendulum
 
     # Logging
-    NAME = f"real-{QUANTILE}Q-20hz-async-sbx-eps{NUM_EVAL_PRE}-{ENV}-{ENV_FN.__module__}-{rc.CLOCK_MODES[CLOCK]}-{rc.RTF_MODES[RTF]}-{rc.SCHEDULING_MODES[SCHEDULING]}-{rc.JITTER_MODES[JITTER]}-{datetime.datetime.today().strftime('%Y-%m-%d-%H%M')}"
+    NAME = f"log-video-real-{QUANTILE}Q-20hz-async-sbx-eps{NUM_EVAL_PRE}-{ENV}-{ENV_FN.__module__}-{rc.CLOCK_MODES[CLOCK]}-{rc.RTF_MODES[RTF]}-{rc.SCHEDULING_MODES[SCHEDULING]}-{rc.JITTER_MODES[JITTER]}-{datetime.datetime.today().strftime('%Y-%m-%d-%H%M')}"
     LOG_DIR = f"/home/r2ci/rex/paper/logs/{NAME}"
     MUST_LOG = True
     MUST_PLOT = True
@@ -169,7 +171,7 @@ if __name__ == "__main__":
                        "world": dict(node=True, outputs=False, rngs=False, states=False, params=False, step_states=False),
                        "actuator": dict(node=True, outputs=False, rngs=False, states=False, params=False, step_states=False),
                        "sensor": dict(node=True, outputs=False, rngs=False, states=False, params=False, step_states=False),
-                       "render": dict(node=True, outputs=False, rngs=False, states=False, params=False, step_states=False)}
+                       "render": dict(node=True, outputs=True, rngs=False, states=False, params=False, step_states=False)}
 
     # Load distributions
     delays_sim = exp.load_distributions(DIST_FILE, module=pend.dists)

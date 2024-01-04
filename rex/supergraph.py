@@ -276,15 +276,11 @@ def get_network_record(
         Gs.append(G_traced_pruned)
 
     if supergraph_mode == "MCS":
-        # Define initial supergraph
-        if S_init is None:
-            S_init, _ = supergraph.as_supergraph(Gs[0], leaf_kind=root, sort=[f"{root}_0"])
-
         # Run evaluation
         S, S_init_to_S, Gs_monomorphism = supergraph.grow_supergraph(
             Gs,
-            S_init,
             root,
+            S_init=S_init,
             combination_mode="linear",
             backtrack=backtrack,
             progress_fn=None,
@@ -684,6 +680,7 @@ def get_graph_buffer(
     for n, s in sizes.items():
         assert n in nodes, f"Node `{n}` not found in nodes."
         buffer_size = max(s) + extra_padding if len(s) > 0 else max(1, extra_padding)
+        assert buffer_size > 0, f"Buffer size for node `{n}` is 0."
         b = jax.tree_util.tree_map(stack_fn, *[nodes[n].default_output(rng, graph_state=graph_state)] * buffer_size)
         buffers[n] = b
     return FrozenDict(buffers)

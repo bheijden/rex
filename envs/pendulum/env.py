@@ -134,7 +134,12 @@ class PendulumEnv(BaseEnv):
 
 	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> RexResetReturn:
 		"""Reset environment."""
-		new_graph_state = self._get_graph_state(rng, graph_state)
+		# new_graph_state = self._get_graph_state(rng, graph_state)
+		new_graph_state = self.graph.init(rng, order=("agent", "world"))
+
+		# Reset nodes
+		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_world_and_agent) + 1)
+		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_world_and_agent.values(), rngs)]
 
 		# Reset environment to get initial step_state (runs up-until the first step)
 		graph_state, step_state = self.graph.reset(new_graph_state)
@@ -171,8 +176,8 @@ class PendulumEnv(BaseEnv):
 
 		# Determine done flag
 		terminated = self._is_terminal(graph_state)
-		truncated = graph_state.step >= self.max_steps
-		info = {"TimeLimit.truncated": graph_state.step >= self.max_steps}
+		truncated = step_state.seq >= self.max_steps
+		info = {"TimeLimit.truncated": step_state.seq >= self.max_steps}
 
 		return graph_state, obs, -cost, terminated, truncated, info
 

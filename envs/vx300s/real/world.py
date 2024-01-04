@@ -103,6 +103,7 @@ def build_vx300s(rates: Dict[str, float],
                           cam_intrinsics=ci,
                           cam_idx=config["real"]["cam_idx"],
                           block_until_detection=config["real"]["block_until_detection"],
+                          record_images=config["real"].get("record_images", False),
                           name="boxsensor", rate=rates["boxsensor"], scheduling=scheduling, advance=False,
                           delay=process["boxsensor"], delay_sim=process_sim["boxsensor"])
     armactuator = ArmActuator(client, name="armactuator", rate=rates["armactuator"], scheduling=scheduling, advance=False,
@@ -209,17 +210,24 @@ class ArmSensor(Node):
 class BoxState:
     last_detection: BoxOutput
 
+@struct.dataclass
+class BoxOutputWithImage(BoxOutput):
+    image: jp.ndarray
+
 
 class BoxSensor(Node):
     def __init__(self, aruco_id: int, aruco_size: float, aruco_type: str,
                  aruco_trans: List[float], cam_trans: List[float], cam_rot: List[float],
                  cam_intrinsics: Dict[str, Any], cam_idx: int,
                  block_until_detection: bool,
+                 record_images: bool = False,
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._block_until_detection = block_until_detection
         self._dummy_output = BoxOutput(boxpos=jp.array([0.35, 0.0, 0.051], dtype=jp.float32),
                                        boxorn=jp.array([0.0, 0.0, 0.0, 1.0], dtype=jp.float32))
+        self._record_images = record_images
+        self._images = []
 
         # Initialize detector
         from envs.vx300s.real.aruco_detector import ArucoPoseDetector
@@ -348,6 +356,14 @@ class BoxSensor(Node):
             box_output = last_detection
         return box_output
 
+    def _get_box_output_and_record_image(self, last_detection: BoxOutput) -> BoxOutput:
+        box_output, image = self._get_output()
+        if self._record_images:
+            self._images.append(image)
+        if box_output.boxpos is None or box_output.boxorn is None:
+            box_output = last_detection
+        return box_output
+
     def _wait_for_detection(self, dummy) -> BoxOutput:
         box_output, image = self._get_output()
         if box_output.boxpos is None and not self._block_until_detection:
@@ -359,6 +375,22 @@ class BoxSensor(Node):
             input("No box detected. Place the box in front of the camera and press enter...")
             box_output, image = self._get_output()
         return box_output
+
+    def record(self, node: bool = False, outputs: bool = False, rngs: bool = False, states: bool = False, params: bool = False,
+               step_states: bool = False,):
+        # Augment outputs with image
+        if self._record_images and outputs and self._record_outputs and len(self._record_outputs) > 0:
+            new_record_outputs = []
+            for i, o in enumerate(self._record_outputs):
+                idx = min(i, len(self._images)-1)
+                if idx == -1:
+                    new_record_outputs.append(o)
+                else:
+                    img = self._images[idx]
+                    new_o = BoxOutputWithImage(o.boxpos, o.boxorn, img)
+                    new_record_outputs.append(new_o)
+            self._record_outputs = new_record_outputs
+        return super().record(node=node, outputs=outputs, rngs=rngs, states=states, params=params, step_states=step_states)
 
     def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BoxOutput:
         """Default output of the node."""
@@ -372,6 +404,7 @@ class BoxSensor(Node):
 
     def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
         self._init_cam()
+        self._images = []
 
         return graph_state.nodes[self.name]
 
@@ -382,7 +415,7 @@ class BoxSensor(Node):
         _, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
 
         # Get box output
-        box_output = hcb.call(self._get_box_output, state.last_detection, result_shape=self._dummy_output)
+        box_output = hcb.call(self._get_box_output_and_record_image, state.last_detection, result_shape=self._dummy_output)
         # Update StepState
         new_state = state.replace(last_detection=box_output)
         new_step_state = step_state.replace(state=new_state)

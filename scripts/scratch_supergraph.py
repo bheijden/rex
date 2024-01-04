@@ -131,11 +131,8 @@ def evaluate_graph(seed, frequency_type, topology_type, theta, sigma, window, nu
                 else:
                     raise ValueError(f"Invalid sort mode: {sort_mode}")
 
-                # Define initial supergraph
-                S_init, _ = sg.as_supergraph(Gs[0], leaf_kind=leaf_kind, sort=[f"{leaf_kind}_0"])
-
                 # Run evaluation
-                S_sup, _S_init_to_S, m_sup = sg.grow_supergraph(Gs, S_init, leaf_kind,
+                S_sup, _S_init_to_S, m_sup = sg.grow_supergraph(Gs, leaf_kind,
                                                                 combination_mode=combination_mode,
                                                                 backtrack=backtrack,
                                                                 sort_fn=sort_fn,

@@ -44,7 +44,7 @@ RECORD_SETTINGS = {"planner": dict(node=False, outputs=True, rngs=False, states=
                    "viewer": dict(node=False, outputs=False, rngs=False, states=False, params=False, step_states=False)}
 PATH_VX300S = os.path.dirname(vx300s.__file__)
 
-GRAPH_DIR = "2023-12-12-0820_real_brax_3Hz_3iter_vx300s"  # todo: experiment
+GRAPH_DIR = "2023-12-12-1021_real_brax_VarHz_3iter_vx300s"  # todo: experiment
 CONFIG = {"mjx": {"xml_path": f"{PATH_VX300S}/assets/vx300s_mjx.xml"},
           "brax": {"xml_path": f"{PATH_VX300S}/assets/vx300s_brax.xml"},
           "real": {"cam_trans": [0.8699584189419002,
@@ -54,21 +54,18 @@ CONFIG = {"mjx": {"xml_path": f"{PATH_VX300S}/assets/vx300s_mjx.xml"},
                                0.7593333938361413,
                                -0.5259166755043375,
                                -0.22031026442650153], "cam_idx": 0,  # todo: experiment
-                   "block_until_detection": True, "block_between_episodes": True,  # todo: experiment
+                   "record_images": False, "block_until_detection": True, "block_between_episodes": True,  # todo: experiment
                    "cam_intrinsics": f"{PATH_VX300S}/assets/logitech_c170.yaml"},
           "planner": {"type": "brax",  # todo: experiment
                       "use_estimator": True, "randomize_eps": True, "num_cost_mpc": 1, "num_cost_est": 1,  # todo: experiment
                       "brax_xml_path": f"{PATH_VX300S}/assets/vx300s_cem_brax.xml",
                       "rex_xml_path": f"{PATH_VX300S}/assets/vx300s_cem_brax.xml",
                       "mjx_xml_path": f"{PATH_VX300S}/assets/vx300s_cem_mjx.xml",
-                      # "rex_graph_path": "/home/r2ci/rex/logs/real_rex_randomeps_largeS_mock_10eps_vx300s_2023-12-08-1653/record_pre.pb",  # todo: experiment
-                      # "rex_graph_path": "/home/r2ci/rex/logs/real_rex_randomeps_smallS_mock_10eps_vx300s_2023-12-08-1811/record_pre.pb",  # todo: experiment
-                      # "rex_graph_path": "/home/r2ci/rex/logs/2023-12-11-1614_real_rex_smallS_prevgraph_3Hz_3iter_vx300s/record_pre.pb",  # todo: experiment USE THIS REX
-                      "rex_graph_path": f"/home/r2ci/rex/logs/{GRAPH_DIR}/record_pre.pb",
-                      "dist_path":      f"/home/r2ci/rex/logs/{GRAPH_DIR}/distributions.pkl",
-                      "supergraph_mode": "topological",  # todo: experiment
+                      "rex_graph_path": f"/home/r2ci/rex/paper/logs/{GRAPH_DIR}/record_pre.pb",
+                      "dist_path":      f"/home/r2ci/rex/paper/logs/{GRAPH_DIR}/distributions.pkl",
+                      "supergraph_mode": "MCS",  # todo: experiment
                       "z_fixed": 0.051,  # todo: experiment
-                      "overwrite_planner_rate": False,  # todo: experiment
+                      "overwrite_planner_rate": True,  # todo: experiment
                       # "u_max": [0.25*3.14, 0.1*3.14, 0.1*3.14, 0.1*3.14, 0.35*3.14, 0.35*3.14],
                       "u_max": [0.25*3.14, 0.25*3.14, 0.25*3.14, 0.25*3.14, 0.25*3.14, 0.25*3.14],
                       "horizon": 2, "dt": 0.15, "dt_substeps": 0.015, "num_samples": 75, "max_iter": 3},
@@ -79,16 +76,15 @@ if __name__ == "__main__":
     # Environment
     ENV = "vx300s"  # "disc_pendulum"
     DIST_FILE = CONFIG["planner"]["dist_path"]
-    # DIST_FILE = "real_rex_randomeps_largeS_mock_10eps_vx300s_2023-12-08-1653.pkl"  # todo: experiment
     # DIST_FILE = "2023-12-11-1614_real_rex_smallS_prevgraph_3Hz_3iter_vx300s"  # todo: experiment USE THIS REX
     # DIST_FILE = "real_rex_randomeps_smallS_mock_10eps_vx300s_2023-12-08-1811.pkl"  # todo: experiment
     # DIST_FILE = "2023-12-11-1554_real_rex_prevgraph_3Hz_3iter_vx300s.pkl"  # todo: experiment
     JITTER = BUFFER
     SCHEDULING = FREQUENCY
 
-    ENV_FN = vx300s.real.build_vx300s  # todo: experiment
-    CLOCK = WALL_CLOCK  # todo: experiment
-    RTF = REAL_TIME  # todo: experiment
+    ENV_FN = vx300s.brax.build_vx300s  # todo: experiment
+    CLOCK = SIMULATED  # todo: experiment
+    RTF = FAST_AS_POSSIBLE  # todo: experiment
     RATES = dict(world=80, supervisor=8, planner=3, controller=20, armactuator=20, armsensor=80, boxsensor=10, viewer=20)  # todo: experiment
     # RATES = dict(world=25, planner=25, controller=25, armactuator=25, armsensor=25, boxsensor=25)
     MAX_STEPS = int(25 * RATES["supervisor"])  # todo: experiment
@@ -98,14 +94,14 @@ if __name__ == "__main__":
     DELAY_FN = lambda d: d.quantile(0.99)*int(USE_DELAYS)
 
     # Logging
-    # NAME = f"real_2ndcalib_rex_randomeps_topological_recorded_3Hz_3iter_{ENV}"  # todo: experiment
-    NAME = f"real_2ndcalib_brax_3Hz_3iter_{ENV}"  # todo: experiment
+    # NAME = f"real_2ndcalib_rex_randomeps_topological_recorded_VarHz_3iter_record_image{ENV}"  # todo: experiment
+    NAME = f"real_2ndcalib_brax_VarHz_3iter_record_image{ENV}"  # todo: experiment
     LOG_DIR = os.path.dirname(rex.__file__) + f"/../logs/{datetime.datetime.today().strftime('%Y-%m-%d-%H%M')}_{NAME}"
     PROGRESS_BAR = True
-    MUST_LOG = True  # todo: experiment
-    MUST_DIST = True  # todo: experiment
+    MUST_LOG = False  # todo: experiment
+    MUST_DIST = False  # todo: experiment
     MUST_PLOT = True
-    SHOW_PLOTS = True
+    SHOW_PLOTS = True  # todo: experiment
 
     # Training
     SEED = 0

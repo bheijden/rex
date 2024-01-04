@@ -7,12 +7,14 @@ from flax import struct
 
 from rex.distributions import Distribution, Gaussian
 from rex.constants import WARN, LATEST, PHASE
+from rex.multiprocessing import new_process
 from rex.base import StepState, GraphState, Empty
 from rex.node import Node
 
 from envs.pendulum.env import Output as ActuatorOutput
 from envs.pendulum.real.pid import PID
 from envs.pendulum.render import Render
+from envs.pendulum.real.camera import Camera
 
 
 # Import ROS specific functions
@@ -56,6 +58,9 @@ def build_pendulum(rates: Dict[str, float],
 	                delay=process["sensor"], delay_sim=process_sim["sensor"])
 	render = Render(name="render", rate=rates["render"], scheduling=scheduling,
 	                delay=process["render"], delay_sim=process_sim["render"])
+	# render = Camera(cam_idx=2, width=640, height=480,
+	#                 name="render", rate=rates["render"], scheduling=scheduling,
+	#                 delay=process["render"], delay_sim=process_sim["render"])
 
 	# Connect nodes
 	world.connect(actuator, window=1, blocking=False, skip=True, jitter=LATEST,

@@ -53,7 +53,7 @@ def get_ee_pose(sys: System, jpos: jp.ndarray) -> EEPose:
 
 if __name__ == "__main__":
     PATH_VX300S = os.path.dirname(vx300s.__file__)
-    LOG_PATH = os.path.dirname(rex.__file__) + f"/../logs"
+    LOG_PATH = "/home/r2ci/rex/paper/logs"
     XML_PATH = f"{PATH_VX300S}/assets/vx300s_cem_brax.xml"
     # Variable frequency 1.2*mean delay
     EXP_DIRS = {
@@ -62,7 +62,6 @@ if __name__ == "__main__":
         "gen": f"{LOG_PATH}/2023-12-12-1708_real_2ndcalib_rex_randomeps_generational_recorded_VarHz_3iter_vx300s",
         "seq": f"{LOG_PATH}/2023-12-12-1734_real_2ndcalib_brax_VarHz_3iter_vx300s",
     }
-    # todo: why start from 25 cm?! should be roughly 50...
     RECORDS = {}
     for name, LOG_DIR in EXP_DIRS.items():
         RECORDS[name] = log_pb2.ExperimentRecord()

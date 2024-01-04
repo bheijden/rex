@@ -945,14 +945,11 @@ def make_supergraph_and_timings(Gs_raw: List[nx.DiGraph], root: str, num_cost: i
         Gs.append(G_traced_pruned)
 
     if supergraph_mode == "MCS":
-        # Define initial supergraph
-        S_init, _ = sg.as_supergraph(Gs[0], leaf_kind=root, sort=[f"{root}_0"])
-
         # Run evaluation
         S, S_init_to_S, Gs_monomorphism = sg.grow_supergraph(
             Gs,
-            S_init,
             root,
+            S_init=None,
             combination_mode="linear",
             backtrack=backtrack,
             progress_fn=None,
