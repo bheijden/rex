@@ -918,8 +918,8 @@ files = [
 [package.dependencies]
 numpy = [
     {version = ">1.20", markers = "python_version <= \"3.9\""},
-    {version = ">=1.23.3", markers = "python_version > \"3.10\""},
     {version = ">=1.21.2", markers = "python_version > \"3.9\""},
+    {version = ">=1.23.3", markers = "python_version > \"3.10\""},
 ]
 
 [package.extras]
@@ -1610,13 +1610,13 @@ files = [
 
 [[package]]
 name = "supergraph"
-version = "0.0.3"
-description = "Supergraph compiler."
+version = "0.0.6"
+description = "Supergraph compiler"
 optional = false
 python-versions = ">=3.8,<4.0"
 files = [
-    {file = "supergraph-0.0.3-py3-none-any.whl", hash = "sha256:5ae396ceaba9a3643a193be610b239d9395269a2c101693859d0771f9c351947"},
-    {file = "supergraph-0.0.3.tar.gz", hash = "sha256:840df6c229ac064108ec3826c03c9e6384cdcf112c9ddbf52e0e401ae56dc6f0"},
+    {file = "supergraph-0.0.6-py3-none-any.whl", hash = "sha256:8862d2fc42259bafea8e191a803fda260a9c1474eb58a6c1427356a875053ca0"},
+    {file = "supergraph-0.0.6.tar.gz", hash = "sha256:245b7cec23f4ebdea6da6655ba74fc8bd7b816a09201186f1582c7da420a45ce"},
 ]
 
 [package.dependencies]
@@ -1625,7 +1625,8 @@ numpy = ">=1.24.3,<2.0.0"
 tqdm = ">=4.65.0,<5.0.0"
 
 [package.extras]
-paper = ["matplotlib (>=3.7.1,<4.0.0)", "wandb (>=0.15.4,<0.16.0)"]
+experiments = ["dill (>=0.3.7,<0.4.0)", "ipywidgets (>=8.0.7,<9.0.0)", "jupyter (>=1.0.0,<2.0.0)", "jupyterlab (>=4.0.3,<5.0.0)", "matplotlib (>=3.7.1,<4.0.0)", "pandas (>=2.0.3,<3.0.0)", "wandb (>=0.15.4,<0.16.0)"]
+paper = ["matplotlib (>=3.7.1,<4.0.0)", "seaborn (>=0.12.2,<0.13.0)"]
 
 [[package]]
 name = "tensorflow-probability"
@@ -1775,4 +1776,4 @@ testing = ["big-O", "flake8 (<5)", "jaraco.functools", "jaraco.itertools", "more
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8.1"
-content-hash = "51f37225c37ed67a8205bfc0667618e7af2b68db530dc8b2cf047228a6e1ab28"
+content-hash = "79092d52cb6a12162d0ab8126baec8b960ea1f535d8dc19d1dbc2442f178a3fb"

@@ -14,6 +14,7 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.8.1"
+supergraph = "^0.0.6"
 gymnasium = "^0.28.1"
 protobuf = "^3.20"
 flax = "^0.6.3"
@@ -47,7 +48,7 @@ tqdm = "^4.64.1"
 #torch = "^1.13.1"
 #torchvision = "^0.14.1"
 #torchaudio = "^0.13.1"
-supergraph = "^0.0.3"
+
 
 [tool.poetry.dev-dependencies]
 black = "^23.3.0"
