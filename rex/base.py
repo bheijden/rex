@@ -51,7 +51,6 @@ class InputState:
 
     # @partial(jax.jit, static_argnums=(0,))
     def push(self, seq: int, ts_sent: float, ts_recv: float, data: Any) -> "InputState":
-        # todo: in-place update when we use numpy.
         size = self.seq.shape[0]
         tb = [self.seq, self.ts_sent, self.ts_recv, self.data]
         new_t = [seq, ts_sent, ts_recv, data]

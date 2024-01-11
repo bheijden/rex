@@ -9,20 +9,20 @@ repository = "https://github.com/bheijden/rex"
 documentation = "https://github.com/bheijden/rex"
 packages = [
     { include = "rex" },
-#    { include = "jumpy"},
 ]
 
 [tool.poetry.dependencies]
-python = "^3.8.1"
+python = "^3.9.0"
 supergraph = "^0.0.6"
 gymnasium = "^0.28.1"
 protobuf = "^3.20"
 flax = "^0.6.3"
 tensorflow-probability = "^0.20.1"
 termcolor = "^2.1.1"
-#jax-jumpy = "^0.2.0"
-#jax-jumpy = { git = "git@github.com:Farama-Foundation/Jumpy.git", branch = "main" }
 networkx = "^3.1"
+# CUDA 11.4 and CuDNN 8.2. This wheel is deprecated and will be discontinued with jax 0.4.8.
+# CUDA >11.4 needed for jax version above 0.4.16.
+# poetry run pip install --upgrade "jax[cuda11_pip]==0.4.16" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html  # todo: this is the one that works
 jax = "^0.4.1"
 matplotlib = "^3.6.2"
 seaborn = "^0.12.1"

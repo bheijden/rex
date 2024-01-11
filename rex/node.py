@@ -495,6 +495,9 @@ class BaseNode:
         if new_step_state is not None:
             new_step_state = new_step_state.replace(seq=new_step_state.seq + 1)
 
+        # Block until output is ready
+        jax.tree_util.tree_map(lambda x: x.block_until_ready() if hasattr(x, "block_until_ready") else True, output)
+
         return new_step_state, output
 
     def _reset(self, graph_state: GraphState, clock: int = SIMULATED, real_time_factor: Union[int, float] = FAST_AS_POSSIBLE):
@@ -782,7 +785,14 @@ class BaseNode:
             _, ts_step_wc = self.now()
 
             # Grab grouped msgs
-            inputs = FrozenDict({i.input_name: i.q_grouped.popleft() for i in self.inputs})
+            inputs = {}
+            for i in self.inputs:
+                input_state = self._step_state.inputs[i.input_name]
+                grouped = i.q_grouped.popleft()
+                for seq, ts_sent, ts_recv, msg in grouped:
+                    input_state = i._jit_update_input_state(input_state, seq, ts_sent, ts_recv, msg)
+                inputs[i.input_name] = input_state
+            # inputs = FrozenDict({i.input_name: i.q_grouped.popleft() for i in self.inputs})
 
             # Update StepState with grouped messages
             # todo: have a single buffer for step_state used for both in and out

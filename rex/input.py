@@ -94,7 +94,7 @@ class Input:
         self.q_zip_msgs: Deque[Tuple[Any, log_pb2.Header]] = None
         self.q_expected_select: Deque[Tuple[float, int]] = None
         self.q_expected_ts_max: Deque[int] = None
-        self.q_grouped: Deque[InputState] = None
+        self.q_grouped: Deque[Tuple[int, float, float, Any]] = None
         self.q_ts_next_step: Deque[Tuple[int, float]] = None
         self.q_sample: Deque = None
 
@@ -459,22 +459,15 @@ class Input:
                     # Push message to input_state
                     grouped.append((seq, ts_sent, ts_recv, msg))
 
-                # Only add messages that will not get pushed out immediately.
-                for seq, ts_sent, ts_recv, msg in grouped[-self.window:]:
-                    # self._input_state.push(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=msg)
-                    # todo: makes a copy of the message. Is this necessary?
-                    self._input_state = self._jit_update_input_state(self._input_state, seq, ts_sent, ts_recv, msg)
-                    # if self.node.name in ["planner", "world", "armsensor", "armactuator"]:
-                    #     print(f"{self.node.name}.{self.input_name} |  seq={type(seq)} | ts_sent={type(ts_sent)} | ts_recv={type(ts_recv)} | msg={type(msg)}")
-                    # self._input_state = self._input_state.push(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=msg)
-
                 # Add grouped message to queue
-                self.q_grouped.append(self._input_state)
+                self.q_grouped.append(grouped[-self.window:])
 
                 # Push step (must be called from node thread)
                 self.node._submit(self.node.push_step)
 
     def push_ts_input(self, msg, header):
+        # WALL_CLOCK: called by input.push_input --> msg: actual message
+        # SIMULATED: called by output.push_ts_output --> msg: ts_output
         # Skip if we are not running
         if self._state not in [READY, RUNNING]:
             self.log("push_ts_input (NOT RUNNING)", log_level=DEBUG)

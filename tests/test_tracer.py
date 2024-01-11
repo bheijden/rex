@@ -12,8 +12,8 @@ def test_tracer(supergraph_mode):
 
 	# Simulate
 	for eps in range(5):
-		tstart = time.time()
 		graph_state, obs, info = env.reset(jax.random.PRNGKey(0))
+		tstart = time.time()
 		steps = 0
 		while True:
 			steps += 1

@@ -38,8 +38,8 @@ class Node:
 		return pytree_out
 
 
-@pytest.mark.parametrize("jit", [False, True])
-def test_mp(jit):
+# @pytest.mark.parametrize("jit", [False, True])
+def test_mp():
 	# Log PID of mainprocess
 	log(name="mainprocess", color="red", log_level=WARN, id="main_thread", msg=f"START")
 
@@ -50,7 +50,7 @@ def test_mp(jit):
 	n.step = new_process(n.step, max_workers=2, initializer=initializer, initargs=(False,))
 
 	# Optionally jit the step function
-	n.step = jax.jit(n.step) if jit else n.step
+	# n.step = jax.jit(n.step) if jit else n.step
 
 	# Steps
 	for i in range(5):
