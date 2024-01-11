@@ -5,9 +5,12 @@ https://github.com/RobertTLange/gymnax/blob/main/gymnax/environments/spaces.py
 
 """
 
-from typing import Tuple
-import jumpy
-import jumpy.numpy as jp
+from typing import Sequence, Union
+import jax
+import jax.numpy as jnp
+from jax._src.typing import Array, ArrayLike, DTypeLike
+# import jumpy
+# import jumpy.numpy as jp
 
 
 class Space:
@@ -15,10 +18,10 @@ class Space:
     Minimal jittable class for abstract space.
     """
 
-    def sample(self, rng: jp.ndarray) -> jp.ndarray:
+    def sample(self, rng: ArrayLike) -> jax.Array:
         raise NotImplementedError
 
-    def contains(self, x: jp.int32) -> bool:
+    def contains(self, x: Union[int, ArrayLike]) -> Union[bool, jax.Array]:
         raise NotImplementedError
 
 
@@ -29,17 +32,17 @@ class Discrete(Space):
         assert num_categories >= 0
         self.n = num_categories
         self.shape = ()
-        self.dtype = jp.int32
+        self.dtype = int
 
-    def sample(self, rng: jp.ndarray) -> jp.ndarray:
+    def sample(self, rng: ArrayLike) -> jax.Array:
         """Sample random action uniformly from set of categorical choices."""
-        return jumpy.random.randint(rng, shape=self.shape, low=0, high=self.n).astype(self.dtype)
+        return jax.random.randint(rng, shape=self.shape, minval=0, maxval=self.n).astype(self.dtype)
 
-    def contains(self, x: jp.int32) -> bool:
+    def contains(self, x: Union[int, ArrayLike]) -> Union[bool, jax.Array]:
         """Check whether specific object is within space."""
         # type_cond = isinstance(x, self.dtype)
         # shape_cond = (x.shape == self.shape)
-        range_cond = jp.logical_and(x >= 0, x < self.n)
+        range_cond = jnp.logical_and(x >= 0, x < self.n)
         return range_cond
 
 
@@ -48,21 +51,21 @@ class Box(Space):
 
     def __init__(
         self,
-        low: jp.ndarray,
-        high: jp.ndarray,
-        shape: Tuple[jp.int32] = None,
-        dtype: jp.dtype = jp.float32,
+        low: ArrayLike,
+        high: ArrayLike,
+        shape: Sequence[int] = None,
+        dtype: DTypeLike = float,
     ):
         self.low = low
         self.high = high
         self.shape = shape if shape is not None else low.shape
         self.dtype = dtype
 
-    def sample(self, rng: jp.ndarray) -> jp.ndarray:
+    def sample(self, rng: ArrayLike) -> jax.Array:
         """Sample random action uniformly from 1D continuous range."""
-        return jumpy.random.uniform(rng, shape=self.shape, low=self.low, high=self.high).astype(self.dtype)
+        return jax.random.uniform(rng, shape=self.shape, minval=self.low, maxval=self.high).astype(self.dtype)
 
-    def contains(self, x: jp.int32) -> bool:
+    def contains(self, x: ArrayLike) -> Union[bool, jax.Array]:
         """Check whether specific object is within space."""
-        range_cond = jp.logical_and(jp.all(x >= self.low), jp.all(x <= self.high))
-        return jp.all(range_cond)
+        range_cond = jnp.logical_and(jnp.all(x >= self.low), jnp.all(x <= self.high))
+        return jnp.all(range_cond)

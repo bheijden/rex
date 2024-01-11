@@ -15,25 +15,25 @@ class BraxWrapper(Wrapper):
 
     @property
     def action_size(self) -> int:
-        action_space = self.env.action_space().sample(jumpy.random.PRNGKey(0))
+        action_space = self.env.action_space().sample(jax.random.PRNGKey(0))
         return action_space.shape[0]
 
     @property
     def observation_size(self) -> int:
-        observation_space = self.env.observation_space().sample(jumpy.random.PRNGKey(0))
+        observation_space = self.env.observation_space().sample(jax.random.PRNGKey(0))
         return observation_space.shape[0]
 
-    def reset(self, rng: jp.ndarray) -> State:
+    def reset(self, rng: jax.random.KeyArray) -> State:
         graph_state, obs, info = self.env.reset(rng)
         info = {}
         metrics = {}
-        reward, done = jnp.array(1.0), jnp.array(False, dtype=jp.float32)
+        reward, done = jnp.array(1.0), jnp.array(False, dtype=jnp.float32)
         return State(qp=graph_state, obs=obs, reward=reward, done=done, info=info, metrics=metrics)
 
-    def step(self, state: State, action: jp.ndarray):
+    def step(self, state: State, action: jax.typing.ArrayLike):
         graph_state = state.qp
         next_graph_state, obs, reward, truncated, done, info = self.env.step(graph_state, action)
-        done = jnp.array(done, dtype=jp.float32)
+        done = jnp.array(done, dtype=jnp.float32)
         reward = jnp.array(reward)
         return state.replace(qp=next_graph_state, obs=obs, reward=reward, done=done)
 
@@ -74,7 +74,6 @@ brax_wrappers.wrap_for_training = wrap_for_training
 
 if __name__ == "__main__":
 
-    import rex.jumpy as rjp
     from brax.training.agents.sac import train as sac
     from brax.training.agents.ppo import train as ppo
 
@@ -123,7 +122,7 @@ if __name__ == "__main__":
     print(f'time to train: {times[-1] - times[1]}')
     plt.show()
 
-    # with rjp.use("jax"):
+    # with rjax.use("jax"):
     #     _, _, metrics = ppo.train(
     #         env,
     #         num_timesteps=2 ** 18,

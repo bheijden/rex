@@ -1,7 +1,12 @@
 import abc
 from typing import Dict, Tuple, List
-import jumpy
-import jumpy.numpy as jp
+from jax.typing import ArrayLike
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+# import jumpy
+# import jumpy.numpy as jp
 from flax.core import FrozenDict
 
 from rex.base import StepState, StepStates, GraphState, Output
@@ -36,18 +41,18 @@ class BaseGraph:
 
         self.__init__(*args, **kwargs)
 
-    def init(self, rng: jp.ndarray = None, step_states: StepStates = None, starting_eps: jp.int32 = 0,
+    def init(self, rng: ArrayLike = None, step_states: StepStates = None, starting_eps: ArrayLike = 0,
              randomize_eps: bool = False, order: Tuple[str, ...] = None):
         # Determine initial step states
         step_states = step_states if step_states is not None else {}
         step_states = step_states.unfreeze() if isinstance(step_states, FrozenDict) else step_states
 
         if rng is None:
-            rng = jumpy.random.PRNGKey(0)
+            rng = jax.random.PRNGKey(0)
 
         if randomize_eps:
-            rng, rng_eps = jumpy.random.split(rng, num=2)
-            starting_eps = jumpy.random.choice(rng, self.max_eps(), shape=())
+            rng, rng_eps = jax.random.split(rng, num=2)
+            starting_eps = jax.random.choice(rng, self.max_eps(), shape=())
 
         # Determine init order. If name not in order, add it to the end
         order = tuple() if order is None else order
@@ -57,10 +62,10 @@ class BaseGraph:
                 order.append(name)
 
         # Initialize temporary graph state
-        graph_state = GraphState(eps=jp.as_int32(starting_eps), nodes=step_states)
+        graph_state = GraphState(eps=jnp.int32(starting_eps), nodes=step_states)
 
         # Initialize step states
-        rngs = jumpy.random.split(rng, num=len(order*4)).reshape((len(order), 4, 2))
+        rngs = jax.random.split(rng, num=len(order*4)).reshape((len(order), 4, 2))
         rngs_inputs = {}
         for rngs_ss, name in zip(rngs, order):
             # Unpack rngs
@@ -75,7 +80,7 @@ class BaseGraph:
             # Then, get the state (which may depend on the params)
             state = node.default_state(rng_state, graph_state) if preset_state is None else preset_state
             # Inputs are updated once all nodes have been initialized with their params and state
-            step_states[name] = StepState(rng=rng_step, params=params, state=state, inputs=None, eps=starting_eps, seq=jp.int32(0), ts=jp.float32(0.))
+            step_states[name] = StepState(rng=rng_step, params=params, state=state, inputs=None, eps=starting_eps, seq=np.int32(0), ts=np.float32(0.))
             rngs_inputs[name] = rng_inputs
 
         # Initialize inputs
@@ -84,7 +89,8 @@ class BaseGraph:
                 continue
             node = self.nodes_and_root[name]
             step_states[name] = step_states[name].replace(inputs=node.default_inputs(rng_inputs, graph_state))
-        return GraphState(eps=jp.as_int32(starting_eps), nodes=FrozenDict(step_states))
+        # NOTE: usd to be eps=jp.as_int32(starting_eps) --> why?
+        return GraphState(eps=starting_eps, nodes=FrozenDict(step_states))
 
     def start(self, graph_state: GraphState, timeout: float = None) -> GraphState:
         return graph_state

@@ -3,14 +3,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import gymnasium as gym
 import gymnasium.spaces as gs
 import jax
-import jumpy
-import jumpy.numpy as jp
+import jax.numpy as jnp
 import numpy as onp
 
 from rex.asynchronous import AsyncGraph
 from rex.spaces import Space, Discrete, Box
 from rex.base import GraphState, RexStepReturn
-import rex.jumpy as rjp
 
 
 class Wrapper:
@@ -46,7 +44,7 @@ class AutoResetWrapper(Wrapper):
     def step(self, graph_state: GraphState, action: Any) -> Tuple[GraphState, Any, float, bool, bool, Dict]:
         # Step environment
         graph_state, obs, reward, terminated, truncated, info = self.env.step(graph_state, action)
-        done = jp.logical_or(terminated, truncated)
+        done = jnp.logical_or(terminated, truncated)
 
         # Store last_obs in info (so that it can be used as terminal_observation in case of a reset).
         info["last_observation"] = obs
@@ -54,14 +52,14 @@ class AutoResetWrapper(Wrapper):
         # Auto-reset environment
         assert isinstance(done, bool) or done.ndim < 2, "done must be a scalar or a vector of booleans."
         rng_re = self.env.graph.root.get_step_state(graph_state).rng
-        graph_state_re, obs_re, info_re = self.env.reset(rng_re, graph_state.replace(step=jp.int32(0)))
+        graph_state_re, obs_re, info_re = self.env.reset(rng_re, graph_state.replace(step=0))
 
         def where_done(x, y):
-            x = jp.array(x)
-            y = jp.array(y)
-            _done = jp.array(done)
-            _done = jp.reshape(_done, list(done.shape) + [1] * (len(x.shape) - len(done.shape)))  # type: ignore
-            return jp.where(_done, x, y)
+            x = jnp.array(x)
+            y = jnp.array(y)
+            _done = jnp.array(done)
+            _done = jnp.reshape(_done, list(done.shape) + [1] * (len(x.shape) - len(done.shape)))  # type: ignore
+            return jnp.where(_done, x, y)
 
         next_graph_state, next_obs = jax.tree_map(where_done, (graph_state_re, obs_re), (graph_state, obs))
         return next_graph_state, next_obs, reward, terminated, truncated, info
@@ -73,7 +71,7 @@ class GymWrapper(Wrapper, gym.Env):
         self._name = self.env.graph.root.name
         self._graph_state: GraphState = None
         self._seed: int = None
-        self._rng: jp.ndarray = None
+        self._rng: jax.random.KeyArray = None
 
     @property
     def action_space(self) -> gym.Space:
@@ -97,27 +95,27 @@ class GymWrapper(Wrapper, gym.Env):
         self._step = jax.jit(self._step)
         self._reset = jax.jit(self._reset)
 
-    def _step(self, graph_state: GraphState, action: jp.ndarray) -> RexStepReturn:
+    def _step(self, graph_state: GraphState, action: jax.typing.ArrayLike) -> RexStepReturn:
         graph_state, obs, reward, terminated, truncated, info = self.env.step(graph_state, action)
         return (
-            jumpy.lax.stop_gradient(graph_state),
-            jumpy.lax.stop_gradient(obs),
-            jumpy.lax.stop_gradient(reward),
-            jumpy.lax.stop_gradient(terminated),
-            jumpy.lax.stop_gradient(truncated),
+            jax.lax.stop_gradient(graph_state),
+            jax.lax.stop_gradient(obs),
+            jax.lax.stop_gradient(reward),
+            jax.lax.stop_gradient(terminated),
+            jax.lax.stop_gradient(truncated),
             info,
         )
 
-    def step(self, action: jp.ndarray) -> Tuple[jp.ndarray, float, bool, bool, Dict]:
+    def step(self, action: jax.typing.ArrayLike) -> Tuple[jax.Array, float, bool, bool, Dict]:
         self._graph_state, obs, reward, terminated, truncated, info = self._step(self._graph_state, action)
         return obs, reward, terminated, truncated, info
 
-    def _reset(self, rng: jp.ndarray) -> Tuple[jp.ndarray, GraphState, jp.ndarray, Dict]:
-        new_rng, rng_reset = jumpy.random.split(rng, num=2)
+    def _reset(self, rng: jax.random.KeyArray) -> Tuple[jax.Array, GraphState, jax.Array, Dict]:
+        new_rng, rng_reset = jax.random.split(rng, num=2)
         graph_state, obs, info = self.env.reset(rng_reset)
-        return new_rng, jumpy.lax.stop_gradient(graph_state), jumpy.lax.stop_gradient(obs), info
+        return new_rng, jax.lax.stop_gradient(graph_state), jax.lax.stop_gradient(obs), info
 
-    def reset(self) -> Tuple[jp.ndarray, Dict]:
+    def reset(self) -> Tuple[jax.Array, Dict]:
         if self._rng is None:
             self.seed()
         self._rng, self._graph_state, obs, info = self._reset(self._rng)
@@ -127,7 +125,7 @@ class GymWrapper(Wrapper, gym.Env):
         if seed is None:
             seed = onp.random.randint(0, 2**32 - 1)
         self._seed = seed
-        self._rng = jumpy.random.PRNGKey(self._seed)
+        self._rng = jax.random.PRNGKey(self._seed)
         return [seed]
 
     def close(self):
@@ -169,11 +167,11 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
         self._name = self.unwrapped.graph.root.name
         self._graph_state: GraphState = None
         self._seed: int = None
-        self._rng: jp.ndarray = None
+        self._rng: jax.random.KeyArray = None
 
         # Vectorize environments
-        self._env_step = rjp.vmap(self.env.step)
-        self._env_reset = rjp.vmap(self.env.reset)
+        self._env_step = jax.vmap(self.env.step)
+        self._env_reset = jax.vmap(self.env.reset)
 
         # Call baseclass constructor
         self.num_envs = num_envs
@@ -204,32 +202,32 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
         self._reset = jax.jit(self._reset)
 
     def _step(
-        self, graph_state: GraphState, action: jp.ndarray
-    ) -> Tuple[GraphState, jp.ndarray, float, bool, bool, List[Dict]]:
+        self, graph_state: GraphState, action: jax.typing.ArrayLike
+    ) -> Tuple[GraphState, jax.Array, float, bool, bool, List[Dict]]:
         graph_state, obs, reward, terminated, truncated, info = self._env_step(graph_state, action)
         new_infos = self._transpose_infos(info)
         return (
-            jumpy.lax.stop_gradient(graph_state),
-            jumpy.lax.stop_gradient(obs),
-            jumpy.lax.stop_gradient(reward),
-            jumpy.lax.stop_gradient(terminated),
-            jumpy.lax.stop_gradient(truncated),
+            jax.lax.stop_gradient(graph_state),
+            jax.lax.stop_gradient(obs),
+            jax.lax.stop_gradient(reward),
+            jax.lax.stop_gradient(terminated),
+            jax.lax.stop_gradient(truncated),
             new_infos,
         )
 
-    def _reset(self, rng: jp.ndarray) -> Tuple[jp.ndarray, GraphState, jp.ndarray, List[Dict]]:
-        new_rng, *rng_envs = jumpy.random.split(rng, num=self.num_envs + 1)
-        graph_state, obs, info = self._env_reset(jp.array(rng_envs))
+    def _reset(self, rng: jax.random.KeyArray) -> Tuple[jax.Array, GraphState, jax.Array, List[Dict]]:
+        new_rng, *rng_envs = jax.random.split(rng, num=self.num_envs + 1)
+        graph_state, obs, info = self._env_reset(jnp.array(rng_envs))
         new_infos = self._transpose_infos(info)
         return new_rng, graph_state, obs, new_infos
 
     # todo: VecEnv seems to not be able to handle the info dict (i.e., new gymnasium API)
-    def reset(self) -> Tuple[jp.ndarray]:
+    def reset(self) -> Tuple[jax.Array]:
         # def reset(self) -> Tuple[jp.ndarray, Dict]:
         if self._rng is None:
             self.seed()
         self._rng, self._graph_state, obs, info = self._reset(self._rng)
-        return jumpy.lax.stop_gradient(obs)
+        return jax.lax.stop_gradient(obs)
 
     def close(self):
         self.env.close()
@@ -248,7 +246,7 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
         if seed is None:
             seed = onp.random.randint(0, 2**32 - 1)
         self._seed = seed
-        self._rng = jumpy.random.PRNGKey(seed)
+        self._rng = jax.random.PRNGKey(seed)
         return self.num_envs * [seed]
 
     def get_attr(self, attr_name, indices=None):
@@ -261,7 +259,7 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
 
     def step_wait(self):
         self._graph_state, obs, rewards, terminateds, truncateds, infos = self._step(self._graph_state, self._actions)
-        dones = jp.logical_or(terminateds, truncateds)
+        dones = jnp.logical_or(terminateds, truncateds)
 
         # Add terminal infos
         if "last_observation" in infos[0]:

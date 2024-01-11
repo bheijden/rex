@@ -6,8 +6,6 @@ import tqdm
 import yaml
 
 import jax.numpy as jnp
-import jumpy.numpy as jp
-import jumpy.random
 import numpy as onp
 import jax
 
@@ -24,7 +22,6 @@ matplotlib.use("TkAgg")
 jnp.set_printoptions(precision=2, suppress=True)
 
 import rex
-import rex.jumpy as rjp
 from rex.utils import timer, make_put_output_on_device
 import rex.utils as utils
 from rex.base import StepState
@@ -105,7 +102,7 @@ if __name__ == "__main__":
 
     # Training
     SEED = 0
-    RNG = jumpy.random.PRNGKey(SEED)
+    RNG = jax.random.PRNGKey(SEED)
     NUM_EVAL = 10  # todo: experiment
 
     # Load distributions

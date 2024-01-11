@@ -3,8 +3,6 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor, Future, CancelledError
 from threading import RLock
 from typing import Optional, Any, Deque, TYPE_CHECKING, Tuple, Callable, Dict
-import jumpy.numpy as jp
-import jumpy
 import jax
 from jax import numpy as jnp
 from jax import jit
@@ -159,7 +157,7 @@ class Input:
         _ = self.phase_dist
 
         # Warmup input update
-        self._jit_update_input_state = jumpy.jit(update_input_state, device=device)
+        self._jit_update_input_state = jax.jit(update_input_state, device=device)
         i = graph_state.nodes[self.node.name].inputs[self.input_name]
         new_i = self._jit_update_input_state(i, 0, 0., 0., i[0].data)
 

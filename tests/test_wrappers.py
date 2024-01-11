@@ -1,5 +1,4 @@
-import jumpy
-import jumpy.numpy as jp
+import jax
 from rex.wrappers import GymWrapper, VecGymWrapper, AutoResetWrapper
 from scripts.dummy import build_dummy_env, DummyEnv, build_dummy_compiled_env
 
@@ -20,15 +19,18 @@ def test_auto_reset_wrapper():
 	# Apply wrapper on traced environment
 	env_traced: DummyEnv = AutoResetWrapper(env_traced)  # Wrap into auto reset wrapper
 
+	# Jit
+	env_traced.step = jax.jit(env_traced.step)
+
 	# Get spaces
 	action_space = env_traced.action_space()
 	observation_space = env_traced.observation_space()
 
 	# Run environment
-	done, (graph_state, obs, info) = False, env_traced.reset(jumpy.random.PRNGKey(0))
+	done, (graph_state, obs, info) = False, env_traced.reset(jax.random.PRNGKey(0))
 	for _ in range(4):
 		while not done:
-			action = action_space.sample(jumpy.random.PRNGKey(0))
+			action = action_space.sample(jax.random.PRNGKey(0))
 			graph_state, obs, rewards, truncateds, dones, info = env_traced.step(graph_state, action)
 			done = dones.any()
 	env_traced.close()
@@ -82,7 +84,7 @@ def test_vec_gym_wrapper():
 	for _ in range(1):
 		done, obs = False, env.reset()
 		while not done:
-			action = jp.array([action_space.sample()] * env.num_envs)
+			action = jax.numpy.array([action_space.sample()] * env.num_envs)
 			obs, rewards, dones, info = env.step(action)
 			done = dones.any()
 	env.close()

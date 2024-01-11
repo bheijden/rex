@@ -1,10 +1,8 @@
+from typing import Union
 import jax
-import jumpy
 
 import numpy as onp
 import jax.numpy as jnp
-import jumpy.numpy as jp
-import rex.jumpy as rjp
 
 from brax import math
 from flax import struct
@@ -14,18 +12,18 @@ from envs.vx300s.env import ArmOutput
 
 @struct.dataclass
 class CostParams:
-    orn: jp.float32     # Gripper bar parallel to box
-    down: jp.float32    # Downward orientation --> w_ee_r (w_"ee_rotation")
-    height: jp.float32  # Height of ee --> w_ee_h (w_"ee_height")
-    force: jp.float32   # Force penalty --> w_c (w_"contact")
-    near: jp.float32    # Ee near box --> w_t  (w_"touch")
-    dist: jp.float32    # Box near goal --> w_o_p (w_"object_to_goal")
-    align: jp.float32   # Align such that box is in-between goal and ee --> w_a (w_"align")
-    ctrl: jp.float32    # Control penalty
-    bias_height: jp.float32  # Bias [m] for ee height (accounts for ee size (from ee_link to ground ~35mm)
-    bias_near: jp.float32  # Bias [m] for near penalty in xy plane (accounts for box size from center ~50mm + ~10mm for ee thickness)
-    alpha: jp.float32   # Larger alpha increases penalty on near and dist once (orn, down, height, align) are satisfied
-    discount: jp.float32   # Discount factor
+    orn: Union[float, jax.typing.ArrayLike]     # Gripper bar parallel to box
+    down: Union[float, jax.typing.ArrayLike]    # Downward orientation --> w_ee_r (w_"ee_rotation")
+    height: Union[float, jax.typing.ArrayLike]  # Height of ee --> w_ee_h (w_"ee_height")
+    force: Union[float, jax.typing.ArrayLike]   # Force penalty --> w_c (w_"contact")
+    near: Union[float, jax.typing.ArrayLike]    # Ee near box --> w_t  (w_"touch")
+    dist: Union[float, jax.typing.ArrayLike]    # Box near goal --> w_o_p (w_"object_to_goal")
+    align: Union[float, jax.typing.ArrayLike]   # Align such that box is in-between goal and ee --> w_a (w_"align")
+    ctrl: Union[float, jax.typing.ArrayLike]    # Control penalty
+    bias_height: Union[float, jax.typing.ArrayLike]  # Bias [m] for ee height (accounts for ee size (from ee_link to ground ~35mm)
+    bias_near: Union[float, jax.typing.ArrayLike]  # Bias [m] for near penalty in xy plane (accounts for box size from center ~50mm + ~10mm for ee thickness)
+    alpha: Union[float, jax.typing.ArrayLike]   # Larger alpha increases penalty on near and dist once (orn, down, height, align) are satisfied
+    discount: Union[float, jax.typing.ArrayLike]   # Discount factor
 
     @classmethod
     def default(cls):
@@ -70,7 +68,7 @@ def box_pushing_cost(cp: CostParams, boxpos, eepos, goalpos, eeorn, force=None, 
     # cost_force = (pipeline_state.qf_constraint[2]-0.46) ** 2
     cost_force = jnp.abs(force).max() ** 2 if force is not None else 0.0
     cost_height = jnp.abs(eepos[2] - cp.bias_height)
-    cost_near = jp.abs(math.safe_norm((boxpos - eepos)[:2]) - cp.bias_near)
+    cost_near = jnp.abs(math.safe_norm((boxpos - eepos)[:2]) - cp.bias_near)
     cost_dist = math.safe_norm(boxpos[:2] - goalpos)
     cost_ctrl = math.safe_norm(action) if action is not None else 0.0
 

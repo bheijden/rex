@@ -4,8 +4,6 @@ from functools import partial
 import jax
 import jumpy
 import numpy as np
-import jumpy.numpy as jp
-import rex.jumpy as rjp
 import jax.numpy as jnp
 
 import rex.proto.log_pb2 as log_pb2
@@ -216,8 +214,8 @@ def compile_env(Gs, edges, S, Gs_monomorphism, num_nodes, window: int = 1, Gs_is
     duration_history = []
     nenvs = NUM_ENVS
     for i in tqdm(range(100), desc="Rollouts"):
-        seed = jumpy.random.PRNGKey(i)
-        rng = jumpy.random.split(seed, num=nenvs)
+        seed = jax.random.PRNGKey(i)
+        rng = jax.random.split(seed, num=nenvs)
         timer = utils.timer(f"Full rollout | {i=}", log_level=0)
         with timer:
             res = rw.batch_rollout(rng)
@@ -292,10 +290,10 @@ if __name__ == "__main__":
     # exp_record = log_pb2.ExperimentRecord()
     #
     # # Run environment
-    # done, (graph_state, obs, info) = False, env_async.reset(jumpy.random.PRNGKey(0))
+    # done, (graph_state, obs, info) = False, env_async.reset(jax.random.PRNGKey(0))
     # for _ in range(2):
     #     while not done:
-    #         action = action_space.sample(jumpy.random.PRNGKey(0))
+    #         action = action_space.sample(jax.random.PRNGKey(0))
     #         graph_state, obs, reward, terminated, truncated, info = env_async.step(graph_state, action)
     #         done = terminated | truncated
     #     env_async.stop()  # NOTE: This is required to make the number of ticks equal to max_steps for compiled graph
@@ -339,11 +337,11 @@ if __name__ == "__main__":
     env_step = jax.jit(env_step)
 
     # Run environment
-    rng_reset, rng_action = jumpy.random.split(jumpy.random.PRNGKey(SEED), num=2)
-    action = get_action(jumpy.random.split(rng_action, num=NUM_ENVS)) if NUM_ENVS > 1 else get_action(rng_action)
+    rng_reset, rng_action = jax.random.split(jax.random.PRNGKey(SEED), num=2)
+    action = get_action(jax.random.split(rng_action, num=NUM_ENVS)) if NUM_ENVS > 1 else get_action(rng_action)
     timer = utils.timer(f"jit[reset]", log_level=100)
     with timer:
-        gs, obs, info = env_reset(jumpy.random.split(rng_reset, num=NUM_ENVS), None) if NUM_ENVS > 1 else env_reset(rng_reset, None)
+        gs, obs, info = env_reset(jax.random.split(rng_reset, num=NUM_ENVS), None) if NUM_ENVS > 1 else env_reset(rng_reset, None)
     timer = utils.timer(f"jit[step]", log_level=100)
     with timer:
         gs, obs, reward, terminated, truncated, info = env_step(gs, action)
@@ -363,8 +361,8 @@ if __name__ == "__main__":
 
     nenvs = 2
     for i in range(10):
-        seed = jumpy.random.PRNGKey(i)
-        rng = jumpy.random.split(seed, num=nenvs)
+        seed = jax.random.PRNGKey(i)
+        rng = jax.random.split(seed, num=nenvs)
         timer = utils.timer(f"{i=}", log_level=0)
         with timer:
             obs, action, reward, next_obs, done, cum_return = rw.batch_rollout(rng)
@@ -375,7 +373,7 @@ if __name__ == "__main__":
 # import matplotlib.pyplot as plt
 # fig, axes = plt.subplots(nrows=3)
 # axes = axes.flatten()
-# th, th2 = jp.arctan2(obs[:, 1], obs[:, 0]), jp.arctan2(obs[:, 3], obs[:, 2])
+# th, th2 = jnp.arctan2(obs[:, 1], obs[:, 0]), jnp.arctan2(obs[:, 3], obs[:, 2])
 # axes[0].plot(th)
 # axes[1].plot(th2)
-# axes[2].plot(jp.pi - jp.abs(th + th2))
+# axes[2].plot(jnp.pi - jnp.abs(th + th2))

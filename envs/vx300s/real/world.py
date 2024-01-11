@@ -5,11 +5,10 @@ import cv2
 import atexit
 import yaml
 
-import jumpy
-import jumpy.numpy as jp
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import jax
+import jax.numpy as jnp
 import jax.debug as jdb
 import jax.experimental.host_callback as hcb
 from math import ceil
@@ -135,11 +134,11 @@ class World(Node):
         f.result()  # Wait for feedthrough to be toggled on.
         print("Arm feedthrough enabled.")
 
-    def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
+    def default_state(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> State:
         return State(pipeline_state=Empty())
 
-    def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
-        # rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
+    def reset(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> StepState:
+        # rng_params, rng_state, rng_inputs, rng_step = jax.random.split(rng, num=4)
         params = self.default_params(rng, graph_state)
         state = self.default_state(rng, graph_state)
         inputs = self.default_inputs(rng, graph_state)
@@ -172,9 +171,9 @@ class ArmSensor(Node):
     def __init__(self, client: Client, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._client = client
-        self._dummy_output = ArmOutput(jpos=jp.zeros((6,), dtype=jp.float32),
-                                       eepos=jp.array([0.2, 0.2, 0.2], dtype=jp.float32),
-                                       eeorn=jp.array([0, 0, 0, 1], dtype=jp.float32))
+        self._dummy_output = ArmOutput(jpos=jnp.zeros((6,), dtype=jnp.float32),
+                                       eepos=jnp.array([0.2, 0.2, 0.2], dtype=jnp.float32),
+                                       eeorn=jnp.array([0, 0, 0, 1], dtype=jnp.float32))
 
     def _get_output(self, _dummy):
         jpos = self._client.get_joint_states().position
@@ -185,7 +184,7 @@ class ArmSensor(Node):
         output = ArmOutput(jpos=jpos, eepos=eepos, eeorn=eeorn)
         return output
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ArmOutput:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> ArmOutput:
         """Default output of the node."""
 
         arm_output = hcb.call(self._get_output, 0, result_shape=self._dummy_output)
@@ -212,7 +211,7 @@ class BoxState:
 
 @struct.dataclass
 class BoxOutputWithImage(BoxOutput):
-    image: jp.ndarray
+    image: jax.typing.ArrayLike
 
 
 class BoxSensor(Node):
@@ -224,8 +223,8 @@ class BoxSensor(Node):
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._block_until_detection = block_until_detection
-        self._dummy_output = BoxOutput(boxpos=jp.array([0.35, 0.0, 0.051], dtype=jp.float32),
-                                       boxorn=jp.array([0.0, 0.0, 0.0, 1.0], dtype=jp.float32))
+        self._dummy_output = BoxOutput(boxpos=jnp.array([0.35, 0.0, 0.051], dtype=jnp.float32),
+                                       boxorn=jnp.array([0.0, 0.0, 0.0, 1.0], dtype=jnp.float32))
         self._record_images = record_images
         self._images = []
 
@@ -321,9 +320,9 @@ class BoxSensor(Node):
             for q in quat_a2b:
                 wrapped_yaws.append(BoxOutput(boxpos=None, boxorn=q).wrapped_yaw)
             yaw = mean_angle(np.array(wrapped_yaws, dtype="float32"))
-            cos_half_yaw = jp.cos(yaw / 2)
-            sin_half_yaw = jp.sin(yaw / 2)
-            boxorn = jp.array([0, 0, sin_half_yaw, cos_half_yaw], dtype=jp.float32)
+            cos_half_yaw = jnp.cos(yaw / 2)
+            sin_half_yaw = jnp.sin(yaw / 2)
+            boxorn = jnp.array([0, 0, sin_half_yaw, cos_half_yaw], dtype=jnp.float32)
             # Store last position
             boxpos = np.mean(pos_aib, axis=0, dtype="float32")[:, 0]
 
@@ -367,8 +366,8 @@ class BoxSensor(Node):
     def _wait_for_detection(self, dummy) -> BoxOutput:
         box_output, image = self._get_output()
         if box_output.boxpos is None and not self._block_until_detection:
-            box_output = box_output.replace(boxpos=jp.array([0.35, 0.0, 0.051], dtype=jp.float32),
-                                            boxorn=jp.array([0.0, 0.0, 0.0, 1.0], dtype=jp.float32))
+            box_output = box_output.replace(boxpos=jnp.array([0.35, 0.0, 0.051], dtype=jnp.float32),
+                                            boxorn=jnp.array([0.0, 0.0, 0.0, 1.0], dtype=jnp.float32))
             print("WARNING: Box position could not be detected. Using default position.")
         while box_output.boxpos is None or box_output.boxorn is None:
             # Wait until box is detected
@@ -392,17 +391,17 @@ class BoxSensor(Node):
             self._record_outputs = new_record_outputs
         return super().record(node=node, outputs=outputs, rngs=rngs, states=states, params=params, step_states=step_states)
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BoxOutput:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> BoxOutput:
         """Default output of the node."""
         box_output = hcb.call(self._get_box_output, graph_state.nodes[self.name].state.last_detection, result_shape=self._dummy_output)
         return box_output
 
-    def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> BoxState:
+    def default_state(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> BoxState:
         """Default state of the node."""
         box_output = hcb.call(self._wait_for_detection, 0, result_shape=self._dummy_output)
         return BoxState(last_detection=box_output)
 
-    def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
+    def reset(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> StepState:
         self._init_cam()
         self._images = []
 
@@ -433,9 +432,9 @@ class ArmActuator(Node):
 
     def _set_position(self, jpos):
         self._client.write_commands(jpos.tolist())
-        return jp.array(1.0)
+        return jnp.array(1.0)
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ActuatorOutput:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> ActuatorOutput:
         """Default output of the node."""
 
         jpos = hcb.call(self._get_current_position, 0, result_shape=self._dummy_output)
@@ -454,7 +453,7 @@ class ArmActuator(Node):
         actuator_output = inputs["controller"][-1].data
 
         # Send commands
-        dummy_output = hcb.call(self._set_position, actuator_output.jpos, result_shape=jp.array(1.0))
+        dummy_output = hcb.call(self._set_position, actuator_output.jpos, result_shape=jnp.array(1.0))
         actuator_output = actuator_output.replace(jpos=actuator_output.jpos*dummy_output)
         return new_step_state, actuator_output
 

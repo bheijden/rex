@@ -1,10 +1,10 @@
+from typing import Union
 import seaborn as sns
 sns.set()
 import matplotlib.pyplot as plt
 
-import jumpy
-import jumpy.numpy as jp
 import jax
+import jax.numpy as jnp
 
 import rex.utils as utils
 from rex.wrappers import GymWrapper
@@ -129,12 +129,12 @@ for platform, supergraph_type, nenvs  in settings:
                     new_rng, rng_net = jax.random.split(_rng, 2)
                     action = cenv.action_space().sample(rng_net)
                     new_gs, new_obs, reward, terminated, truncated, info = cenv.step(_gs, action)
-                    done = jp.logical_or(terminated, truncated)
+                    done = jnp.logical_or(terminated, truncated)
                     return new_rng, new_gs, new_obs, reward, done, info
 
                 # nenvs = ROLLOUTS_NUM_ENVS
-                seed = jumpy.random.PRNGKey(0)
-                rng = jumpy.random.split(seed, num=nenvs)
+                seed = jax.random.PRNGKey(0)
+                rng = jax.random.split(seed, num=nenvs)
                 env_reset = jax.jit(jax.vmap(env_reset))
                 env_step = jax.jit(jax.vmap(env_step))
 
@@ -170,10 +170,10 @@ for platform, supergraph_type, nenvs  in settings:
 
                 # Rn rollouts
                 # nenvs = ROLLOUTS_NUM_ENVS
-                seed = jumpy.random.PRNGKey(0)
+                seed = jax.random.PRNGKey(0)
                 for i in range(40):
-                    seed = jumpy.random.PRNGKey(i)
-                    rng = jumpy.random.split(seed, num=nenvs)
+                    seed = jax.random.PRNGKey(i)
+                    rng = jax.random.split(seed, num=nenvs)
                     timer = utils.timer(f"Full rollout | {i=}", log_level=0)
                     with timer:
                         if nenvs > 1:
@@ -220,17 +220,16 @@ record_network, S, S_init_to_S, Gs, Gs_monomorphism = get_network_record(record.
 
 # Add Estimator node to record
 import flax.struct as struct
-import rex.jumpy as rjp
 
 
 @struct.dataclass
 class Loss:
-    loss: jp.float32
-    rloss: jp.float32
-    dloss: jp.float32
+    loss: Union[float, jax.typing.ArrayLike]
+    rloss: Union[float, jax.typing.ArrayLike]
+    dloss: Union[float, jax.typing.ArrayLike]
 
 
-alpha_dloss = nodes["world"].default_state(jumpy.random.PRNGKey(0)).replace(th=jp.float32(0.e0), th2=jp.float32(0.e0), thdot=jp.float32(0.e-2), thdot2=jp.float32(0.e-3))
+alpha_dloss = nodes["world"].default_state(jax.random.PRNGKey(0)).replace(th=jp.float32(0.e0), th2=jp.float32(0.e0), thdot=jp.float32(0.e-2), thdot2=jp.float32(0.e-3))
 
 
 def loss_fn(graph_state):
@@ -246,10 +245,10 @@ def loss_fn(graph_state):
     # NOTE: mode="clip" disables negative indexing.
     eps, step = graph_state.eps, graph_state.step
     ws = graph_state.nodes["estimator"].params.world_states
-    est_state = jax.tree_map(lambda x: rjp.dynamic_slice(x, [eps, step+1] + [0 * s for s in x.shape[2:]], [1, 1] + list(x.shape[2:]))[0, 0], ws)
+    est_state = jax.tree_map(lambda x: jax.lax.dynamic_slice(x, [eps, step+1] + [0 * s for s in x.shape[2:]], [1, 1] + list(x.shape[2:]))[0, 0], ws)
     dloss = jax.tree_util.tree_map(lambda x, y: (x - y) ** 2, est_state, fwd_state)
     dloss = jax.tree_util.tree_map(lambda e, a: a*e, dloss, alpha_dloss)
-    dloss = jax.tree_util.tree_reduce(lambda acc, l: acc + jp.sum(l), dloss, jp.float32(0.))
+    dloss = jax.tree_util.tree_reduce(lambda acc, l: acc + jp.sum(l), dloss, 0.)
     loss = rloss + dloss
     output = Loss(loss=loss, rloss=rloss, dloss=dloss)
     return output
@@ -267,7 +266,7 @@ from estimator import init_graph_state
 init_gs, outputs = init_graph_state(cenv, nodes, record_network, S, Gs, Gs_monomorphism, data)
 
 # Define initial params
-p_tree = jax.tree_util.tree_map(lambda x: None, nodes["world"].default_params(jumpy.random.PRNGKey(0)))
+p_tree = jax.tree_util.tree_map(lambda x: None, nodes["world"].default_params(jax.random.PRNGKey(0)))
 # p_world = p_tree.replace(mass=jp.float32(0.3), mass2=jp.float32(0.3), K=jp.float32(1.0), J=jp.float32(0.02))
 p_world = jax.tree_util.tree_map(lambda x: x * 1.0, p_tree.replace(# J=jp.float32(0.037),
                                                                    # J2=jp.float32(0.000111608131930852),
@@ -296,7 +295,7 @@ def make_prior_fn(guess, multiplier):
     return prior_fn
 
 
-guess = nodes["world"].default_params(jumpy.random.PRNGKey(0))
+guess = nodes["world"].default_params(jax.random.PRNGKey(0))
 prior_fn = make_prior_fn(guess, multiplier=10000)
 
 import optax
@@ -305,7 +304,7 @@ optimizer = optax.adam(learning_rate=5e-2)
 # Define callbacks
 plt.ion()
 from estimator.callback import LogCallback, StateFitCallback, ParamFitCallback
-targets = nodes["world"].default_params(jumpy.random.PRNGKey(0))
+targets = nodes["world"].default_params(jax.random.PRNGKey(0))
 callbacks = {"log": LogCallback(visualize=True),
              "state_fit": StateFitCallback(visualize=True),
              "param_fit": ParamFitCallback(targets=targets, visualize=True)}

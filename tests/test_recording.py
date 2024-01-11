@@ -2,9 +2,7 @@ import pytest
 import dill as pickle
 from flax import serialization
 import jax
-import jumpy
-import rex.jumpy as rjp
-import jumpy.numpy as jp
+import jax.numpy as jnp
 import numpy as onp
 import tempfile
 
@@ -38,31 +36,31 @@ def process_record(record: log_pb2.ExperimentRecord):
 			target = pickle.loads(n.outputs.target)
 			encoded_bytes = n.outputs.encoded_bytes
 			outputs = [serialization.from_bytes(target, b) for b in encoded_bytes]
-			node[n.info.name]["outputs"] = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *outputs)
+			node[n.info.name]["outputs"] = jax.tree_util.tree_map(lambda *x: jnp.stack(x, axis=0), *outputs)
 
 			# Reinitialize rngs
 			target = pickle.loads(n.rngs.target)
 			encoded_bytes = n.rngs.encoded_bytes
 			rngs = [serialization.from_bytes(target, b) for b in encoded_bytes]
-			node[n.info.name]["rngs"] = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *rngs)
+			node[n.info.name]["rngs"] = jax.tree_util.tree_map(lambda *x: jnp.stack(x, axis=0), *rngs)
 
 			# Reinitialize states
 			target = pickle.loads(n.states.target)
 			encoded_bytes = n.states.encoded_bytes
 			states = [serialization.from_bytes(target, b) for b in encoded_bytes]
-			node[n.info.name]["states"] = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *states)
+			node[n.info.name]["states"] = jax.tree_util.tree_map(lambda *x: jnp.stack(x, axis=0), *states)
 
 			# Reinitialize params
 			target = pickle.loads(n.params.target)
 			encoded_bytes = n.params.encoded_bytes
 			params = [serialization.from_bytes(target, b) for b in encoded_bytes]
-			node[n.info.name]["params"] = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *params)
+			node[n.info.name]["params"] = jax.tree_util.tree_map(lambda *x: jnp.stack(x, axis=0), *params)
 
 			# Reinitialize step states
 			target = pickle.loads(n.step_states.target)
 			encoded_bytes = n.step_states.encoded_bytes
 			step_states = [serialization.from_bytes(target, b) for b in encoded_bytes]
-			node[n.info.name]["step_states"] = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *step_states)
+			node[n.info.name]["step_states"] = jax.tree_util.tree_map(lambda *x: jnp.stack(x, axis=0), *step_states)
 	return data_copy
 
 

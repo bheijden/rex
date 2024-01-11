@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 import numpy as onp
 import jumpy.numpy as jp
-import rex.jumpy as rjp
+import rex.jax_utils as rjax
 from collections import deque
 from copy import deepcopy
 
@@ -160,14 +160,14 @@ def make_default_outputs(nodes: Dict[str, "Node"], timings: Timings) -> Dict[str
     max_window = dict()
     num_ticks = dict()
     outputs = dict()
-    _seed = jumpy.random.PRNGKey(0)
+    _seed = jax.random.PRNGKey(0)
     for name, n in nodes.items():
         max_window[name] = n.output.max_window
         num_ticks[name] = timings[name]["tick"].max() + 1 # Number of ticks
         outputs[name] = n.default_output(_seed)  # Outputs
 
     # Stack outputs
-    stack_fn = lambda *x: jp.stack(x, axis=0)
+    stack_fn = lambda *x: jnp.stack(x, axis=0)
     stacked_outputs = dict()
     for name, n in nodes.items():
         num_buffer = num_ticks[name] + max_window[name]
@@ -199,17 +199,17 @@ def make_splitter(trace: log_pb2.TraceRecord, timings: Timings, depths: List[Lis
             substeps += _steps
             _last_counter = 0
             _last_index = i+1
-    isolate = jax.tree_map(lambda *args: jp.array(args), *isolate_lst)
+    isolate = jax.tree_map(lambda *args: jnp.array(args), *isolate_lst)
     _steps = list(reversed(range(0, _last_counter)))
     substeps += _steps
     assert len(substeps) == len(depths), "Substeps must be the same length as depths."
     assert len(chunks) == len(isolate[name]["run"]), "Chunks must be the same length as the timings of the isolated depths."
     assert jp.all(isolate[name]["run"]), "Isolated depths must have run=True."
-    return jp.array(chunks), jp.array(substeps), isolate
+    return jnp.array(chunks), jnp.array(substeps), isolate
 
 
 def update_output(buffer, output: Output, tick: int32) -> Output:
-    new_buffer = jax.tree_map(lambda _b, _o: rjp.index_update(_b, tick, _o, copy=True), buffer, output)
+    new_buffer = jax.tree_map(lambda _b, _o: rjax.index_update(_b, tick, _o, copy=True), buffer, output)
     return new_buffer
 
 
@@ -243,7 +243,7 @@ def make_update_inputs(name: str, outputs: Dict[str, str]):
         for input_name, node_name in outputs.items():
             t = timing[name]["inputs"][input_name]
             buffer = graph_state.outputs[node_name]
-            _new = InputState.from_outputs(t["seq"], t["ts_sent"], t["ts_recv"], rjp.tree_take(buffer, t["seq"]), is_data=True)
+            _new = InputState.from_outputs(t["seq"], t["ts_sent"], t["ts_recv"], rjax.tree_take(buffer, t["seq"]), is_data=True)
             new_inputs[input_name] = _new
 
         return ss.replace(seq=seq, ts=ts_step, inputs=FrozenDict(new_inputs))
@@ -269,7 +269,7 @@ def make_run_node(name: str, node: "Node", outputs: Dict[str, str], stateful: bo
     return _run_node
 
 
-def make_run_batch_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp.ndarray, graph: int,
+def make_run_batch_chunk(timings: Timings, chunks: jax.typing.ArrayLike, substeps: jax.typing.ArrayLike, graph: int,
                          batch_nodes: Dict[str, "Node"], batch_outputs: Dict, stateful: Dict,
                          cond: bool = True):
     if graph == VECTORIZED:
@@ -315,8 +315,8 @@ def make_run_batch_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp.ndar
                 new_ss, new_output = jumpy.lax.cond(pred, _run_node, lambda *args: (_old_ss, _old_output), graph_state, timing)
             else:
                 _update_ss, _update_output = _run_node(graph_state, timing)
-                new_ss = jax.tree_map(lambda _u, _o: jp.where(pred, _u, _o), _update_ss, _old_ss)
-                new_output = jax.tree_map(lambda _u, _o: jp.where(pred, _u, _o), _update_output, _old_output)
+                new_ss = jax.tree_map(lambda _u, _o: jnp.where(pred, _u, _o), _update_ss, _old_ss)
+                new_output = jax.tree_map(lambda _u, _o: jnp.where(pred, _u, _o), _update_output, _old_output)
 
             # Store new state
             new_nodes[name] = new_ss
@@ -333,10 +333,10 @@ def make_run_batch_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp.ndar
         # Run step
         if graph == VECTORIZED:
             # Infer length of chunk
-            chunk = rjp.dynamic_slice(chunks, (step,), (1,))[0]  # has len(num_isolated_depths)
-            timings_chunk = jax.tree_map(lambda _tb, _size: rjp.dynamic_slice(_tb, [chunk] + [0*s for s in _size], [fixed_num_steps] + _size), timings, slice_sizes)
+            chunk = jax.lax.dynamic_slice(chunks, (step,), (1,))[0]  # has len(num_isolated_depths)
+            timings_chunk = jax.tree_map(lambda _tb, _size: jax.lax.dynamic_slice(_tb, [chunk] + [0*s for s in _size], [fixed_num_steps] + _size), timings, slice_sizes)
             # Run chunk
-            graph_state, _ = rjp.scan(_run_batch_step, graph_state, timings_chunk, length=fixed_num_steps, unroll=fixed_num_steps)
+            graph_state, _ = jax.lax.scan(_run_batch_step, graph_state, timings_chunk, length=fixed_num_steps, unroll=fixed_num_steps)
         else:
             # todo: Can we statically re-compile scan for different depth lengths?
             raise NotImplementedError("batched mode not implemented yet.")
@@ -346,7 +346,7 @@ def make_run_batch_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp.ndar
     return _run_batch_chunk
 
 
-def make_run_sequential_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp.ndarray, graph: int,
+def make_run_sequential_chunk(timings: Timings, chunks: jax.typing.ArrayLike, substeps: jax.typing.ArrayLike, graph: int,
                               batch_nodes: Dict[str, "Node"], batch_outputs: Dict[str, Dict[str, str]], stateful: Dict):
 
     # Define step functions
@@ -358,11 +358,11 @@ def make_run_sequential_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp
 
         # Get timings of this step
         step_index = chunk + substep
-        timings_step = rjp.tree_take(timings, step_index)
+        timings_step = rjax.tree_take(timings, step_index)
 
         # determine which nodes to run
         must_run_lst = [timings_step[name]["run"] for name in batch_nodes.keys()]
-        must_run = jp.argmax(jp.array(must_run_lst))
+        must_run = jp.argmax(jnp.array(must_run_lst))
 
         # Run node
         new_graph_state = jumpy.lax.switch(must_run, run_node_fns, graph_state, timings_step)
@@ -374,8 +374,8 @@ def make_run_sequential_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp
         step = graph_state.step
 
         # Infer length of chunk
-        chunk = rjp.dynamic_slice(chunks, (step,), (1,))[0]  # has len(num_isolated_depths)
-        num_steps = rjp.dynamic_slice(substeps, (chunk,), (1,))[0]
+        chunk = jax.lax.dynamic_slice(chunks, (step,), (1,))[0]  # has len(num_isolated_depths)
+        num_steps = jax.lax.dynamic_slice(substeps, (chunk,), (1,))[0]
         # Run chunk
         initial_carry = (graph_state, chunk)
         # todo: fori_loop inhibits the use of reverse-mode differentiation.
@@ -387,7 +387,7 @@ def make_run_sequential_chunk(timings: Timings, chunks: jp.ndarray, substeps: jp
 
 
 def make_run_chunk(nodes: Dict[str, "Node"], trace: log_pb2.TraceRecord,
-                   timings: Timings, chunks: jp.ndarray, substeps: jp.ndarray,
+                   timings: Timings, chunks: jax.typing.ArrayLike, substeps: jax.typing.ArrayLike,
                    graph: int):
     # Exclude pruned nodes from batch step
     batch_nodes = {node_name: node for node_name, node in nodes.items() if node_name != trace.name and (node_name not in trace.pruned)}
@@ -428,7 +428,7 @@ def make_graph_reset(nodes: Dict[str, "Node"], trace: log_pb2.TraceRecord, name:
                 isolate_outputs[i.name] = i.output
 
     # Define update function
-    dummy_timing = rjp.tree_take(isolate, 0)
+    dummy_timing = rjax.tree_take(isolate, 0)
     update_input_fns = {name: make_update_inputs(name, outputs) for name, outputs in batch_outputs.items()}
 
     def _update_outputs(graph_state: GraphState) -> GraphState:
@@ -439,14 +439,14 @@ def make_graph_reset(nodes: Dict[str, "Node"], trace: log_pb2.TraceRecord, name:
                 max_window = nodes[node_name].output.max_window
 
                 # Sample rngs for outputs, and replace node rng.
-                new_rng, *rngs_out = jumpy.random.split(graph_state.nodes[node_name].rng, num=1 + max_window)
+                new_rng, *rngs_out = jax.random.split(graph_state.nodes[node_name].rng, num=1 + max_window)
                 new_nodes[node_name] = graph_state.nodes[node_name].replace(rng=new_rng)
 
                 # Overwrite outputs from [-max_win, ..., -1] with default. (This is usually the case for training)
                 win_outs = [nodes[node_name].default_output(_rng, graph_state) for _rng in rngs_out]
                 if max_window > 0:
-                    win_outs = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *win_outs)
-                    new_outs = jax.tree_util.tree_map(lambda x, y: rjp.index_update(x, jp.arange(-max_window, 0), y, copy=False), outs, win_outs)
+                    win_outs = jax.tree_util.tree_map(lambda *x: jnp.stack(x, axis=0), *win_outs)
+                    new_outs = jax.tree_util.tree_map(lambda x, y: rjax.index_update(x, jnp.arange(-max_window, 0), y, copy=False), outs, win_outs)
                 new_outputs[node_name] = new_outs if max_window > 0 else outs
 
         new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes), outputs=graph_state.outputs.copy(new_outputs))
@@ -467,13 +467,13 @@ def make_graph_reset(nodes: Dict[str, "Node"], trace: log_pb2.TraceRecord, name:
         #       All chunks up until (and including) the graph.state'th chunks have been run.
         #       I.E., graph_state.step=0 means that we have run the first chunk AFTER this function has run.
         #       We do not increment step+1 here, because we increment before running a chunk in graph_step.
-        step = jp.clip(graph_state.step, jp.int32(0), max_step - 1)
+        step = jnp.clip(graph_state.step, jp.int32(0), max_step - 1)
 
         # Run initial chunk.
         _next_graph_state = run_chunk(graph_state)
 
         # Update input
-        next_timing = rjp.tree_take(isolate, step)
+        next_timing = rjax.tree_take(isolate, step)
         next_ss = update_input_fns[name](_next_graph_state, next_timing)
         next_graph_state = _next_graph_state.replace(nodes=_next_graph_state.nodes.copy({name: next_ss}))
         return next_graph_state, next_ss
@@ -503,20 +503,20 @@ def make_graph_step(trace: log_pb2.TraceRecord, name: str, isolate: Timings, run
 
     def _graph_step(graph_state: GraphState, step_state: StepState, action: Any) -> Tuple[GraphState, StepState]:
         # Update graph_state with action
-        timing = rjp.tree_take(isolate, graph_state.step)
+        timing = rjax.tree_take(isolate, graph_state.step)
         new_graph_state = update_state(graph_state, timing, step_state, action)
 
         # Grab step
         # NOTE! The graph_state.step is used to index into the timings.
         #       Therefore, we increment it before running the chunk so that we index into the timings of the next step.
         #       Hence, graph_state.step indicates what chunks have run.
-        next_step = jp.clip(new_graph_state.step + 1, jp.int32(0), max_step - 1)
+        next_step = jnp.clip(new_graph_state.step + 1, jp.int32(0), max_step - 1)
 
         # Run chunk of next step.
         _next_graph_state = run_chunk(new_graph_state.replace(step=next_step))
 
         # Update input
-        next_timing = rjp.tree_take(isolate, next_step)
+        next_timing = rjax.tree_take(isolate, next_step)
         next_ss = update_input(_next_graph_state, next_timing)
         next_graph_state = _next_graph_state.replace(nodes=_next_graph_state.nodes.copy({name: next_ss}))
         return next_graph_state, next_ss

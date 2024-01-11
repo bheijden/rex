@@ -1,8 +1,7 @@
 from functools import partial
 import jax
-import jumpy
+import jax.numpy as jnp
 import numpy as onp
-import jumpy.numpy as jp
 import numpy.ma as ma
 import dill as pickle
 from flax.core import FrozenDict
@@ -490,8 +489,8 @@ def get_outputs_from_timings(
 
     # Fill output buffer
     output_buffer = {}
-    stack_fn = lambda *x: jp.stack(x, axis=0)
-    rng = jumpy.random.PRNGKey(0)
+    stack_fn = lambda *x: onp.stack(x, axis=0)
+    rng = jax.random.PRNGKey(0)
     for node, size in buffer_size.items():
         assert node in nodes, f"Node `{node}` not found in nodes."
         step_buffer = jax.tree_util.tree_map(stack_fn, *[nodes[node].default_output(rng)] * size)
@@ -516,8 +515,8 @@ def get_timings_after_root_split(S: nx.DiGraph, timings: Timings):
     # Get seq state
     timings = {}
     for name, t in slots.items():
-        max_seq = onp.maximum.accumulate(jp.amax(t["seq"], axis=0), axis=1)
-        max_ts_step = onp.maximum.accumulate(jp.amax(t["ts_step"], axis=0), axis=1)
+        max_seq = onp.maximum.accumulate(onp.amax(t["seq"], axis=0), axis=1)
+        max_ts_step = onp.maximum.accumulate(onp.amax(t["ts_step"], axis=0), axis=1)
         timings[name] = dict(seq=max_seq, ts_step=max_ts_step)
     return timings
 
@@ -675,8 +674,8 @@ def get_graph_buffer(
 
     # Create output buffers
     buffers = {}
-    stack_fn = lambda *x: jp.stack(x, axis=0)
-    rng = jumpy.random.PRNGKey(0)
+    stack_fn = lambda *x: jnp.stack(x, axis=0)
+    rng = jax.random.PRNGKey(0)
     for n, s in sizes.items():
         assert n in nodes, f"Node `{n}` not found in nodes."
         buffer_size = max(s) + extra_padding if len(s) > 0 else max(1, extra_padding)

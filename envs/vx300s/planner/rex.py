@@ -3,12 +3,9 @@ import tqdm
 from typing import List, Tuple, Dict, Optional, Callable, Union
 import networkx as nx
 import jax
-import jumpy
 
 import numpy as onp
 import jax.numpy as jnp
-import jumpy.numpy as jp
-import rex.jumpy as rjp
 
 import jax.debug as jdb
 
@@ -43,20 +40,20 @@ class State:
 @struct.dataclass
 class RexCEMParams:
     """See https://arxiv.org/pdf/1907.03613.pdf for details on CEM"""
-    dt: jp.float32
+    dt: Union[float, jax.typing.ArrayLike]
     cem_params: CEMParams
     cost_params: CostParams
 
 
 @struct.dataclass
 class RexCEMState:
-    goalpos: jp.ndarray
-    goalyaw: jp.ndarray
+    goalpos: jax.typing.ArrayLike
+    goalyaw: jax.typing.ArrayLike
     prev_plans: InputState
 
 
 class Cost(Node):
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> Empty:
         """Default output of the root."""
         return Empty()
 
@@ -67,16 +64,16 @@ class Cost(Node):
 
 @struct.dataclass
 class CostState:
-    cost_orn: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
-    cost_down: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
-    cost_align: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
-    cost_height: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
-    alpha: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
-    cost_force: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
-    cost_near: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
-    cost_dist: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
-    cum_cost: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
-    timestep: jp.int32 = struct.field(pytree_node=True, default_factory=lambda: jp.int32(0))
+    cost_orn: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array(0.))
+    cost_down: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array(0.))
+    cost_align: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array(0.))
+    cost_height: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array(0.))
+    alpha: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array(0.))
+    cost_force: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array(0.))
+    cost_near: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array(0.))
+    cost_dist: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array(0.))
+    cum_cost: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array(0.))
+    timestep: Union[int, jax.typing.ArrayLike] = struct.field(pytree_node=True, default_factory=lambda: 0)
 
 
 @struct.dataclass
@@ -187,7 +184,7 @@ class RexCEMPlanner(Node):
         self._use_estimator = use_estimator
         self._z_fixed = z_fixed
         self._horizon = horizon
-        self._u_max = u_max * jp.ones((6,), dtype=jp.float32) if isinstance(u_max, float) else jp.array(u_max, dtype=jp.float32)
+        self._u_max = u_max * jnp.ones((6,), dtype=jnp.float32) if isinstance(u_max, float) else jnp.array(u_max, dtype=jnp.float32)
         assert self._u_max.shape == (6,)
         self._dt = dt
         self._dt_substeps = dt_substeps
@@ -262,10 +259,10 @@ class RexCEMPlanner(Node):
         # plt.show()
         # print("PLOTTING RexCEMPlanner")
 
-    def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> RexCEMParams:
+    def default_params(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> RexCEMParams:
         cost_params = CostParams.default()
-        cem_params = CEMParams(u_min=-self._u_max * jp.ones((6,), dtype=jp.float32),
-                               u_max=self._u_max * jp.ones((6,), dtype=jp.float32),
+        cem_params = CEMParams(u_min=-self._u_max * jnp.ones((6,), dtype=jnp.float32),
+                               u_max=self._u_max * jnp.ones((6,), dtype=jnp.float32),
                                sampling_smoothing=self._sampling_smoothing,
                                evolution_smoothing=self._evolution_smoothing)
         params = RexCEMParams(cem_params=cem_params,
@@ -273,25 +270,25 @@ class RexCEMPlanner(Node):
                               dt=self._dt)
         return params
 
-    def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> RexCEMState:
+    def default_state(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> RexCEMState:
         goalpos = graph_state.nodes["supervisor"].state.goalpos
         goalyaw = graph_state.nodes["supervisor"].state.goalyaw
 
         # Initialize previous plans
         plan = self.default_output(rng, graph_state)
-        seq = 0 * jp.arange(-self.window_prev_plans, 0, dtype=jp.int32) - 1
-        ts_sent = 0 * jp.arange(-self.window_prev_plans, 0, dtype=jp.float32)
-        ts_recv = 0 * jp.arange(-self.window_prev_plans, 0, dtype=jp.float32)
+        seq = 0 * jnp.arange(-self.window_prev_plans, 0, dtype=jnp.int32) - 1
+        ts_sent = 0 * jnp.arange(-self.window_prev_plans, 0, dtype=jnp.float32)
+        ts_recv = 0 * jnp.arange(-self.window_prev_plans, 0, dtype=jnp.float32)
         _msgs = [plan] * self.window_prev_plans
         prev_plans = InputState.from_outputs(seq, ts_sent, ts_recv, _msgs)
         return RexCEMState(prev_plans=prev_plans, goalpos=goalpos, goalyaw=goalyaw)
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> PlannerOutput:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> PlannerOutput:
         p_sup = graph_state.nodes["supervisor"].params
         p_plan = graph_state.nodes["planner"].params
         jpos = p_sup.home_jpos
-        jvel = jp.zeros((self._horizon, jpos.shape[0]), dtype=jp.float32)
-        timestamps = p_plan.dt * jp.arange(0, self._horizon + 1, dtype=jp.float32)
+        jvel = jnp.zeros((self._horizon, jpos.shape[0]), dtype=jnp.float32)
+        timestamps = p_plan.dt * jnp.arange(0, self._horizon + 1, dtype=jnp.float32)
         return PlannerOutput(jpos=jpos, jvel=jvel, timestamps=timestamps)
 
     def step(self, step_state: StepState):
@@ -301,31 +298,31 @@ class RexCEMPlanner(Node):
         # Determine first armsensor.jpos reading before boxsensor reading
         ts_boxpos = step_state.inputs["boxsensor"][-1].ts_sent
         ts_jpos = step_state.inputs["armsensor"].ts_sent
-        idx_all = jp.where(ts_jpos <= ts_boxpos, jp.arange(0, ts_jpos.shape[0]), jp.zeros(ts_jpos.shape, dtype=jp.int32))
-        idx = jp.argmax(idx_all)
-        jpos_now = jp.take(step_state.inputs["armsensor"].data.jpos, idx, axis=0)
+        idx_all = jnp.where(ts_jpos <= ts_boxpos, jnp.arange(0, ts_jpos.shape[0]), jnp.zeros(ts_jpos.shape, dtype=jnp.int32))
+        idx = jnp.argmax(idx_all)
+        jpos_now = jnp.take(step_state.inputs["armsensor"].data.jpos, idx, axis=0)
         goalpos = state.goalpos
-        boxyaw_now = jp.array([step_state.inputs["boxsensor"][-1].data.wrapped_yaw])
+        boxyaw_now = jnp.array([step_state.inputs["boxsensor"][-1].data.wrapped_yaw])
         boxpos_now = step_state.inputs["boxsensor"][-1].data.boxpos
 
         # Fixe boxpos_now[z] to be self._z_fixed
         boxpos_now = boxpos_now.at[2].set(self._z_fixed)
 
         # Pre-initialize world step_state
-        qpos = jp.concatenate([boxpos_now, boxyaw_now, goalpos, jpos_now, jnp.array([0])])  # added [0] for additional ee joint.
-        qd = jp.zeros((qpos.shape[0],), dtype=jnp.float32)
+        qpos = jnp.concatenate([boxpos_now, boxyaw_now, goalpos, jpos_now, jnp.array([0])])  # added [0] for additional ee joint.
+        qd = jnp.zeros((qpos.shape[0],), dtype=jnp.float32)
         pipeline_state = self._world._pipeline.init(self._world.sys, qpos, qd)
-        rng, rng_wss = jumpy.random.split(rng)
+        rng, rng_wss = jax.random.split(rng)
         wss = StepState(rng=rng_wss, state=WorldState(pipeline_state=pipeline_state), params=WorldParams())
 
         # Initialize estimator graph
-        rng, rng_est = jumpy.random.split(rng)
-        init_gs_est = self.graph_est.init(rng=rng_est, step_states={"world": wss}, order=("supervisor", "world", "planner"), starting_eps=jp.as_int32(self._graph_idx))
+        rng, rng_est = jax.random.split(rng)
+        init_gs_est = self.graph_est.init(rng=rng_est, step_states={"world": wss}, order=("supervisor", "world", "planner"), starting_eps=self._graph_idx)
 
         # Infer future timestamp, which is the start of the next plan
         dt_future = self.graph_est.nodes["planner"].output.delay + self.graph_est.nodes["planner"].get_connected_input("controller").delay
         ts_future = step_state.ts + dt_future
-        timestamps = params.dt * jp.arange(0, self._horizon + 1, dtype=jp.float32) + ts_future
+        timestamps = params.dt * jnp.arange(0, self._horizon + 1, dtype=jnp.float32) + ts_future
 
         # Prepare buffer for planner with previous plans
         prev_plans = step_state.state.prev_plans.data
@@ -334,23 +331,23 @@ class RexCEMPlanner(Node):
         shifted_init_plan = init_plan.replace(timestamps=init_plan.timestamps - step_state.ts)
         shifted_prev_plans = prev_plans.replace(timestamps=prev_plans.timestamps - step_state.ts)
         # Extend shifted_prev_plans with an initial plan at the beginning --> is going to be the new plan (seq=0).
-        planner_buffer = jax.tree_util.tree_map(lambda x, y: jp.concatenate([x[None], y], axis=0), shifted_init_plan, shifted_prev_plans)
+        planner_buffer = jax.tree_util.tree_map(lambda x, y: jnp.concatenate([x[None], y], axis=0), shifted_init_plan, shifted_prev_plans)
         init_gs_est = init_gs_est.replace_buffer({"planner": planner_buffer})  # Update buffer with previous plans
 
         # Update wrapped world step_state
         new_wss = init_gs_est.nodes["world"].replace(params=WrappedWorldParams(world_params=WorldParams(),
                                                                                cost_params=step_state.params.cost_params),
                                                      state=WrappedWorldState(world_state=WorldState(pipeline_state=pipeline_state),
-                                                                             cost_state=CostState(cum_cost=jp.array(0.), timestep=jp.int32(0)))
+                                                                             cost_state=CostState(cum_cost=jnp.array(0.), timestep=0))
                                                      )
         init_gs_est = init_gs_est.replace_nodes({"world": new_wss})
 
         # Run estimator graph
         _scan_est_fn = partial(_scan_graph_fn, self.graph_est, self._use_estimator)
-        final_gs_est, _ = jumpy.lax.scan(_scan_est_fn, init_gs_est, jp.arange(0, self.graph_est.max_runs()))
+        final_gs_est, _ = jax.lax.scan(_scan_est_fn, init_gs_est, jnp.arange(0, self.graph_est.max_runs()))
 
         # Initialize MPC world state
-        rng, rng_wss = jumpy.random.split(rng)
+        rng, rng_wss = jax.random.split(rng)
         wss = StepState(rng=rng_wss,
                         state=final_gs_est.nodes["world"].state.world_state,
                         params=final_gs_est.nodes["world"].params.world_params
@@ -358,9 +355,9 @@ class RexCEMPlanner(Node):
         init_gs_mpc = final_gs_est.replace_nodes({"world": wss})
 
         # Initialize estimator graph
-        rng, rng_mpc = jumpy.random.split(rng)
+        rng, rng_mpc = jax.random.split(rng)
         init_gs_mpc = self.graph_mpc.init(rng=rng_mpc, step_states=init_gs_mpc.nodes, order=("supervisor", "world", "planner"),
-                                          starting_eps=jp.as_int32(jp.as_int32(self._graph_idx)))
+                                          starting_eps=self._graph_idx)
         # init_gs_mpc = self._jit_graph_mpc_init(rng=rng_mpc, step_states=init_gs_mpc.nodes, order=("supervisor", "world", "planner"), starting_eps=jp.as_int32(2))
         init_gs_mpc = init_gs_mpc.replace_nodes({"world": final_gs_est.nodes["world"]})  # Replace with wrapped world step_state
         init_gs_mpc = init_gs_mpc.replace_buffer({"planner": planner_buffer})  # Update buffer with previous plans
@@ -373,13 +370,13 @@ class RexCEMPlanner(Node):
                 _init_gs_mpc = _init_gs_mpc.replace_eps(eps)
 
             # Add controls to planner_buffer.jvel[0] --> this is the to-be-optimized plan.
-            next_jvel = jumpy.index_update(planner_buffer.jvel, jp.array(0), controls)
+            next_jvel = planner_buffer.jvel.at[0].set(controls)
             next_p = _init_gs_mpc.buffer["planner"].replace(jvel=next_jvel)
             next_gs = _init_gs_mpc.replace_buffer({"planner": next_p})
 
             # Run mpc graph
             _scan_mpc_fn = partial(_scan_graph_fn, graph, True)
-            _final_gs_mpc, _ = jumpy.lax.scan(_scan_mpc_fn, next_gs, jp.arange(0, graph.max_runs()))
+            _final_gs_mpc, _ = jax.lax.scan(_scan_mpc_fn, next_gs, jnp.arange(0, graph.max_runs()))
 
             # Compute cost (subtract initial cost from forward estimation graph
             cum_cost = _final_gs_mpc.nodes["world"].state.cost_state.cum_cost - _init_gs_mpc.nodes["world"].state.cost_state.cum_cost
@@ -390,13 +387,13 @@ class RexCEMPlanner(Node):
 
         def _vmap_mpc_objective_fn(eps_idx, controls, _init_gs_mpc):
             _vmap_mpc_objective_fn = jax.vmap(mpc_objective_fn, in_axes=(0, None, None), out_axes=0)
-            eps_idx = jp.arange(2, 3)  # + eps_idx % 1
+            eps_idx = jnp.arange(2, 3)  # + eps_idx % 1
             cum_cost = _vmap_mpc_objective_fn(eps_idx, controls, _init_gs_mpc)
             return cum_cost.mean()
 
         # Run CEM
         objective_fn = _vmap_mpc_objective_fn if self._randomize_eps else mpc_objective_fn
-        rng, rng_cem = jumpy.random.split(rng)
+        rng, rng_cem = jax.random.split(rng)
         cem_params = params.cem_params
         cem_hyperparams = dict(sampling_smoothing=cem_params.sampling_smoothing,
                                evolution_smoothing=cem_params.evolution_smoothing,
@@ -413,7 +410,7 @@ class RexCEMPlanner(Node):
         next_step_state = step_state.replace(rng=rng, state=step_state.state.replace(prev_plans=next_prev_plans))
         return next_step_state, next_plan
 
-    def _convert_wxyz_to_xyzw(self, quat: jp.ndarray):
+    def _convert_wxyz_to_xyzw(self, quat: jax.typing.ArrayLike):
         """Convert quaternion (w,x,y,z) -> (x,y,z,w)"""
         return jnp.array([quat[1], quat[2], quat[3], quat[0]], dtype="float32")
 
@@ -427,8 +424,8 @@ def _scan_graph_fn(graph, run_graph, carry, x):
     return next_carry, y
 
 
-def get_init_plan(last_plan: PlannerOutput, timestamps: jp.ndarray) -> PlannerOutput:
-    get_next_jpos_vmap = jumpy.vmap(get_next_jpos, include=(False, True))
+def get_init_plan(last_plan: PlannerOutput, timestamps: jax.typing.ArrayLike) -> PlannerOutput:
+    get_next_jpos_vmap = jax.vmap(get_next_jpos, in_axes=(None, 0))
     jpos_timestamps = get_next_jpos_vmap(last_plan, timestamps)
     dt = timestamps[1:] - timestamps[:-1]
     jvel_timestamps = (jpos_timestamps[1:] - jpos_timestamps[:-1]) / dt[:, None]

@@ -969,8 +969,8 @@ def get_outputs_from_timings(
 
     # Fill output buffer
     output_buffer = {}
-    stack_fn = lambda *x: jp.stack(x, axis=0)
-    rng = jumpy.random.PRNGKey(0)
+    stack_fn = lambda *x: jnp.stack(x, axis=0)
+    rng = jax.random.PRNGKey(0)
     for node, size in buffer_size.items():
         assert node in nodes, f"Node `{node}` not found in nodes."
         step_buffer = jax.tree_util.tree_map(stack_fn, *[nodes[node].default_output(rng)] * size)
@@ -1151,8 +1151,8 @@ def get_graph_buffer(
 
     # Create output buffers
     buffers = {}
-    stack_fn = lambda *x: jp.stack(x, axis=0)
-    rng = jumpy.random.PRNGKey(0)
+    stack_fn = lambda *x: jnp.stack(x, axis=0)
+    rng = jax.random.PRNGKey(0)
     for n, s in sizes.items():
         assert n in nodes, f"Node `{n}` not found in nodes."
         buffer_size = max(s) + extra_padding if len(s) > 0 else max(1, extra_padding)

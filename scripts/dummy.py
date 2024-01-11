@@ -2,8 +2,10 @@ from typing import Any, Dict, Tuple, Union
 
 import networkx as nx
 
-import jumpy
-import jumpy.numpy as jp
+import jax
+import jax.numpy as jnp
+from jax.typing import ArrayLike
+
 from flax import struct
 from flax.core import FrozenDict
 
@@ -27,10 +29,10 @@ def build_dummy_compiled_env() -> Tuple["DummyEnv", "DummyEnv", Dict[str, Node]]
 	action_space = env.action_space()
 
 	# Run environment
-	done, (graph_state, obs, info) = False, env.reset(jumpy.random.PRNGKey(0))
+	done, (graph_state, obs, info) = False, env.reset(jax.random.PRNGKey(0))
 	for _ in range(1):
 		while not done:
-			action = action_space.sample(jumpy.random.PRNGKey(0))
+			action = action_space.sample(jax.random.PRNGKey(0))
 			graph_state, obs, reward, truncated, done, info = env.step(graph_state, action)
 	env.stop()
 
@@ -80,41 +82,40 @@ def build_dummy_graph() -> Dict[str, Node]:
 class DummyParams:
 	"""Dummy param definition"""
 
-	param_1: jp.float32
-	param_2: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([0.0, 1.0], jp.float32))
+	param_1: Union[float, ArrayLike]
+	param_2: jnp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jnp.array([0.0, 1.0], jnp.float32))
 
 
 @struct.dataclass
 class DummyState:
 	"""Dummy state definition"""
 
-	step: jp.int32  # Step index
-	seqs_sum: jp.int32  # The sequence numbers of every input in InputState summed over the entire episode.
-	dummy_1: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([0.0, 1.0], jp.float32))
+	step: Union[int, ArrayLike]  # Step index
+	seqs_sum: Union[int, ArrayLike]  # The sequence numbers of every input in InputState summed over the entire episode.
+	dummy_1: jnp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jnp.array([0.0, 1.0], jnp.float32))
 
 
 @struct.dataclass
 class DummyOutput:
 	"""Dummy output definition"""
 
-	seqs_sum: jp.int32  # The sequence numbers of every input in InputState summed over the entire episode.
-	dummy_1: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([0.0, 1.0], jp.float32))
+	seqs_sum: Union[int, ArrayLike]  # The sequence numbers of every input in InputState summed over the entire episode.
+	dummy_1: jnp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jnp.array([0.0, 1.0], jnp.float32))
 
 
 class DummyNode(Node):
 
-	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyParams:
+	def default_params(self, rng: ArrayLike, graph_state: GraphState = None) -> DummyParams:
 		"""Default params of the node."""
-		return DummyParams(jp.float32(99.0), jp.array([0.0, 1.0], dtype=jp.float32))
+		return DummyParams(99.0, jnp.array([0.0, 1.0]))
 
-	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyState:
+	def default_state(self, rng: ArrayLike, graph_state: GraphState = None) -> DummyState:
 		"""Default state of the node."""
-		return DummyState(step=jp.int32(0), seqs_sum=jp.int32(0), dummy_1=jp.array([0.0, 1.0], dtype=jp.float32))
+		return DummyState(step=0, seqs_sum=0, dummy_1=jnp.array([0.0, 1.0]))
 
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyOutput:
+	def default_output(self, rng: ArrayLike, graph_state: GraphState = None) -> DummyOutput:
 		"""Default output of the node."""
-		seqs_sum = jp.int32(0)
-		return DummyOutput(seqs_sum=seqs_sum, dummy_1=jp.array([0.0, 1.0], dtype=jp.float32))
+		return DummyOutput(seqs_sum=0, dummy_1=jnp.array([0.0, 1.0]))
 
 	def step(self, step_state: StepState) -> Tuple[StepState, DummyOutput]:
 		"""Step the node."""
@@ -123,12 +124,12 @@ class DummyNode(Node):
 
 		# Split rng for step call
 		new_rng = rng
-		# new_rng, rng_step = jumpy.random.split(rng, num=2)  # todo: is costly if not jitted.
+		# new_rng, rng_step = jax.random.split(rng, num=2)  # todo: is costly if not jitted.
 
 		# Sum the sequence numbers of all inputs
-		seqs_sum = jp.int32(0)  # state.seqs_sum if self.stateful else jp.int32(0)
+		seqs_sum = 0
 		for name, i in inputs.items():
-			seqs_sum += jp.sum(i.seq)
+			seqs_sum += jnp.sum(i.seq)
 
 		# Update params (optional)
 		new_params = params.replace(param_1=step_state.ts)
@@ -137,36 +138,30 @@ class DummyNode(Node):
 		new_state = state.replace(step=state.step + 1, seqs_sum=seqs_sum)
 
 		# Prepare output
-		output = DummyOutput(seqs_sum=seqs_sum, dummy_1=jp.array([1.0, 2.0], jp.float32))
+		output = DummyOutput(seqs_sum=seqs_sum, dummy_1=jnp.array([1.0, 2.0]))
 
 		# Update StepState (notice that do not replace the inputs)
 		new_step_state = step_state.replace(rng=new_rng, state=new_state, params=new_params)
 
 		# Print input info
-		if not jumpy.core.is_jitted() and not jumpy.is_jax_installed:
-			log_msg = []
-			for name, input_state in inputs.items():
-				# ts_msgs = [round(ts_recv, 4) for ts_recv in input_state.ts_recv]
-				# info = f"{name}={ts_msgs}"
-				seq_msg = [seq for seq in input_state.seq]
-				info = f"{name}={seq_msg}"
-				log_msg.append(info)
-			log_msg = " | ".join(log_msg)
-			self.log("step", f"step={state.step} | seqs_sum={seqs_sum} | {log_msg}", log_level=INFO)
-			# self.log("step", f"step={state.step} | ts={ts: .3f} | {log_msg}", log_level=INFO)
+		log_msg = []
+		input_states = {}
+		for name, input_state in inputs.items():
+			# ts_msgs = [round(ts_recv, 4) for ts_recv in input_state.ts_recv]
+			# info = f"{name}={ts_msgs}"
+			seq_msg = [seq for seq in input_state.seq]
+			input_states[name] = seq_msg
+			info = f"{name}=" + "{" + name + "}"
+			log_msg.append(info)
+		log_msg = " | ".join(log_msg)
+
+		def log_callback(_step, _seqs_sum, _input_states):
+			_log_msg = log_msg.format(**_input_states)
+			self.log("step", f"step={_step} | seqs_sum={_seqs_sum} | {_log_msg}", log_level=INFO)
+
+		jax.debug.callback(log_callback, step_state.state.step, seqs_sum, input_states)
 
 		return new_step_state, output
-
-
-# class DummyAgent(Agent):
-#
-# 	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> DummyOutput:
-# 		"""Default output of the root."""
-# 		# if graph_state is not None:
-# 		# 	seqs_sum = graph_state.nodes[self.name].state.seqs_sum
-# 		# else:
-# 		seqs_sum = jp.int32(0)
-# 		return DummyOutput(seqs_sum=seqs_sum, dummy_1=jp.array([0.0, 1.0], dtype=jp.float32))
 
 
 class DummyEnv(BaseEnv):
@@ -184,7 +179,7 @@ class DummyEnv(BaseEnv):
 
 		return obs
 
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> RexResetReturn:
+	def reset(self, rng: ArrayLike, graph_state: GraphState = None) -> RexResetReturn:
 		"""Reset environment."""
 		new_graph_state = self.graph.init()
 
@@ -206,12 +201,12 @@ class DummyEnv(BaseEnv):
 		rng, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
 
 		# Split rng for step call
-		new_rng, rng_step = jumpy.random.split(rng, num=2)
+		new_rng, rng_step = jax.random.split(rng, num=2)
 
 		# Sum the sequence numbers of all inputs
-		seqs_sum = jp.int32(0)  # state.seqs_sum
+		seqs_sum = 0  # state.seqs_sum
 		for name, i in inputs.items():
-			seqs_sum += jp.sum(i.seq)
+			seqs_sum += jnp.sum(i.seq)
 
 		# Update params (optional)
 		new_params = params
@@ -220,7 +215,7 @@ class DummyEnv(BaseEnv):
 		new_state = state  # state.replace(step=state.step + 1, seqs_sum=seqs_sum)
 
 		# Prepare output
-		action = DummyOutput(seqs_sum=seqs_sum, dummy_1=jp.array([1.0, 2.0], jp.float32))
+		action = DummyOutput(seqs_sum=seqs_sum, dummy_1=jnp.array([1.0, 2.0]))
 
 		# Update StepState (notice that we do not replace the inputs)
 		new_step_state = step_state.replace(rng=new_rng, state=new_state, params=new_params)
@@ -240,8 +235,8 @@ class DummyEnv(BaseEnv):
 
 	def observation_space(self, params: DummyParams = None):
 		"""Observation space of the environment."""
-		return Box(low=-1, high=1, shape=(), dtype=jp.float32)
+		return Box(low=-1, high=1, shape=(), dtype=jnp.float32)
 
 	def action_space(self, params: DummyParams = None):
 		"""Action space of the environment."""
-		return Box(low=-1, high=1, shape=(1,), dtype=jp.float32)
+		return Box(low=-1, high=1, shape=(1,), dtype=jnp.float32)

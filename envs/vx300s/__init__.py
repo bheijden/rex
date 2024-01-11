@@ -25,8 +25,6 @@ import flax.serialization as serialization
 import networkx as nx
 from jax.tree_util import tree_map
 import numpy as onp
-import jumpy
-import jumpy.numpy as jp
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
@@ -240,11 +238,11 @@ def eval_env(env: BaseEnv,
         formatted_string = ' | '.join(formatted_items)
         return formatted_string
 
-    rng = jumpy.random.PRNGKey(seed) if seed is not None else jumpy.random.PRNGKey(0)
+    rng = jax.random.PRNGKey(seed) if seed is not None else jax.random.PRNGKey(0)
 
     episode_rewards = []
     for i in range(n_eval_episodes):
-        rng, rng_eps = jumpy.random.split(rng)
+        rng, rng_eps = jax.random.split(rng)
         episode_rewards.append(0.0)
         graph_state, obs, info = env.reset(rng=rng_eps)
         steps, done = 0, False
@@ -286,7 +284,7 @@ def make_delay_distributions(record: Union[log_pb2.ExperimentRecord],
     # Prepare data
     if isinstance(record, log_pb2.ExperimentRecord):
         data, info = utils.get_delay_data(record, concatenate=True)
-    # data = tree_map(lambda *x: jp.concatenate(x, axis=0), *record._delays)
+    # data = tree_map(lambda *x: jnp.concatenate(x, axis=0), *record._delays)
     else:
         raise NotImplementedError
 
@@ -547,13 +545,13 @@ def show_box_pushing_experiment(record: log_pb2.EpisodeRecord, xml_path: str, pl
 
     @struct.dataclass
     class EEPose:
-        eepos: jp.ndarray
-        eeorn: jp.ndarray
+        eepos: jax.typing.ArrayLike
+        eeorn: jax.typing.ArrayLike
 
-    def get_ee_pose(sys: System, jpos: jp.ndarray) -> EEPose:
+    def get_ee_pose(sys: System, jpos: jax.typing.ArrayLike) -> EEPose:
         # Set
-        qpos = jp.concatenate([sys.init_q[:6], jpos, jp.array([0])])
-        pipeline_state = s_pipeline.init(sys, qpos, jp.zeros_like(sys.init_q))
+        qpos = jnp.concatenate([sys.init_q[:6], jpos, jnp.array([0])])
+        pipeline_state = s_pipeline.init(sys, qpos, jnp.zeros_like(sys.init_q))
         x_i = pipeline_state.x.vmap().do(
             Transform.create(pos=sys.link.inertia.transform.pos)
         )
@@ -753,13 +751,13 @@ def process_box_pushing_performance_data(records: Dict[str, log_pb2.ExperimentRe
 
     @struct.dataclass
     class EEPose:
-        eepos: jp.ndarray
-        eeorn: jp.ndarray
+        eepos: jax.typing.ArrayLike
+        eeorn: jax.typing.ArrayLike
 
-    def get_ee_pose(sys: System, jpos: jp.ndarray) -> EEPose:
+    def get_ee_pose(sys: System, jpos: jax.typing.ArrayLike) -> EEPose:
         # Set
-        qpos = jp.concatenate([sys.init_q[:6], jpos, jp.array([0])])
-        pipeline_state = s_pipeline.init(sys, qpos, jp.zeros_like(sys.init_q))
+        qpos = jnp.concatenate([sys.init_q[:6], jpos, jnp.array([0])])
+        pipeline_state = s_pipeline.init(sys, qpos, jnp.zeros_like(sys.init_q))
         x_i = pipeline_state.x.vmap().do(
             Transform.create(pos=sys.link.inertia.transform.pos)
         )

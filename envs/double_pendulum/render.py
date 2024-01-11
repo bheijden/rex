@@ -1,6 +1,7 @@
 from typing import Any, Dict, Tuple, Union, List
-import jumpy
-import jumpy.numpy as jp
+import jax
+import jax.numpy as jnp
+import jax.experimental.host_callback as hcb
 import numpy as onp
 from flax import struct
 from rex.constants import WARN, LATEST
@@ -18,7 +19,7 @@ except ImportError as e:
 @struct.dataclass
 class Image:
     """Pendulum image definition"""
-    data: jp.ndarray
+    data: jax.Array
 
 
 class Render(Node):
@@ -37,6 +38,7 @@ class Render(Node):
         self._mode = mode
         self._encoding = encoding
         self._shape = shape or [400, 400, 3]
+        self._dummy_image = Image(data=jnp.zeros(self._shape, dtype=jnp.uint8))
 
     def __getstate__(self):
         args, kwargs, inputs = super().__getstate__()
@@ -50,24 +52,15 @@ class Render(Node):
         # At this point, the inputs are not yet fully unpickled.
         self.inputs = inputs
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Image:
-        """Default output of the node."""
-        return Image(data=jp.zeros(self._shape, dtype=jp.uint8))
-
-    def step(self, step_state: StepState) -> Tuple[StepState, Image]:
-        """Step the node."""
-        # Unpack StepState
-        inputs = step_state.inputs
-
-        # Grab current state
-        last_obs = inputs["sensor"][-1].data
+    def _render(self, last_obs) -> Image:
+        """Render the image."""
         cos_th, sin_th, cos_th2, sin_th2 = last_obs.cos_th, last_obs.sin_th, last_obs.cos_th2, last_obs.sin_th2
-        th, th2 = jp.arctan2(sin_th, cos_th), jp.arctan2(sin_th2, cos_th2)
-        thdot, thdot2 = inputs["sensor"][-1].data.thdot, inputs["sensor"][-1].data.thdot2
+        th, th2 = jnp.arctan2(sin_th, cos_th), jnp.arctan2(sin_th2, cos_th2)
+        thdot, thdot2 = last_obs.thdot, last_obs.thdot2
 
         # Prepare new image
-        data = jp.zeros(self._shape, jp.uint8)
-        if not jumpy.core.is_jitted() and cv2 is not None:
+        data = onp.zeros(self._shape, onp.uint8)
+        if cv2 is not None:
             if self._visual == "rod":
                 data = double_pendulum_render_fn(data, th, th2, thdot, thdot2)
             else:
@@ -78,7 +71,20 @@ class Render(Node):
             cv2.waitKey(1)
 
         # Prepare output
-        output = Image(data=data)  # todo: generate image from state
+        output = Image(data=data)
+        return output
+
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> Image:
+        """Default output of the node."""
+        return Image(data=jnp.zeros(self._shape, dtype=jnp.uint8))
+
+    def step(self, step_state: StepState) -> Tuple[StepState, Image]:
+        """Step the node."""
+        # Unpack StepState
+        inputs = step_state.inputs
+
+        # Get image
+        output = hcb.call(self._render, inputs["sensor"][-1].data, result_shape=self._dummy_image)
         return step_state, output
 
 
@@ -97,7 +103,7 @@ def double_pendulum_render_fn(data: onp.ndarray, th: float, th2: float, thdot: f
 
     data += 255
     length = side_length // 5
-    sin_theta, cos_theta = jp.sin(th), jp.cos(th)
+    sin_theta, cos_theta = jnp.sin(th), jnp.cos(th)
 
     # Draw title
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -121,7 +127,7 @@ def double_pendulum_render_fn(data: onp.ndarray, th: float, th2: float, thdot: f
     data = cv2.circle(
         data, (width // 2 + int(length * sin_theta), height // 2 + int(length * cos_theta)), side_length // 24, (0, 0, 0), -1
     )
-    sin_theta2, cos_theta2 = jp.sin(th + th2), jp.cos(th + th2)
+    sin_theta2, cos_theta2 = jnp.sin(th + th2), jnp.cos(th + th2)
     data = cv2.line(
         data,
         (width // 2 + int(length * sin_theta), height // 2 + int(length * cos_theta)),

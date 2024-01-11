@@ -1,9 +1,7 @@
 import os
 import time
 from typing import Any, Dict, Tuple, Union, List
-import jumpy
 import numpy as np
-import jumpy.numpy as jp
 import jax
 import jax.experimental.host_callback as host_callback
 import jax.numpy as jnp
@@ -70,11 +68,11 @@ class State:
 
 @struct.dataclass
 class MjxOutput:
-    jpos: jp.ndarray
-    eepos: jp.ndarray
-    eeorn: jp.ndarray
-    boxpos: jp.ndarray
-    boxorn: jp.ndarray
+    jpos: jax.typing.ArrayLike
+    eepos: jax.typing.ArrayLike
+    eeorn: jax.typing.ArrayLike
+    boxpos: jax.typing.ArrayLike
+    boxorn: jax.typing.ArrayLike
 
 
 class World(Node):
@@ -99,11 +97,11 @@ class World(Node):
         self._box_idx = self._mj_m.body("box").geomadr[0]
         self._goal_idx = self._mj_m.body("goal").geomadr[0]
 
-    def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
+    def default_params(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> Params:
         """Default params of the node."""
         return Params()
 
-    def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
+    def default_state(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> State:
         """Default state of the node."""
         # Try to grab state from graph_state
         goalpos = graph_state.nodes["supervisor"].state.goalpos
@@ -120,7 +118,7 @@ class World(Node):
         d = mjx.forward(self._mjx_m, d)
         return State(pipeline_state=d)
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> MjxOutput:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> MjxOutput:
         """Default output of the node."""
         # Grab output from state
         pipeline_state = graph_state.nodes["world"].state.pipeline_state
@@ -160,7 +158,7 @@ class World(Node):
         boxorn = self._convert_wxyz_to_xyzw(x_quat[self._box_idx])  # quaternion (w,x,y,z) -> (x,y,z,w)
         return MjxOutput(jpos=jpos, eepos=eepos, eeorn=eeorn, boxpos=boxpos, boxorn=boxorn)
 
-    def _convert_wxyz_to_xyzw(self, quat: jp.ndarray):
+    def _convert_wxyz_to_xyzw(self, quat: jax.typing.ArrayLike):
         """Convert quaternion (w,x,y,z) -> (x,y,z,w)"""
         return jnp.array([quat[1], quat[2], quat[3], quat[0]], dtype="float32")
 
@@ -234,7 +232,7 @@ class ArmSensor(Node):
         self._world = world
         super().__init__(*args, **kwargs)
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ArmOutput:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> ArmOutput:
         """Default output of the node."""
         mjx_output = self._world.default_output(rng, graph_state)
         return ArmOutput(jpos=mjx_output.jpos, eepos=mjx_output.eepos, eeorn=mjx_output.eeorn)
@@ -258,7 +256,7 @@ class BoxSensor(Node):
         self._world = world
         super().__init__(*args, **kwargs)
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BoxOutput:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> BoxOutput:
         """Default output of the node."""
         mjx_output = self._world.default_output(rng, graph_state)
         return BoxOutput(boxpos=mjx_output.boxpos, boxorn=mjx_output.boxorn)
@@ -282,7 +280,7 @@ class ArmActuator(Node):
         self._world = world
         super().__init__(*args, **kwargs)
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ActuatorOutput:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> ActuatorOutput:
         """Default output of the node."""
         mjx_output = self._world.default_output(rng, graph_state)
         return ActuatorOutput(jpos=mjx_output.jpos)
@@ -306,7 +304,7 @@ class ViewerOutput:
     boxsensor: BoxOutput
     armsensor: ArmOutput
     supervisor: SupervisorOutput
-    qpos: jp.ndarray
+    qpos: jax.typing.ArrayLike
 
 
 class Viewer(Node):
@@ -342,14 +340,14 @@ class Viewer(Node):
         # mjx.device_get_into(self._mj_d, mjx_d)
         # self._viewer.sync()
 
-    def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
+    def default_params(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> Empty:
         """Default params of the node."""
         return Empty()
 
-    def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
+    def default_state(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> Empty:
         return Empty()
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ViewerOutput:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> ViewerOutput:
         """Default output of the node."""
         # Grab output from state
         default_outputs = {}
@@ -401,13 +399,13 @@ class Viewer(Node):
             self._viewer.sync()
         return 1.
 
-    def _get_qpos(self, viewer_output: ViewerOutput) -> jp.ndarray:
-        boxyaw = jp.array([viewer_output.boxsensor.wrapped_yaw])
+    def _get_qpos(self, viewer_output: ViewerOutput) -> jax.Array:
+        boxyaw = jnp.array([viewer_output.boxsensor.wrapped_yaw])
         boxpos = viewer_output.boxsensor.boxpos
         goalpos = viewer_output.supervisor.goalpos
         goalyaw = viewer_output.supervisor.goalyaw
         jpos = viewer_output.armsensor.jpos
-        qpos = jnp.concatenate([boxpos, boxyaw, goalpos, jpos, jp.array([0])])
+        qpos = jnp.concatenate([boxpos, boxyaw, goalpos, jpos, jnp.array([0])])
         # jax_print("qpos={qpos}", qpos=qpos)
         return qpos
 

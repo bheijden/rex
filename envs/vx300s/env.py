@@ -1,9 +1,7 @@
 from typing import Any, Dict, Tuple, Union
 from functools import partial
-import jumpy
-import jumpy.numpy as jp
 import jax
-import rex.jumpy as rjp
+import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 
@@ -20,55 +18,55 @@ from rex.utils import timer
 @struct.dataclass
 class SupervisorParams:
     # Other parameters
-    goalpos_dist: jp.float32 = struct.field(pytree_node=True, default_factory=lambda: jp.float32(0.25))
-    home_boxpos: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([0.32, -0.15, 0.051], jp.float32))
-    home_boxyaw: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([0.0], jp.float32))
-    # home_boxpos: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([0.35, 0.0, 0.051], jp.float32))
-    # home_jpos: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([0., 0., 0., 0*-3.14/4, 3.1415 / 2, 0.], jp.float32))
-    home_jpos: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([-0.723, 0.396, 0.136, 0, 1.04, 0.88], jp.float32))
+    goalpos_dist: Union[float, jax.typing.ArrayLike] = struct.field(pytree_node=True, default_factory=lambda: 0.25)
+    home_boxpos: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array([0.32, -0.15, 0.051], jnp.float32))
+    home_boxyaw: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array([0.0], jnp.float32))
+    # home_boxpos: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array([0.35, 0.0, 0.051], jnp.float32))
+    # home_jpos: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array([0., 0., 0., 0*-3.14/4, 3.1415 / 2, 0.], jnp.float32))
+    home_jpos: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array([-0.723, 0.396, 0.136, 0, 1.04, 0.88], jnp.float32))
     # Observation parameters
-    min_jpos: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([-3.14159, -1.8500, -1.7628, -3.14159, -1.8675, -3.14159], jp.float32))
-    max_jpos: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([3.14159, 1.2566, 1.6057, 3.14159, 2.2340, 3.14159], jp.float32))
-    min_boxpos: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([-2.0, -2.0, 0.], jp.float32))
-    max_boxpos: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([2.0, 2.0, 0.5], jp.float32))
-    min_boxorn: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([-3.14, -3.14, -3.14], jp.float32))
-    max_boxorn: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array([3.14, 3.14, 3.14], jp.float32))
+    min_jpos: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array([-3.14159, -1.8500, -1.7628, -3.14159, -1.8675, -3.14159], jnp.float32))
+    max_jpos: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array([3.14159, 1.2566, 1.6057, 3.14159, 2.2340, 3.14159], jnp.float32))
+    min_boxpos: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array([-2.0, -2.0, 0.], jnp.float32))
+    max_boxpos: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array([2.0, 2.0, 0.5], jnp.float32))
+    min_boxorn: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array([-3.14, -3.14, -3.14], jnp.float32))
+    max_boxorn: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array([3.14, 3.14, 3.14], jnp.float32))
 
 
 @struct.dataclass
 class PlannerOutput:
-    jpos: jp.ndarray  # (6,) --> jpos
-    jvel: jp.ndarray  # (horizon, 6) --> [jvel[0], jvel[1], ...]
-    timestamps: jp.ndarray  # (horizon+1,) --> jpos(timestamps[0])=jpos, jpos(timestamps[1])=jpos+jvel[0], ...
+    jpos: jax.typing.ArrayLike  # (6,) --> jpos
+    jvel: jax.typing.ArrayLike  # (horizon, 6) --> [jvel[0], jvel[1], ...]
+    timestamps: jax.typing.ArrayLike  # (horizon+1,) --> jpos(timestamps[0])=jpos, jpos(timestamps[1])=jpos+jvel[0], ...
 
 
 @struct.dataclass
 class SupervisorState:
-    goalpos: jp.ndarray
-    goalyaw: jp.ndarray
+    goalpos: jax.typing.ArrayLike
+    goalyaw: jax.typing.ArrayLike
 
 
 @struct.dataclass
 class SupervisorOutput:
-    goalpos: jp.ndarray
-    goalyaw: jp.ndarray
+    goalpos: jax.typing.ArrayLike
+    goalyaw: jax.typing.ArrayLike
 
 
 @struct.dataclass
 class ActuatorOutput:
-    jpos: jp.ndarray
+    jpos: jax.typing.ArrayLike
 
 
 @struct.dataclass
 class ArmOutput:
-    jpos: jp.ndarray
-    eepos: jp.ndarray
-    eeorn: jp.ndarray
+    jpos: jax.typing.ArrayLike
+    eepos: jax.typing.ArrayLike
+    eeorn: jax.typing.ArrayLike
 
     @property
     def orn_to_3x3(self):
         q = self.eeorn
-        d = jp.dot(q, q)
+        d = jnp.dot(q, q)
         x, y, z, w = q
         s = 2 / d
         xs, ys, zs = x * s, y * s, z * s
@@ -76,17 +74,17 @@ class ArmOutput:
         xx, xy, xz = x * xs, x * ys, x * zs
         yy, yz, zz = y * ys, y * zs, z * zs
 
-        return jp.array([
-            jp.array([1 - (yy + zz), xy - wz, xz + wy]),
-            jp.array([xy + wz, 1 - (xx + zz), yz - wx]),
-            jp.array([xz - wy, yz + wx, 1 - (xx + yy)]),
+        return jnp.array([
+            jnp.array([1 - (yy + zz), xy - wz, xz + wy]),
+            jnp.array([xy + wz, 1 - (xx + zz), yz - wx]),
+            jnp.array([xz - wy, yz + wx, 1 - (xx + yy)]),
         ])
 
 
 @struct.dataclass
 class BoxOutput:
-    boxpos: jp.ndarray
-    boxorn: jp.ndarray
+    boxpos: jax.typing.ArrayLike
+    boxorn: jax.typing.ArrayLike
 
     @property
     def wrapped_yaw(self):
@@ -96,28 +94,28 @@ class BoxOutput:
         # import jax.numpy as jnp
         # Remove z axis from rotation matrix
         axis_idx = 2  # Upward pointing axis of robot base
-        z_idx = jp.argmax(jp.abs(rot[axis_idx, :]), axis=0)  # Take absolute value, if axis points downward.
+        z_idx = jnp.argmax(jnp.abs(rot[axis_idx, :]), axis=0)  # Take absolute value, if axis points downward.
         # Calculate angle
         tmp = rot[[i for i in range(2) if i !=axis_idx], :]
-        rot_red = jp.zeros((2, 2), dtype=jp.float32)
+        rot_red = jnp.zeros((2, 2), dtype=jnp.float32)
         rot_red = rot_red + tmp[:, [0, 1]]*(z_idx == 2)
         rot_red = rot_red + tmp[:, [1, 2]]*(z_idx == 0)
         rot_red = rot_red + tmp[:, [0, 2]]*(z_idx == 1)
-        s = jp.sign(jp.take(rot[axis_idx], z_idx))
+        s = jnp.sign(jnp.take(rot[axis_idx], z_idx))
         c1 = (s > 0) * (z_idx == 1)
         c2 = (s < 0) * (z_idx != 1)
-        c = jp.logical_or(c1, c2)
-        rot_red = (1-c) * rot_red + c * rot_red @ jp.array([[0, 1], [1, 0]], dtype=jp.float32)
+        c = jnp.logical_or(c1, c2)
+        rot_red = (1-c) * rot_red + c * rot_red @ jnp.array([[0, 1], [1, 0]], dtype=jnp.float32)
         th_cos = rot_red[0, 0]
         th_sin = rot_red[1, 0]
-        th = jp.arctan2(th_sin, th_cos)
-        yaw = th % (jp.pi / 2)
+        th = jnp.arctan2(th_sin, th_cos)
+        yaw = th % (jnp.pi / 2)
         return yaw
 
     @property
     def orn_to_3x3(self):
         q = self.boxorn
-        d = jp.dot(q, q)
+        d = jnp.dot(q, q)
         x, y, z, w = q
         s = 2 / d
         xs, ys, zs = x * s, y * s, z * s
@@ -125,10 +123,10 @@ class BoxOutput:
         xx, xy, xz = x * xs, x * ys, x * zs
         yy, yz, zz = y * ys, y * zs, z * zs
 
-        return jp.array([
-            jp.array([1 - (yy + zz), xy - wz, xz + wy]),
-            jp.array([xy + wz, 1 - (xx + zz), yz - wx]),
-            jp.array([xz - wy, yz + wx, 1 - (xx + yy)]),
+        return jnp.array([
+            jnp.array([1 - (yy + zz), xy - wz, xz + wy]),
+            jnp.array([xy + wz, 1 - (xx + zz), yz - wx]),
+            jnp.array([xz - wy, yz + wx, 1 - (xx + yy)]),
         ])
 
 
@@ -146,8 +144,8 @@ def get_next_jpos(plan, ts):
         current_delta = jvel[idx - 1]
 
         # Calculate the interpolation factor alpha
-        alpha = (ts - last_timestamp) / (current_timestamp - last_timestamp + jp.float32(1e-6))
-        alpha = jp.clip(alpha, jp.float32(0), jp.float32(1))
+        alpha = (ts - last_timestamp) / (current_timestamp - last_timestamp + 1e-6)
+        alpha = jnp.clip(alpha, 0, 1)
 
         # Determine interpolated delta
         interpolated_delta = alpha * current_delta * (current_timestamp - last_timestamp)
@@ -157,14 +155,14 @@ def get_next_jpos(plan, ts):
         return _next_jpos
 
     # Perform loop
-    next_jpos = jumpy.lax.fori_loop(1, len(timestamps), loop_body, next_jpos)
+    next_jpos = jax.lax.fori_loop(1, len(timestamps), loop_body, next_jpos)
     return next_jpos
 
 
 def update_global_plan(timestamps_global, jvel_global, timestamps, jvel):
-    idx = jp.argmax(timestamps_global > timestamps[0])
-    timestamps_global = rjp.dynamic_update_slice(timestamps_global, timestamps, (idx,))
-    jvel_global = rjp.dynamic_update_slice(jvel_global, jvel, (idx, 0))
+    idx = jnp.argmax(timestamps_global > timestamps[0])
+    timestamps_global = jax.lax.dynamic_update_slice(timestamps_global, timestamps, jnp.array((idx,), dtype=jnp.int32))
+    jvel_global = jax.lax.dynamic_update_slice(jvel_global, jvel, jnp.array((idx, 0), jnp.int32))
     return timestamps_global, jvel_global
 
 
@@ -176,8 +174,8 @@ def get_global_plan(plan_history: PlannerOutput, debug: bool = False):
 
     # Initialize global plan
     jpos_global = plan_history.jpos[0]
-    jvel_global = jp.zeros((num_plans * horizon + num_plans - 1,) + other_dims, dtype=jp.float32)
-    timestamps_global = jp.amax(plan_history.timestamps[-1]) + 1e-6*jp.arange(1, num_plans*horizon+num_plans+1, dtype=jp.float32)
+    jvel_global = jnp.zeros((num_plans * horizon + num_plans - 1,) + other_dims, dtype=jnp.float32)
+    timestamps_global = jnp.amax(plan_history.timestamps[-1]) + 1e-6*jnp.arange(1, num_plans*horizon+num_plans+1, dtype=jnp.float32)
 
     # Update global plan
     for i in range(num_plans):
@@ -189,14 +187,14 @@ def get_global_plan(plan_history: PlannerOutput, debug: bool = False):
     if debug:
         for (check_jpos, check_ts) in zip(plan_history.jpos[1:], plan_history.timestamps[1:, 0]):
             check_jpos_global = get_next_jpos(plan_global, check_ts)
-            equal = jp.all(jax.numpy.isclose(check_jpos_global, check_jpos))
+            equal = jnp.all(jax.numpy.isclose(check_jpos_global, check_jpos))
             jax.debug.print("EQUAL?={equal} {check_jpos_global} vs {check_jpos}", equal=equal, check_jpos_global=check_jpos_global, check_jpos=check_jpos)
             # checkify.check(equal, "NOT EQUAL! {check_jpos_global} vs {check_jpos}", check_jpos_global=check_jpos_global, check_jpos=check_jpos)  # convenient but effectful API
     return plan_global
 
 
-def get_init_plan(last_plan: PlannerOutput, timestamps: jp.ndarray) -> PlannerOutput:
-    get_next_jpos_vmap = jumpy.vmap(get_next_jpos, include=(False, True))
+def get_init_plan(last_plan: PlannerOutput, timestamps: jax.typing.ArrayLike) -> PlannerOutput:
+    get_next_jpos_vmap = jax.vmap(get_next_jpos, in_axes=(None, 0))
     jpos_timestamps = get_next_jpos_vmap(last_plan, timestamps)
     dt = timestamps[1:] - timestamps[:-1]
     jvel_timestamps = (jpos_timestamps[1:] - jpos_timestamps[:-1]) / dt[:, None]
@@ -207,7 +205,7 @@ class Controller(Node):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ActuatorOutput:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> ActuatorOutput:
         """Default output of the node."""
         planner = None
         for i in self.inputs:
@@ -243,25 +241,25 @@ class Supervisor(Node):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> SupervisorParams:
+    def default_params(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> SupervisorParams:
         """Default params of the root."""
         return SupervisorParams()
 
-    def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> SupervisorState:
+    def default_state(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> SupervisorState:
         """Default state of the root."""
         # Place goal on semi-circle around home position with radius goalpos_dist
         params: SupervisorParams = graph_state.nodes["supervisor"].params
-        rng_planner, rng_goal = jumpy.random.split(rng, num=2)
-        goalyaw = jp.array([jumpy.random.uniform(rng_goal, low=jp.float32(0), high=jp.pi/2)])
-        angle = jumpy.random.uniform(rng_goal, low=jp.float32(0), high=jp.pi)
-        dx = jp.sin(angle)*params.goalpos_dist
-        dy = jp.cos(angle)*params.goalpos_dist
-        # goalpos = params.home_boxpos[:2] + jp.array([dx, dy])
-        goalpos = params.home_boxpos[:2] + jp.array([0.1, 0.4])  # todo: goal hardcoded here.
-        # goalpos = params.home_boxpos[:2] + jp.array([-0.10, 0.45])  # todo: goal hardcoded here.
+        rng_planner, rng_goal = jax.random.split(rng, num=2)
+        goalyaw = jnp.array([jax.random.uniform(rng_goal, minval=0, maxval=jnp.pi/2)])
+        angle = jax.random.uniform(rng_goal, minval=0, maxval=jnp.pi)
+        dx = jnp.sin(angle)*params.goalpos_dist
+        dy = jnp.cos(angle)*params.goalpos_dist
+        # goalpos = params.home_boxpos[:2] + jnp.array([dx, dy])
+        goalpos = params.home_boxpos[:2] + jnp.array([0.1, 0.4])  # todo: goal hardcoded here.
+        # goalpos = params.home_boxpos[:2] + jnp.array([-0.10, 0.45])  # todo: goal hardcoded here.
         return SupervisorState(goalpos=goalpos, goalyaw=goalyaw)
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> SupervisorOutput:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> SupervisorOutput:
         """Default output of the root."""
         state = graph_state.nodes["supervisor"].state
         return SupervisorOutput(goalpos=state.goalpos, goalyaw=state.goalyaw)
@@ -291,50 +289,12 @@ class Vx300sEnv(BaseEnv):
         from envs.vx300s.planner import box_pushing_cost
         self._cost_fn = box_pushing_cost
 
-    def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> GraphState:
-        """Get the graph state."""
-        # Prepare new graph state
-        rng, rng_eps = jumpy.random.split(rng, num=2)
-        starting_step = jp.int32(0)
-        starting_eps = jumpy.random.choice(rng, self.graph.max_eps(), shape=()) if graph_state is None else graph_state.eps
-        new_nodes = dict()
-        graph_state = GraphState(nodes=new_nodes)
-
-        # For every node, prepare the initial stepstate
-        rng, rng_planner, rng_world = jumpy.random.split(rng, num=3)
-
-        # Get new step_state
-        def get_step_state(node: Node, _rng: jp.ndarray, _graph_state) -> StepState:
-            """Get new step_state for a node."""
-            rng_params, rng_state, rng_step = jumpy.random.split(_rng, num=3)
-            params = node.default_params(rng_params, _graph_state)
-            # Already add params here, as the state may depend on them
-            new_nodes[node.name] = StepState(rng=rng_step, params=params, state=None, inputs=None)
-            state = node.default_state(rng_state, _graph_state)
-            return new_nodes[node.name].replace(state=state)
-
-        # Step_state root & world (root must be reset before world, as the world may copy some params from the root)
-        new_nodes[self.supervisor.name] = get_step_state(self.supervisor, rng_planner, graph_state)
-        new_nodes[self.world.name] = get_step_state(self.world, rng_world, graph_state)
-
-        # Get new step_state for other nodes in arbitrary order
-        rng, *rngs = jumpy.random.split(rng, num=len(self.nodes) + 1)
-        for (name, n), rng_n in zip(self.nodes.items(), rngs):
-            # Replace step state in graph state
-            new_nodes[name] = get_step_state(n, rng_n, graph_state)
-
-        rng, *rngs = jumpy.random.split(rng, num=len(self.graph.nodes_and_root) + 1)
-        for (name, n), rng_n in zip(self.graph.nodes_and_root.items(), rngs):
-            new_nodes[name] = new_nodes[name].replace(inputs=n.default_inputs(rng_n, graph_state))
-        return GraphState(eps=starting_eps, step=starting_step, nodes=FrozenDict(new_nodes))
-
-    def reset(self, rng: jp.ndarray, graph_state: GraphState = None):
+    def reset(self, rng: jax.random.KeyArray, graph_state: GraphState = None):
         """Reset environment."""
         new_graph_state = self.graph.init(rng, order=("supervisor", "world"))
-        # new_graph_state = self._get_graph_state(rng, graph_state)
 
         # Reset nodes
-        rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_world_and_supervisor) + 1)
+        rng, *rngs = jax.random.split(rng, num=len(self.nodes_world_and_supervisor) + 1)
         # todo: we reset with step state once more here.
         [n.reset(rng_reset, new_graph_state) for (n, rng_reset) in zip(self.nodes_world_and_supervisor.values(), rngs)]
 

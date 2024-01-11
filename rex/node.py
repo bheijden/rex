@@ -9,10 +9,9 @@ from typing import Callable, List, Tuple, Optional, Any, Union, Deque, Dict
 from collections import deque
 import traceback
 import jax
-import jumpy
-import jumpy.numpy as jp
-import jax.numpy as jnp  # todo: replace with jumpy as jp.ndarray?
+import jax.numpy as jnp
 import jax.random as rnd
+from jax.typing import ArrayLike
 import numpy as onp
 from flax.core import FrozenDict
 from flax import serialization
@@ -106,7 +105,7 @@ class BaseNode:
         self.q_ts_scheduled: Deque[Tuple[int, float]] = None
         self.q_ts_output_prev: Deque[float] = None
         self.q_ts_step: Deque[Tuple[int, float, float, log_pb2.StepRecord]] = None
-        self.q_rng_step: Deque[jnp.ndarray] = None
+        self.q_rng_step: Deque[jax.random.KeyArray] = None
 
         # Only used if no step and reset fn are provided
         self._i = 0
@@ -233,35 +232,35 @@ class BaseNode:
         # Store output trajectory
         if outputs and self._record_outputs and len(self._record_outputs) > 0:
             record.outputs.target = pickle.dumps(self._record_outputs[0])
-            # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_outputs)
+            # data = jax.tree_util.tree_map(lambda *x: jnp.stack(x, axis=0), *self._record_outputs)
             # record.outputs.encoded_bytes.extend([serialization.to_bytes(data)])
             record.outputs.encoded_bytes.extend([serialization.to_bytes(o) for o in self._record_outputs])
 
         # Store random number generator state trajectory
         if rngs and self._record_step_states and len(self._record_step_states) > 0:
             record.rngs.target = pickle.dumps(self._record_step_states[0].rng)
-            # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states).rng
+            # data = jax.tree_util.tree_map(lambda *x: jnp.stack(x, axis=0), *self._record_step_states).rng
             # record.rngs.encoded_bytes.extend([serialization.to_bytes(data)])
             record.rngs.encoded_bytes.extend([serialization.to_bytes(s.rng) for s in self._record_step_states])
 
         # Store state trajectory
         if states and self._record_step_states and len(self._record_step_states) > 0:
             record.states.target = pickle.dumps(self._record_step_states[0].state)
-            # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states).state
+            # data = jax.tree_util.tree_map(lambda *x: jnp.stack(x, axis=0), *self._record_step_states).state
             # record.states.encoded_bytes.extend([serialization.to_bytes(data)])
             record.states.encoded_bytes.extend([serialization.to_bytes(s.state) for s in self._record_step_states])
 
         # Store params trajectory
         if params and self._record_step_states and len(self._record_step_states) > 0:
             record.params.target = pickle.dumps(self._record_step_states[0].params)
-            # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states).params
+            # data = jax.tree_util.tree_map(lambda *x: jnp.stack(x, axis=0), *self._record_step_states).params
             # record.params.encoded_bytes.extend([serialization.to_bytes(data)])
             record.params.encoded_bytes.extend([serialization.to_bytes(s.params) for s in self._record_step_states])
 
         # Store step_state trajectory
         if step_states and self._record_step_states and len(self._record_step_states) > 0:
             record.step_states.target = pickle.dumps(self._record_step_states[0])
-            # data = jax.tree_util.tree_map(lambda *x: jp.stack(x, axis=0), *self._record_step_states)
+            # data = jax.tree_util.tree_map(lambda *x: jnp.stack(x, axis=0), *self._record_step_states)
             # record.step_states.encoded_bytes.extend([serialization.to_bytes(data)])
             record.step_states.encoded_bytes.extend([serialization.to_bytes(ss) for ss in self._record_step_states])
 
@@ -494,7 +493,7 @@ class BaseNode:
 
         # Update step_state (increment sequence number)
         if new_step_state is not None:
-            new_step_state = new_step_state.replace(seq=jp.int32(new_step_state.seq + 1))
+            new_step_state = new_step_state.replace(seq=new_step_state.seq + 1)
 
         return new_step_state, output
 
@@ -788,7 +787,7 @@ class BaseNode:
             # Update StepState with grouped messages
             # todo: have a single buffer for step_state used for both in and out
             # todo: Makes a copy of the message. Is this necessary? Can we do in-place updates?
-            step_state = self._step_state.replace(seq=jp.int32(tick), ts=jp.float32(ts_step_sc), inputs=inputs)
+            step_state = self._step_state.replace(seq=tick, ts=ts_step_sc, inputs=inputs)
 
             # Log step_state
             if len(self._record_step_states) < self._max_records:
@@ -861,31 +860,31 @@ class BaseNode:
 
 
 class Node(BaseNode):
-    def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
+    def default_params(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> Params:
         """Default params of the node."""
         return Empty()
 
-    def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
+    def default_state(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> State:
         """Default state of the node."""
         return Empty()
 
     def default_inputs(
-        self, rng: jp.ndarray, graph_state: GraphState = None
+        self, rng: jax.random.KeyArray, graph_state: GraphState = None
     ) -> FrozenDict[str, InputState]:  # Dict[str, InputState]:
         """Default inputs of the node."""
-        rngs = jumpy.random.split(rng, num=len(self.inputs))
+        rngs = jax.random.split(rng, num=len(self.inputs))
         inputs = dict()
         for i, rng_output in zip(self.inputs, rngs):
             window = i.window
-            seq = jp.arange(-window, 0, dtype=jp.int32)
-            ts_sent = 0 * jp.arange(-window, 0, dtype=jp.float32)
-            ts_recv = 0 * jp.arange(-window, 0, dtype=jp.float32)
+            seq = onp.arange(-window, 0, dtype=onp.int32)
+            ts_sent = 0 * onp.arange(-window, 0, dtype=onp.float32)
+            ts_recv = 0 * onp.arange(-window, 0, dtype=onp.float32)
             outputs = [i.output.node.default_output(rng_output, graph_state) for _ in range(window)]
             inputs[i.input_name] = InputState.from_outputs(seq, ts_sent, ts_recv, outputs)
         return FrozenDict(inputs)
 
     @abc.abstractmethod
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BaseOutput:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> BaseOutput:
         """Default output of the node.
         NOTE: This is also used to determine the shape of every leaf in the output tree.
               Therefore, it should be able to return a valid output even if no graph_state is provided.
@@ -893,7 +892,7 @@ class Node(BaseNode):
         return Empty()
 
     @abc.abstractmethod
-    def reset(self, rng: jp.ndarray, graph_state: GraphState = None):
+    def reset(self, rng: jax.random.KeyArray, graph_state: GraphState = None):
         """Reset the node."""
         pass
 

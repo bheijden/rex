@@ -31,7 +31,7 @@ class _HasValue:
 		self.tree = tree
 
 
-def _truncated_stack(*data: jp.ndarray) -> Optional[jp.ndarray]:
+def _truncated_stack(*data: jax.typing.ArrayLike) -> Optional[jp.ndarray]:
 	has_empty = any([isinstance(d, _NoValue) for d in data])
 	if has_empty:
 		return None
@@ -46,7 +46,7 @@ def _truncated_stack(*data: jp.ndarray) -> Optional[jp.ndarray]:
 	data = tree_map(lambda d: d[:min_length], data)
 
 	# Stack data
-	data_stacked = tree_map(lambda *d: jp.stack(d), *data)
+	data_stacked = tree_map(lambda *d: jnp.stack(d), *data)
 	return data_stacked
 
 
@@ -107,7 +107,7 @@ class RecordHelper:
 		except (UnpicklingError, ValueError) as e:
 			print(f"Failed to load target. Unpickling to state_dict instead: {e}")
 			data = [serialization.msgpack_restore(b) for b in encoded_bytes]
-		return _HasValue(tree_map(lambda *x: jp.stack(x), *data))
+		return _HasValue(tree_map(lambda *x: jnp.stack(x), *data))
 
 	def _preprocess_data(self):
 		# Get delays
@@ -162,7 +162,7 @@ def make_delay_distributions(record: Union[RecordHelper, log_pb2.ExperimentRecor
 		data, info = utils.get_delay_data(record, concatenate=True)
 	elif isinstance(record, RecordHelper):
 		data, info = utils.get_delay_data(record.trace, concatenate=True)
-		# data = tree_map(lambda *x: jp.concatenate(x, axis=0), *record._delays)
+		# data = tree_map(lambda *x: jnp.concatenate(x, axis=0), *record._delays)
 	else:
 		raise NotImplementedError
 
@@ -299,7 +299,7 @@ if __name__ == "__main__":
 				th2 = onp.arctan2(sin_th2, cos_th2)
 				thdot = data._data_stacked["sensor"]["outputs"].thdot[e]
 				thdot2 = data._data_stacked["sensor"]["outputs"].thdot2[e]
-				delta_goal = (jp.pi - jp.abs(th + th2))
+				delta_goal = (jnp.pi - jnp.abs(th + th2))
 
 
 				axes[0].plot(delta_goal)

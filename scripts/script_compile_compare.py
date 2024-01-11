@@ -1,64 +1,61 @@
 import time
-import jumpy
 import jax.numpy as jnp
 import numpy as onp
 import jax
 
-from rex.jumpy import use
 from rex.utils import timer
 from rex.constants import LATEST, BUFFER, SILENT, DEBUG, INFO, WARN, REAL_TIME, FAST_AS_POSSIBLE, SIMULATED, \
     WALL_CLOCK, SYNC, ASYNC, FREQUENCY, PHASE
 from rex.proto import log_pb2
 from rex.distributions import Gaussian
-from dummy import DummyNode, DummyEnv, DummyAgent
+from dummy import DummyNode, DummyEnv
 from dummy_plot import plot_threads, plot_delay, plot_graph, plot_grouped
 
 
 def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = False, seed: int = 0):
     use_jit = use_jit and backend == "jax"
-    with use(backend=backend):
-        # Get reset and step function
-        env_reset = jax.jit(env.reset) if use_jit else env.reset
-        env_step = jax.jit(env.step) if use_jit else env.step
+    # Get reset and step function
+    env_reset = jax.jit(env.reset) if use_jit else env.reset
+    env_step = jax.jit(env.step) if use_jit else env.step
 
-        gs_lst = []
-        obs_lst = []
-        ss_lst = []
+    gs_lst = []
+    obs_lst = []
+    ss_lst = []
 
-        # Reset environment (warmup)
-        with timer(f"{name} | jit reset", log_level=WARN):
-            graph_state, obs, info = env_reset(jumpy.random.PRNGKey(seed))
-            gs_lst.append(graph_state)
-            obs_lst.append(obs)
-            ss_lst.append(graph_state.nodes["root"])
+    # Reset environment (warmup)
+    with timer(f"{name} | jit reset", log_level=WARN):
+        graph_state, obs, info = env_reset(jax.random.PRNGKey(seed))
+        gs_lst.append(graph_state)
+        obs_lst.append(obs)
+        ss_lst.append(graph_state.nodes["root"])
 
-        # Initial step (warmup)
-        with timer(f"{name} | jit step", log_level=WARN):
-            graph_state, obs, reward, done, info = env_step(graph_state, None)
-            obs_lst.append(obs)
-            gs_lst.append(graph_state)
-            ss_lst.append(graph_state.nodes["root"])
+    # Initial step (warmup)
+    with timer(f"{name} | jit step", log_level=WARN):
+        graph_state, obs, reward, done, info = env_step(graph_state, None)
+        obs_lst.append(obs)
+        gs_lst.append(graph_state)
+        ss_lst.append(graph_state.nodes["root"])
 
-        # Run environment
-        tstart = time.time()
-        eps_steps = 1
-        while True:
-            # print(obs["observer"].seq)
-            graph_state, obs, reward, done, info = env_step(graph_state, None)
-            obs_lst.append(obs)
-            gs_lst.append(graph_state)
-            ss_lst.append(graph_state.nodes["root"])
-            eps_steps += 1
-            if done:
-                # Time env stopping
-                tend = time.time()
-                env.stop()
-                tstop = time.time()
+    # Run environment
+    tstart = time.time()
+    eps_steps = 1
+    while True:
+        # print(obs["observer"].seq)
+        graph_state, obs, reward, done, info = env_step(graph_state, None)
+        obs_lst.append(obs)
+        gs_lst.append(graph_state)
+        ss_lst.append(graph_state.nodes["root"])
+        eps_steps += 1
+        if done:
+            # Time env stopping
+            tend = time.time()
+            env.stop()
+            tstop = time.time()
 
-                # Print timings
-                print(
-                    f"{name=} | agent_steps={eps_steps} | chunk_index={graph_state.step} | t={(tstop - tstart): 2.4f} sec | t_s={(tstop - tend): 2.4f} sec | fps={eps_steps / (tend - tstart): 2.4f} | fps={eps_steps / (tstop - tstart): 2.4f} (incl. stop)")
-                break
+            # Print timings
+            print(
+                f"{name=} | agent_steps={eps_steps} | chunk_index={graph_state.step} | t={(tstop - tstart): 2.4f} sec | t_s={(tstop - tend): 2.4f} sec | fps={eps_steps / (tend - tstart): 2.4f} | fps={eps_steps / (tstop - tstart): 2.4f} (incl. stop)")
+            break
     return gs_lst, obs_lst, ss_lst
 
 

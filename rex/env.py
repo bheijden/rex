@@ -1,7 +1,7 @@
 import dill as pickle
 from typing import Any, Tuple, Dict, Union, Optional
-import jumpy.numpy as jp
 import abc
+import jax
 
 from rex.spaces import Space
 from rex.utils import log, NODE_COLOR, NODE_LOG_LEVEL
@@ -26,7 +26,7 @@ class BaseEnv:
         self.__dict__.update(state)
 
     @abc.abstractmethod
-    def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> RexResetReturn:
+    def reset(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> RexResetReturn:
         raise NotImplementedError
 
     @abc.abstractmethod

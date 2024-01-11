@@ -5,7 +5,6 @@ import dill as pickle
 import jax
 import numpy as onp
 import jax.numpy as jnp
-import jumpy.numpy as jp
 import flax.struct as struct
 from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
 
@@ -19,13 +18,13 @@ class EmptyState:
 
 @struct.dataclass
 class DistState:
-    rng: jp.ndarray
+    rng: jax.random.KeyArray
     state: Any
 
 
 @struct.dataclass
 class RecordedState:
-    index: jp.int32
+    index: Union[int, jax.typing.ArrayLike]
 
 
 class Gaussian:
@@ -33,8 +32,8 @@ class Gaussian:
         assert std >= 0, "std must be non-negative"
         percentile = max(percentile, 1e-7)
         assert percentile > 0, "There must be a truncating percentile > 0."
-        self._mean = jp.float32(mean)
-        self._std = jp.float32(std)
+        self._mean = mean
+        self._std = std
         self._var = self._std**2
         self._percentile = percentile
         self._low = 0.0
@@ -73,23 +72,23 @@ class Gaussian:
         args, kwargs = state
         self.__init__(*args, **kwargs)
 
-    def pdf(self, x: jp.ndarray):
+    def pdf(self, x: jax.typing.ArrayLike):
         return self._dist.prob(x)
 
-    def quantile(self, x: jp.ndarray):
+    def quantile(self, x: jax.typing.ArrayLike):
         """Returns the quantile of the distribution at the given percentile."""
         if isinstance(self._dist, tfd.Deterministic):
             return self.mean
         else:
             return self._dist.quantile(x)
 
-    def cdf(self, x: jp.ndarray):
+    def cdf(self, x: jax.typing.ArrayLike):
         return self._dist.cdf(x)
 
-    def reset(self, rng: jp.ndarray) -> DistState:
+    def reset(self, rng: jax.random.KeyArray) -> DistState:
         return DistState(rng=rng, state=EmptyState())
 
-    def sample(self, state: DistState, shape: Union[int, Tuple] = None) -> Tuple[DistState, jp.ndarray]:
+    def sample(self, state: DistState, shape: Union[int, Tuple] = None) -> Tuple[DistState, jax.Array]:
         if shape is None:
             shape = ()
         new_rng, rng_sample = jax.random.split(state.rng)
@@ -203,13 +202,13 @@ class GMM:
         args, kwargs = state
         self.__init__(*args, **kwargs)
 
-    def pdf(self, x: jp.ndarray):
+    def pdf(self, x: jax.typing.ArrayLike):
         return self._dist.prob(x)
 
-    def cdf(self, x: jp.ndarray):
+    def cdf(self, x: jax.typing.ArrayLike):
         return self._dist.cdf(x)
 
-    def quantile(self, x: jp.ndarray):
+    def quantile(self, x: jax.typing.ArrayLike):
         """Returns the quantile of the distribution at the given percentile."""
         deterministic = [v == 0 for v in self.stds]
         if all(deterministic):
@@ -217,14 +216,14 @@ class GMM:
         else:
             shape = x.shape if isinstance(x, (jax.Array, onp.ndarray)) else ()
             qs = mixture_distribution_quantiles(
-                self._dist, jp.array(x).reshape(-1), N_grid_points=int(1e3), grid_min=self.low, grid_max=self.high
+                self._dist, jnp.array(x).reshape(-1), N_grid_points=int(1e3), grid_min=self.low, grid_max=self.high
             )
             return qs.reshape(shape)
 
-    def reset(self, rng: jp.ndarray) -> DistState:
+    def reset(self, rng: jax.random.KeyArray) -> DistState:
         return DistState(rng=rng, state=EmptyState())
 
-    def sample(self, state: DistState, shape: Union[int, Tuple] = None) -> Tuple[DistState, jp.ndarray]:
+    def sample(self, state: DistState, shape: Union[int, Tuple] = None) -> Tuple[DistState, jax.Array]:
         if shape is None:
             shape = ()
         new_rng, rng_sample = jax.random.split(state.rng)
@@ -280,7 +279,7 @@ class GMM:
 
 
 class Recorded:
-    def __init__(self, dist: "Distribution", samples: jp.ndarray):
+    def __init__(self, dist: "Distribution", samples: jax.typing.ArrayLike):
         super(Recorded, self).__setattr__("_dist", dist)
         super(Recorded, self).__setattr__("_samples", samples)
         # self._dist = dist
@@ -306,10 +305,10 @@ class Recorded:
     def __getattr__(self, item):
         return getattr(self._dist, item)
 
-    def reset(self, rng: jp.ndarray) -> DistState:
-        return DistState(rng=rng, state=RecordedState(index=jp.int32(0)))
+    def reset(self, rng: jax.random.KeyArray) -> DistState:
+        return DistState(rng=rng, state=RecordedState(index=0))
 
-    def sample(self, state: DistState, shape: Union[int, Tuple] = None) -> Tuple[DistState, jp.ndarray]:
+    def sample(self, state: DistState, shape: Union[int, Tuple] = None) -> Tuple[DistState, jax.Array]:
         if shape is None:
             shape = ()
             num_samples = 1

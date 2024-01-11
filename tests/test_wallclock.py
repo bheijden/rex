@@ -1,4 +1,3 @@
-import jumpy
 import time
 import seaborn as sns
 sns.set()
@@ -37,7 +36,7 @@ def test_wallclock():
 
     # Get graph state
     def reset_node(node, rng):
-        rng_params, rng_state, rng_inputs, rng_step, rng_reset = jumpy.random.split(rng, num=5)
+        rng_params, rng_state, rng_inputs, rng_step, rng_reset = rnd.split(rng, num=5)
         params = node.default_params(rng_params)
         state = node.default_state(rng_state)
         inputs = node.default_inputs(rng_inputs)

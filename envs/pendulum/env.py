@@ -1,6 +1,6 @@
 from typing import Any, Dict, Tuple, Union
-import jumpy
-import jumpy.numpy as jp
+import jax
+import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 
@@ -16,8 +16,8 @@ from rex.spaces import Box
 @struct.dataclass
 class Params:
 	"""Pendulum root param definition"""
-	max_torque: jp.float32
-	max_speed: jp.float32
+	max_torque: Union[float, jax.typing.ArrayLike]
+	max_speed: Union[float, jax.typing.ArrayLike]
 
 
 @struct.dataclass
@@ -29,28 +29,28 @@ class State:
 @struct.dataclass
 class Output:
 	"""Pendulum root output definition"""
-	action: jp.ndarray
+	action: jax.typing.ArrayLike
 
 
 class Agent(Node):
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 
-	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
+	def default_params(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> Params:
 		"""Default params of the root."""
-		return Params(max_torque=jp.float32(2.0), max_speed=jp.float32(22.0))
+		return Params(max_torque=2.0, max_speed=22.0)
 
-	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
+	def default_state(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> State:
 		"""Default state of the root."""
 		return State()
 
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
+	def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> Output:
 		"""Default output of the root."""
-		return Output(action=jp.array([0.0], dtype=jp.float32))
+		return Output(action=jnp.array([0.0], dtype=jnp.float32))
 
-	# def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> StepState:
+	# def reset(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> StepState:
 	# 	"""Reset the root."""
-	# 	rng_params, rng_state, rng_inputs, rng_step = jumpy.random.split(rng, num=4)
+	# 	rng_params, rng_state, rng_inputs, rng_step = jax.random.split(rng, num=4)
 	# 	params = self.default_params(rng_params, graph_state)
 	# 	state = self.default_state(rng_state, graph_state)
 	# 	inputs = self.default_inputs(rng_inputs, graph_state)
@@ -80,39 +80,39 @@ class PendulumEnv(BaseEnv):
 		if params is not None:
 			self.log("reloading", "Current implementation does not support custom parametrized observation spaces.")
 		# assert params is None, "Current implementation does not support custom parametrized observation spaces."
-		params = self.agent.default_params(jumpy.random.PRNGKey(0))
+		params = self.agent.default_params(jax.random.PRNGKey(0))
 		inputs = {u.input_name: u for u in self.agent.inputs}
 
 		# Prepare
 		num_state = inputs["state"].window
 		num_last_action = inputs["last_action"].window if "last_action" in inputs else 0
 		high = [1.0] * num_state * 2 + [params.max_speed] * num_state + [params.max_torque] * num_last_action
-		high = jp.array(high, dtype=jp.float32)
-		return Box(low=-high, high=high, dtype=jp.float32)
+		high = jnp.array(high, dtype=jnp.float32)
+		return Box(low=-high, high=high, dtype=jnp.float32)
 
 	def action_space(self, params: Params = None):
 		"""Action space of the environment."""
 		if params is not None:
 			self.log("reloading", "Current implementation does not support custom parametrized action spaces.")
-		params = self.agent.default_params(jumpy.random.PRNGKey(0))
-		return Box(low=-params.max_torque, high=params.max_torque, shape=(1,), dtype=jp.float32)
+		params = self.agent.default_params(jax.random.PRNGKey(0))
+		return Box(low=-params.max_torque, high=params.max_torque, shape=(1,), dtype=jnp.float32)
 
-	def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> GraphState:
+	def _get_graph_state(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> GraphState:
 		"""Get the graph state."""
 		# Prepare new graph state
-		rng, rng_eps = jumpy.random.split(rng, num=2)
-		starting_step = jp.int32(0) if graph_state is None else graph_state.step
-		starting_eps = jumpy.random.choice(rng, self.graph.max_eps(), shape=()) if graph_state is None else graph_state.eps
+		rng, rng_eps = jax.random.split(rng, num=2)
+		starting_step = 0 if graph_state is None else graph_state.step
+		starting_eps = jax.random.choice(rng, self.graph.max_eps(), shape=()) if graph_state is None else graph_state.eps
 		new_nodes = dict()
 		graph_state = GraphState(nodes=new_nodes)
 
 		# For every node, prepare the initial stepstate
-		rng, rng_agent, rng_world = jumpy.random.split(rng, num=3)
+		rng, rng_agent, rng_world = jax.random.split(rng, num=3)
 
 		# Get new step_state
-		def get_step_state(node: Node, _rng: jp.ndarray, _graph_state) -> StepState:
+		def get_step_state(node: Node, _rng: jax.random.KeyArray, _graph_state) -> StepState:
 			"""Get new step_state for a node."""
-			rng_params, rng_state, rng_step = jumpy.random.split(_rng, num=3)
+			rng_params, rng_state, rng_step = jax.random.split(_rng, num=3)
 			params = node.default_params(rng_params, _graph_state)
 			state = node.default_state(rng_state, _graph_state)
 			return StepState(rng=rng_step, params=params, state=state, inputs=None)
@@ -122,23 +122,23 @@ class PendulumEnv(BaseEnv):
 		new_nodes[self.world.name] = get_step_state(self.world, rng_world, graph_state)
 
 		# Get new step_state for other nodes in arbitrary order
-		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes) + 1)
+		rng, *rngs = jax.random.split(rng, num=len(self.nodes) + 1)
 		for (name, n), rng_n in zip(self.nodes.items(), rngs):
 			# Replace step state in graph state
 			new_nodes[name] = get_step_state(n, rng_n, graph_state)
 
 		# Reset nodes
-		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_world_and_agent) + 1)
+		rng, *rngs = jax.random.split(rng, num=len(self.nodes_world_and_agent) + 1)
 		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_world_and_agent.values(), rngs)]
 		return GraphState(eps=starting_eps, step=starting_step, nodes=FrozenDict(new_nodes))
 
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> RexResetReturn:
+	def reset(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> RexResetReturn:
 		"""Reset environment."""
 		# new_graph_state = self._get_graph_state(rng, graph_state)
 		new_graph_state = self.graph.init(rng, order=("agent", "world"))
 
 		# Reset nodes
-		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_world_and_agent) + 1)
+		rng, *rngs = jax.random.split(rng, num=len(self.nodes_world_and_agent) + 1)
 		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_world_and_agent.values(), rngs)]
 
 		# Reset environment to get initial step_state (runs up-until the first step)
@@ -149,7 +149,7 @@ class PendulumEnv(BaseEnv):
 		info = {}
 		return graph_state, obs, info
 
-	def step(self, graph_state: GraphState, action: jp.ndarray) -> RexStepReturn:
+	def step(self, graph_state: GraphState, action: jax.typing.ArrayLike) -> RexStepReturn:
 		"""Perform step transition in environment."""
 		# Update step_state (if necessary)
 		step_state = self.agent.get_step_state(graph_state)
@@ -159,7 +159,7 @@ class PendulumEnv(BaseEnv):
 		u = Output(action=action)
 		# th = step_state.inputs["state"].data.th[0]
 		# thdot = step_state.inputs["state"].data.thdot[0]
-		# x = jp.array([th, thdot])
+		# x = jnp.array([th, thdot])
 		# print(f"{self.name.ljust(14)} | x: {x} | u: {u.action[0]}")
 
 		# Apply step and receive next step_state
@@ -189,10 +189,10 @@ class PendulumEnv(BaseEnv):
 		inputs = step_state.inputs
 		th = inputs["state"].data.th
 		thdot = inputs["state"].data.thdot
-		last_action = inputs["last_action"].data.action[:, 0] if 'last_action' in inputs else jp.array([])
-		obs = jp.concatenate([jp.cos(th), jp.sin(th), thdot, last_action], axis=-1)
+		last_action = inputs["last_action"].data.action[:, 0] if 'last_action' in inputs else jnp.array([])
+		obs = jnp.concatenate([jnp.cos(th), jnp.sin(th), thdot, last_action], axis=-1)
 		return obs
 
-	def _angle_normalize(self, th: jp.array):
-		th_norm = th - 2 * jp.pi * jp.floor((th + jp.pi) / (2 * jp.pi))
+	def _angle_normalize(self, th: jax.typing.ArrayLike):
+		th_norm = th - 2 * jnp.pi * jnp.floor((th + jnp.pi) / (2 * jnp.pi))
 		return th_norm

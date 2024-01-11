@@ -110,7 +110,7 @@ if __name__ == "__main__":
 
     # Simulate
     tstart = time.time()
-    graph_state, obs = env.reset(jumpy.random.PRNGKey(0))
+    graph_state, obs = env.reset(jax.random.PRNGKey(0))
     steps = 0
     while True:
         steps += 1
@@ -167,7 +167,7 @@ if __name__ == "__main__":
 
     # Simulate
     tstart = time.time()
-    graph_state, obs = env_mcs.reset(jumpy.random.PRNGKey(0))
+    graph_state, obs = env_mcs.reset(jax.random.PRNGKey(0))
     steps = 0
     while True:
         steps += 1

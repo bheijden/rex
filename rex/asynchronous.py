@@ -5,7 +5,8 @@ from concurrent.futures import Future, CancelledError
 
 from flax.core import FrozenDict
 
-from jumpy import numpy as jp
+import jax
+import jax.numpy as jnp
 from rex.constants import SIMULATED, FAST_AS_POSSIBLE
 from rex.graph import BaseGraph
 
@@ -144,7 +145,7 @@ class AsyncGraph(BaseGraph):
             new_ss, new_output = step_state, output
 
         # Update step_state (increment sequence number)
-        next_step_state = new_ss.replace(seq=jp.int32(new_ss.seq + 1))
+        next_step_state = new_ss.replace(seq=new_ss.seq + 1)
 
         # Set the result to be the step_state and output (action)  of the root.
         self._synchronizer.action[-1].set_result((new_ss, new_output))
@@ -161,10 +162,10 @@ class AsyncGraph(BaseGraph):
         return record
 
     def max_eps(self, graph_state: GraphState = None):
-        return jp.int32(1)
+        return 1
 
-    def max_steps(self, graph_state: GraphState = None) -> int:
-        return jp.inf
+    def max_steps(self, graph_state: GraphState = None) -> Union[int, jax.Array]:
+        return jnp.inf
 
-    def max_starting_step(self, max_steps: int, graph_state: GraphState = None) -> int:
-        return jp.int32(0)
+    def max_starting_step(self, max_steps: int, graph_state: GraphState = None) -> Union[int, jax.Array]:
+        return 0

@@ -1,7 +1,9 @@
 from typing import Any, Dict, Tuple, Union, List
-import jumpy
-import jumpy.numpy as jp
+import jax
+import jax.numpy as jnp
 import numpy as onp
+import jax.experimental.host_callback as hcb
+
 from flax import struct
 from rex.constants import WARN, LATEST
 from rex.base import StepState, GraphState
@@ -18,7 +20,7 @@ except ImportError as e:
 @struct.dataclass
 class Image:
 	"""Pendulum image definition"""
-	data: jp.ndarray
+	data: jax.Array
 
 
 class Render(Node):
@@ -37,6 +39,7 @@ class Render(Node):
 		self._mode = mode
 		self._encoding = encoding
 		self._shape = shape or [400, 400, 3]
+		self._dummy_image = Image(data=jnp.zeros(self._shape, dtype=jnp.uint8))
 
 	def __getstate__(self):
 		args, kwargs, inputs = super().__getstate__()
@@ -50,21 +53,14 @@ class Render(Node):
 		# At this point, the inputs are not yet fully unpickled.
 		self.inputs = inputs
 
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Image:
-		"""Default output of the node."""
-		return Image(data=jp.zeros(self._shape, dtype=jp.uint8))
-
-	def step(self, step_state: StepState) -> Tuple[StepState, Image]:
-		"""Step the node."""
-		# Unpack StepState
-		inputs = step_state.inputs
-
+	def _render(self, last_obs) -> Image:
+		"""Render the image."""
 		# Grab current state
-		th, thdot = inputs["sensor"][-1].data.th, inputs["sensor"][-1].data.thdot
+		th, thdot = last_obs.th, last_obs.thdot
 
 		# Prepare new image
-		data = jp.zeros(self._shape, jp.uint8)
-		if not jumpy.core.is_jitted() and cv2 is not None:
+		data = onp.zeros(self._shape, onp.uint8)
+		if cv2 is not None:
 			if self._visual == "disc":
 				data = disc_pendulum_render_fn(data, th, thdot)
 			else:
@@ -75,18 +71,31 @@ class Render(Node):
 			cv2.waitKey(1)
 
 		# Prepare output
-		output = Image(data=data)  # todo: generate image from state
+		output = Image(data=data)
+		return output
+
+	def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> Image:
+		"""Default output of the node."""
+		return Image(data=jnp.zeros(self._shape, dtype=jnp.uint8))
+
+	def step(self, step_state: StepState) -> Tuple[StepState, Image]:
+		"""Step the node."""
+		# Unpack StepState
+		inputs = step_state.inputs
+
+		# Get image
+		output = hcb.call(self._render, inputs["sensor"][-1].data, result_shape=self._dummy_image)
 		return step_state, output
 
 
 def disc_pendulum_render_fn(data, th, thdot):
 	height, width, _ = data.shape
 	side_length = min(width, height)
-	state = jp.array([th, thdot])
+	state = jnp.array([th, thdot])
 
 	data += 255
 	length = 2 * side_length // 9
-	sin_theta, cos_theta = jp.sin(state[0]), jp.cos(state[0])
+	sin_theta, cos_theta = jnp.sin(state[0]), jnp.cos(state[0])
 
 	data = cv2.circle(data, (width // 2, height // 2), side_length // 3, (255, 0, 0), -1)
 	data = cv2.circle(data, (width // 2, height // 2), side_length // 12, (192, 192, 192), -1)

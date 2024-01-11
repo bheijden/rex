@@ -15,8 +15,6 @@ import flax.serialization as serialization
 import networkx as nx
 from jax.tree_util import tree_map
 import numpy as onp
-import jumpy
-import jumpy.numpy as jp
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
@@ -266,7 +264,7 @@ def show_graph(episode_record: log_pb2.EpisodeRecord, pos: Dict[str, Tuple[float
 
 
 def eval_env(env: BaseEnv,
-             policy: Callable[[jp.ndarray], jp.ndarray],
+             policy: Callable[[jax.typing.ArrayLike], jax.Array],
              n_eval_episodes: int = 10,
              verbose: bool = False,
              record_settings: Dict[str, Dict[str, bool]] = None,
@@ -347,7 +345,7 @@ def make_policy(model: BaseAlgorithm, constant_action: float = None):
     def policy(obs):
         action, _ = model.predict(obs, deterministic=True)
         if constant_action is not None:
-            action = jp.ones(action.shape) * constant_action
+            action = jnp.ones(action.shape) * constant_action
         return action
 
     return policy
@@ -361,7 +359,7 @@ def make_delay_distributions(record: Union[log_pb2.ExperimentRecord],
     # Prepare data
     if isinstance(record, log_pb2.ExperimentRecord):
         data, info = utils.get_delay_data(record, concatenate=True)
-    # data = tree_map(lambda *x: jp.concatenate(x, axis=0), *record._delays)
+    # data = tree_map(lambda *x: jnp.concatenate(x, axis=0), *record._delays)
     else:
         raise NotImplementedError
 
@@ -443,9 +441,9 @@ class SysIdPolicy:
         self._last_time = 0
         self._max = max
         self._min = min
-        self._action = jp.array([max], dtype=jp.float32)
+        self._action = jnp.array([max], dtype=jnp.float32)
         self._use_model = True
-        self._rng = jumpy.random.PRNGKey(seed)
+        self._rng = jax.random.PRNGKey(seed)
 
     def _wall_clock_switch(self):
         tstep = time.time()
@@ -467,9 +465,9 @@ class SysIdPolicy:
                 self._use_model = True
             else:
                 self._use_model = False
-                self._rng, rng_action = jumpy.random.split(self._rng)
-                action = jumpy.random.uniform(rng_action, low=self._min, high=self._max)
-                self._action = jp.array([action], dtype=jp.float32)
+                self._rng, rng_action = jax.random.split(self._rng)
+                action = jax.random.uniform(rng_action, minval=self._min, maxval=self._max)
+                self._action = jnp.array([action], dtype=jnp.float32)
         if self._use_model and self._model is not None:
             self._action, _ = self._model.predict(obs, deterministic=deterministic)
             # policy_action, _ = self._model.predict(obs, deterministic=deterministic)
@@ -590,7 +588,7 @@ def stack_padding(it):
     return mat
 
 
-def _padded_stack(*data: jp.ndarray) -> Optional[jp.ndarray]:
+def _padded_stack(*data: jax.typing.ArrayLike) -> Optional[jax.Array]:
     empties = [isinstance(d, _NoValue) for d in data]
     has_empty = any(empties)
     if has_empty:
@@ -607,7 +605,7 @@ def _padded_stack(*data: jp.ndarray) -> Optional[jp.ndarray]:
     return data_stacked
 
 
-def _truncated_stack(*data: jp.ndarray) -> Optional[jp.ndarray]:
+def _truncated_stack(*data: jax.typing.ArrayLike) -> Optional[jax.Array]:
     has_empty = any([isinstance(d, _NoValue) for d in data])
     if has_empty:
         return None
@@ -622,7 +620,7 @@ def _truncated_stack(*data: jp.ndarray) -> Optional[jp.ndarray]:
     data = tree_map(lambda d: d[:min_length], data)
 
     # Stack data
-    data_stacked = tree_map(lambda *d: jp.stack(d), *data)
+    data_stacked = tree_map(lambda *d: jnp.stack(d), *data)
     return data_stacked
 
 
@@ -641,8 +639,8 @@ class RecordHelper:
         assert isinstance(self._record, log_pb2.ExperimentRecord), "Record must be an ExperimentRecord or EpisodeRecord"
 
         # Store preprocessed data in convenient format
-        self._delays: List[Dict[str, Dict[str, Union[jp.ndarray, Dict[str, jp.ndarray]]]]]
-        self._delays_stacked: Dict[str, Dict[str, Union[jp.ndarray, Dict[str, jp.ndarray]]]]
+        self._delays: List[Dict[str, Dict[str, Union[jax.typing.ArrayLike, Dict[str, jax.typing.ArrayLike]]]]]
+        self._delays_stacked: Dict[str, Dict[str, Union[jax.typing.ArrayLike, Dict[str, jax.typing.ArrayLike]]]]
         self._data: List[Dict[str, Dict[str, Any]]]
         self._data_stacked: Dict[str, Dict[str, Any]]
         self._nodes: List[Dict[str, Union[str, Node, Agent]]] = []
@@ -681,7 +679,7 @@ class RecordHelper:
         except UnpicklingError as e:
             print(f"Failed to load target. Unpickling to state_dict instead: {e}")
             data = [serialization.msgpack_restore(b) for b in encoded_bytes]
-        return _HasValue(tree_map(lambda *x: jp.stack(x), *data))
+        return _HasValue(tree_map(lambda *x: jnp.stack(x), *data))
 
     def _preprocess_data(self):
         # Get delays
@@ -769,7 +767,7 @@ class RolloutWrapper(object):
             obs, state, policy_state, rng, cum_reward, valid_mask = state_input
             rng, rng_net = jax.random.split(rng, 2)
             # rng, rng_step = jax.random.split(rng, 2)
-            # new_step = jumpy.random.choice(rng_step, self.num_env_steps, shape=(), replace=False)
+            # new_step = jax.random.choice(rng_step, self.num_env_steps, shape=(), replace=False)
             # state = state.replace(step=new_step)
             if self.model_forward is not None:
                 scaled_action = self.model_forward.policy._predict(obs, deterministic=True)

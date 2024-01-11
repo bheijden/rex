@@ -4,7 +4,6 @@ import os
 import time
 import jax
 import numpy as onp
-import jumpy.numpy as jp
 from stable_baselines3.common.vec_env import VecMonitor
 
 from sbx import SAC

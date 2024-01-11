@@ -1,18 +1,15 @@
-from typing import Any, Dict, Tuple, Callable
+from typing import Any, Dict, Tuple, Callable, Union
 
 import jax
-import jumpy
-import jumpy.numpy as jp
+import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 
 from rex.graph import BaseGraph
 from rex.constants import WARN, LATEST, PHASE, FAST_AS_POSSIBLE, SIMULATED
-from rex.base import StepState, GraphState, Empty, RexStepReturn, RexResetReturn
+from rex.base import StepState, CompiledGraphState, Empty, RexStepReturn, RexResetReturn
 from rex.node import Node
-from rex.asynchronous import Agent as BaseAgent
 from rex.env import BaseEnv
-import rex.jumpy as rjp
 
 
 class Replay:
@@ -37,24 +34,24 @@ class Replay:
 	def __getattr__(self, item):
 		return getattr(self._node, item)
 
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None):
+	def default_output(self, rng: jax.random.KeyArray, graph_state: CompiledGraphState = None):
 		return self._node.default_output(rng, graph_state)
 
-	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None):
+	def default_state(self, rng: jax.random.KeyArray, graph_state: CompiledGraphState = None):
 		# todo: this is a hack, we should grab the state from self._states
 		return self._node.default_state(rng, graph_state)
 
-	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None):
+	def default_params(self, rng: jax.random.KeyArray, graph_state: CompiledGraphState = None):
 		# todo: this is a hack, we should grab the state from self._params
 		return self._node.default_params(rng, graph_state)
 
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None):
+	def reset(self, rng: jax.random.KeyArray, graph_state: CompiledGraphState = None):
 		return self._node.reset(rng, graph_state)
 
 	def step(self, step_state: StepState) -> Tuple[StepState, Any]:
 		seq = step_state.seq
 		eps = step_state.eps
-		output = jax.tree_map(lambda x: rjp.dynamic_slice(x, [eps, seq] + [0*s for s in x.shape[2:]], [1, 1] + list(x.shape[2:]))[0, 0],
+		output = jax.tree_map(lambda x: jax.lax.dynamic_slice(x, [eps, seq] + [0*s for s in x.shape[2:]], [1, 1] + list(x.shape[2:]))[0, 0],
 		                      self._outputs)
 		return step_state, output
 
@@ -89,19 +86,19 @@ class ReconstructionLoss:
 	def __getattr__(self, item):
 		return getattr(self._node, item)
 
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None):
+	def default_output(self, rng: jax.random.KeyArray, graph_state: CompiledGraphState = None):
 		return self._node.default_output(rng, graph_state)
 
-	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None):
+	def default_state(self, rng: jax.random.KeyArray, graph_state: CompiledGraphState = None):
 		state = self._node.default_state(rng, graph_state)
 		output = self._node.default_output(rng, graph_state)
-		cum_loss = jax.tree_util.tree_map(lambda x: jp.zeros_like(x), output)
+		cum_loss = jax.tree_util.tree_map(lambda x: jnp.zeros_like(x), output)
 		return Loss(cum_loss=cum_loss, unwrapped=state)
 
-	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None):
+	def default_params(self, rng: jax.random.KeyArray, graph_state: CompiledGraphState = None):
 		return self._node.default_params(rng, graph_state)
 
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None):
+	def reset(self, rng: jax.random.KeyArray, graph_state: CompiledGraphState = None):
 		return self._node.reset(rng, graph_state)
 
 	def step(self, step_state: StepState) -> Tuple[StepState, Any]:
@@ -112,7 +109,7 @@ class ReconstructionLoss:
 		# Calculate squared loss of
 		seq = step_state.seq
 		eps = step_state.eps
-		target = jax.tree_map(lambda x: rjp.dynamic_slice(x, [eps, seq] + [0 * s for s in x.shape[2:]], [1, 1] + list(x.shape[2:]))[0, 0], self._outputs)
+		target = jax.tree_map(lambda x: jax.lax.dynamic_slice(x, [eps, seq] + [0 * s for s in x.shape[2:]], [1, 1] + list(x.shape[2:]))[0, 0], self._outputs)
 
 		# Calculate loss
 		cum_loss = step_state.state.cum_loss
@@ -132,22 +129,22 @@ class EstimatorParams:
 
 @struct.dataclass
 class EstimatorState:
-	starting_step: jp.int32
+	starting_step: Union[int, jax.typing.ArrayLike]
 
 
-class Estimator(BaseAgent):
+class Estimator(Node):
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 
-	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> EstimatorParams:
+	def default_params(self, rng: jax.random.KeyArray, graph_state: CompiledGraphState = None) -> EstimatorParams:
 		if graph_state is None or graph_state.nodes.get("estimator", None) is None:
 			raise NotImplementedError("Estimator must be initialized with a graph state containing an estimator node")
 		return graph_state.nodes["estimator"].params
 
-	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> EstimatorState:
+	def default_state(self, rng: jax.random.KeyArray, graph_state: CompiledGraphState = None) -> EstimatorState:
 		return EstimatorState(starting_step=graph_state.step)
 
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Empty:
+	def default_output(self, rng: jax.random.KeyArray, graph_state: CompiledGraphState = None) -> Empty:
 		return Empty()
 
 
@@ -157,7 +154,7 @@ class EstimatorEnv(BaseEnv):
 	def __init__(
 			self,
 			graph: BaseGraph,
-			loss_fn: Callable[[GraphState], Any],
+			loss_fn: Callable[[CompiledGraphState], Any],
 			max_steps: int = 1,
 			name: str = "estimator-v0",
 	):
@@ -171,14 +168,14 @@ class EstimatorEnv(BaseEnv):
 		self.nodes = {node.name: node for _, node in self.graph.nodes.items() if node.name != self.world.name}
 		self.nodes_world_and_estimator = self.graph.nodes_and_root
 
-	def _get_graph_state(self, rng: jp.ndarray, graph_state: GraphState) -> GraphState:
+	def _get_graph_state(self, rng: jax.random.KeyArray, graph_state: CompiledGraphState) -> CompiledGraphState:
 		"""Get the graph state."""
 		# Prepare new graph state
-		assert graph_state.step is not None, "AsyncGraph state must have a step index."
-		assert graph_state.eps is not None, "AsyncGraph state must have an episode index."
-		assert graph_state.nodes.get("estimator", None) is not None, "AsyncGraph state must have an estimator node."
-		assert graph_state.timings is not None, "AsyncGraph state must have a timings dict."
-		assert graph_state.buffer is not None, "AsyncGraph state must have a buffer."
+		assert graph_state.step is not None, "Graph state must have a step index."
+		assert graph_state.eps is not None, "Graph state must have an episode index."
+		assert graph_state.nodes.get("estimator", None) is not None, "Graph state must have an estimator node."
+		assert graph_state.timings is not None, "Graph state must have a timings dict."
+		assert graph_state.buffer is not None, "Graph state must have a buffer."
 		prev_graph_state = graph_state
 		starting_step = prev_graph_state.step
 		eps = prev_graph_state.eps
@@ -188,12 +185,12 @@ class EstimatorEnv(BaseEnv):
 		graph_state = prev_graph_state.replace(nodes=new_nodes)
 
 		# For every node, prepare the initial stepstate
-		rng, rng_estimator, rng_agent, rng_world = jumpy.random.split(rng, num=4)
+		rng, rng_estimator, rng_agent, rng_world = jax.random.split(rng, num=4)
 
 		# Get new step_state
-		def get_step_state(node: Node, _rng: jp.ndarray, _graph_state) -> StepState:
+		def get_step_state(node: Node, _rng: jax.random.KeyArray, _graph_state) -> StepState:
 			"""Get new step_state for a node."""
-			rng_params, rng_state, rng_step = jumpy.random.split(_rng, num=3)
+			rng_params, rng_state, rng_step = jax.random.split(_rng, num=3)
 			ss = _graph_state.nodes.get(node.name, None)
 			if ss is not None and ss.params is not None:
 				params = _graph_state.nodes[node.name].params
@@ -208,7 +205,7 @@ class EstimatorEnv(BaseEnv):
 		new_nodes[self.estimator.name] = get_step_state(self.estimator, rng_estimator, graph_state)  # NOTE: isinstance(self.root, Estimator)
 
 		# Get new step_state for other nodes in arbitrary order
-		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes) + 1)
+		rng, *rngs = jax.random.split(rng, num=len(self.nodes) + 1)
 		for (name, n), rng_n in zip(self.nodes.items(), rngs):
 			if name in ["agent", self.world.name, self.estimator.name]:
 				continue
@@ -216,16 +213,16 @@ class EstimatorEnv(BaseEnv):
 			new_nodes[name] = get_step_state(n, rng_n, graph_state)
 
 		# Set initial state of world
-		new_state = jax.tree_map(lambda x: rjp.dynamic_slice(x, [eps, starting_step] + [0*s for s in x.shape[2:]], [1, 1] + list(x.shape[2:]))[0, 0],
+		new_state = jax.tree_map(lambda x: jax.lax.dynamic_slice(x, [eps, starting_step] + [0*s for s in x.shape[2:]], [1, 1] + list(x.shape[2:]))[0, 0],
 		                         new_nodes["estimator"].params.world_states)
 		new_nodes["world"] = new_nodes["world"].replace(state=new_state)
 
 		# Reset nodes
-		rng, *rngs = jumpy.random.split(rng, num=len(self.nodes_world_and_estimator) + 1)
+		rng, *rngs = jax.random.split(rng, num=len(self.nodes_world_and_estimator) + 1)
 		[n.reset(rng_reset, graph_state) for (n, rng_reset) in zip(self.nodes_world_and_estimator.values(), rngs)]
 		return graph_state.replace(nodes=FrozenDict(new_nodes))
 
-	def reset(self, rng: jp.ndarray, graph_state: GraphState = None) -> RexResetReturn:
+	def reset(self, rng: jax.random.KeyArray, graph_state: CompiledGraphState = None) -> RexResetReturn:
 		"""Reset environment."""
 		new_graph_state = self._get_graph_state(rng, graph_state)
 
@@ -237,7 +234,7 @@ class EstimatorEnv(BaseEnv):
 		info = {}
 		return graph_state, loss, info
 
-	def step(self, graph_state: GraphState, action: Any) -> RexStepReturn:
+	def step(self, graph_state: CompiledGraphState, action: Any) -> RexStepReturn:
 		"""Perform step transition in environment."""
 		# Update step_state (if necessary)
 		new_step_state = self.estimator.get_step_state(graph_state)
@@ -250,7 +247,7 @@ class EstimatorEnv(BaseEnv):
 
 		# Termination condition
 		terminated = False
-		truncated = graph_state.step >= self.graph.max_steps(graph_state)
+		truncated = step_state.seq >= self.graph.max_steps(graph_state)
 		info = {"TimeLimit.truncated": truncated}
 
 		return graph_state, loss, 0., terminated, truncated, info

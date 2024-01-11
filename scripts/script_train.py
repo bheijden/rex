@@ -70,7 +70,7 @@ if __name__ == "__main__":
 	# Jit
 	env.jit()
 	# env.reset()
-	# action = jp.array([env.action_space.sample() for _ in range(env.num_envs)]) if isinstance(env, VecGymWrapper) else env.action_space.sample()
+	# action = jnp.array([env.action_space.sample() for _ in range(env.num_envs)]) if isinstance(env, VecGymWrapper) else env.action_space.sample()
 	# env.step(action)
 
 	# Visualize trace

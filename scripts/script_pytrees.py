@@ -5,7 +5,7 @@ from dummy import DummyNode, DummyEnv, DummyAgent, DummyOutput
 from rex.constants import LATEST, BUFFER, WARN
 from rex.base import StepState
 from flax.core import FrozenDict
-import rex.jumpy as rjp
+import rex.jax_utils as rjax
 import jumpy.numpy as jp
 import numpy as onp
 
@@ -30,7 +30,7 @@ world.connect(actuator, blocking=False, delay_sim=Gaussian(4 / 1e3), skip=True, 
 env = DummyEnv(nodes, root=agent, max_steps=200)
 
 # Get initial graph_state
-base_gs = env._get_graph_state(jumpy.random.PRNGKey(0))
+base_gs = env._get_graph_state(jax.random.PRNGKey(0))
 
 # Replace dicts with FrozenDicts
 nodes = FrozenDict(base_gs.nodes)
@@ -65,14 +65,14 @@ for i, name in step_lst.items():
     new_nodes_mask[name] = base_mask.nodes[name].replace(state=new_state_mask, params=new_params_mask, rng=new_rng_mask)
 
     # Emulate pushing outputs to other nodes
-    output = DummyOutput(seqs_sum=jp.int32(i), dummy_1=jp.array([0.0, 1.0], dtype=jp.float32))
+    output = DummyOutput(seqs_sum=jp.int32(i), dummy_1=jnp.array([0.0, 1.0], dtype=jnp.float32))
     for node_name in node_names:
         new_inputs_mask = dict()
         for input_name in base_gs.nodes[node_name].inputs.keys():
             if input_name != name:
                 continue
             # Push output
-            new_input = base_gs.nodes[node_name].inputs[input_name].replace(seq=jp.array([i]))
+            new_input = base_gs.nodes[node_name].inputs[input_name].replace(seq=jnp.array([i]))
             new_inputs = base_gs.nodes[node_name].inputs.copy({input_name: new_input})
             new_input_mask = must_update(base_mask.nodes[node_name].inputs[input_name], True)
             new_inputs_mask = base_mask.nodes[node_name].inputs.copy({input_name: new_input_mask})
@@ -97,7 +97,7 @@ def update(_gs_lst, _mask_lst, old):
     gs_choice = jax.tree_map(lambda *args: TreeLeaf(args), *_gs_lst)
     mask_choice = jax.tree_map(lambda *args: TreeLeaf(args), *_mask_lst)
     jax.tree_map(lambda mask, next_gs, prev_gs: print(f"{mask.c=} | {next_gs.c=} | {prev_gs=}"), mask_choice, gs_choice, old)
-    new_gs = jax.tree_map(lambda mask, next_gs, prev_gs: rjp.select(mask.c, next_gs.c, prev_gs), mask_choice, gs_choice,
+    new_gs = jax.tree_map(lambda mask, next_gs, prev_gs: rjax.select(mask.c, next_gs.c, prev_gs), mask_choice, gs_choice,
                          old)
     return new_gs
 
@@ -129,7 +129,7 @@ def f1(i: jnp.int32):
 print(f1(jnp.array(0)), f1(jnp.array(1)))
 
 m = (False, False, True, False, False)
-arr = (jp.array(9), jp.array(1), jp.array(2), jp.array(3), jp.array(4))
+arr = (jnp.array(9), jnp.array(1), jnp.array(2), jnp.array(3), jnp.array(4))
 f = (9, 1, 2, 3, 4)
 
 onp.select(m, f)
@@ -140,4 +140,4 @@ t3 = [[True, True], [False, False], [True, True]]
 
 t4 = onp.select(True, t1, t2)
 t5 = onp.where(t3, t1, t2)
-t6 = jp.where(t3, t1, t2)
+t6 = jnp.where(t3, t1, t2)

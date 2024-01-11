@@ -1,13 +1,10 @@
 import dill as pickle
 import time
-import jumpy
 import jax.numpy as jnp
 import numpy as onp
-import jumpy.numpy as jp
 import jax
 from flax.core import FrozenDict
 
-import rex.jumpy as rjp
 from rex.base import GraphState
 import rex.utils as utils
 from rex.constants import SILENT, DEBUG, INFO, WARN
@@ -17,75 +14,70 @@ from rex.compiled import CompiledGraph
 from scripts.dummy import DummyEnv, build_dummy_env
 
 
-def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = False, seed: int = 0, vmap: int = 1):
+def evaluate(env, name: str = "env", use_jit: bool = False, seed: int = 0, vmap: int = 1):
     # Record
     gs_lst = []
     obs_lst = []
     ss_lst = []
 
-    use_jit = use_jit and backend == "jax"
-    with rjp.use(backend=backend):
-        rng = jumpy.random.PRNGKey(jp.int32(seed))
+    # vmap functions
+    env_reset = jax.vmap(env.reset) if vmap > 1 else env.reset
+    env_step = jax.vmap(env.step) if vmap > 1 else env.step
 
-        env_reset = rjp.vmap(env.reset)
-        env_step = rjp.vmap(env.step)
-        rng = jumpy.random.split(rng, num=vmap)
+    # Jit reset and step function
+    env_reset = jax.jit(env_reset) if use_jit else env_reset
+    env_step = jax.jit(env_step) if use_jit else env_step
 
-        # Get reset and step function
-        env_reset = jax.jit(env_reset) if use_jit else env_reset
-        env_step = jax.jit(env_step) if use_jit else env_step
+    # Get random key
+    rng = jax.random.PRNGKey(seed)
+    rng = jax.random.split(rng, num=vmap) if vmap > 1 else rng
 
-        # Reset environment (warmup)
-        with utils.timer(f"{name} | jit reset", log_level=WARN):
-            graph_state, obs, info = env_reset(rng)
-            gs_lst.append(graph_state)
-            obs_lst.append(obs)
-            ss_new = graph_state.nodes["agent"]
-            ss_lst.append(ss_new)
+    # Reset environment (warmup)
+    with utils.timer(f"{name} | jit reset", log_level=WARN):
+        graph_state, obs, info = env_reset(rng)
+        gs_lst.append(graph_state)
+        obs_lst.append(obs)
+        ss_lst.append(graph_state.nodes["agent"])
 
-        # Initial step (warmup)
-        with utils.timer(f"{name} | jit step", log_level=WARN):
-            graph_state, obs, reward, terminated, truncated, info = env_step(graph_state, None)
-            obs_lst.append(obs)
-            gs_lst.append(graph_state)
-            # ss_new = graph_state.nodes["agent""].replace(rng=jp.array([0, 0], dtype=jp.int32))
-            ss_new = graph_state.nodes["agent"]
-            ss_lst.append(ss_new)
+    # Initial step (warmup)
+    with utils.timer(f"{name} | jit step", log_level=WARN):
+        graph_state, obs, reward, terminated, truncated, info = env_step(graph_state, None)
+        obs_lst.append(obs)
+        gs_lst.append(graph_state)
+        ss_lst.append(graph_state.nodes["agent"])
 
-        # Run environment
-        tstart = time.time()
-        eps_steps = 1
-        while True:
-            graph_state, obs, reward, terminated, truncated, info = env_step(graph_state, None)
-            obs_lst.append(obs)
-            gs_lst.append(graph_state)
-            # ss_new = graph_state.nodes["agent""].replace(rng=jp.array([0, 0], dtype=jp.int32))
-            ss_new = graph_state.nodes["agent"]
-            ss_lst.append(ss_new)
-            eps_steps += 1
-            done = jp.logical_or(terminated, truncated)
-            if done[0]:
-                # Time env stopping
-                tend = time.time()
-                env.stop()
-                tstop = time.time()
+    # Run environment
+    tstart = time.time()
+    eps_steps = 1
+    while True:
+        graph_state, obs, reward, terminated, truncated, info = env_step(graph_state, None)
+        obs_lst.append(obs)
+        gs_lst.append(graph_state)
+        ss_lst.append(graph_state.nodes["agent"])
+        eps_steps += 1
+        done = jnp.logical_or(terminated, truncated)
+        if done[0] if vmap > 1 else done:
+            # Time env stopping
+            tend = time.time()
+            env.stop()
+            tstop = time.time()
 
-                # Print timings
-                print(f"{name=} | agent_steps={eps_steps} | chunk_index={ss_new.seq} | t={(tstop - tstart): 2.4f} sec | t_s={(tstop - tend): 2.4f} sec | fps={eps_steps / (tend - tstart): 2.4f} | fps={eps_steps / (tstop - tstart): 2.4f} (incl. stop)")
-                break
+            # Print timings
+            print(f"{name=} | agent_steps={eps_steps} | chunk_index={ss_lst[-1].seq} | t={(tstop - tstart): 2.4f} sec | t_s={(tstop - tend): 2.4f} sec | fps={vmap*eps_steps / (tend - tstart): 2.4f} | fps={vmap*eps_steps / (tstop - tstart): 2.4f} (incl. stop)")
+            break
     return gs_lst, obs_lst, ss_lst
 
 
 def test_compiler():
     env, nodes = build_dummy_env()
 
-    # Place observer step in separate process
-    # TODO: TURN ON AGAIN!
-    # from rex.multiprocessing import new_process
-    # nodes["observer"].step = new_process(nodes["observer"].step, max_workers=2)
+    # # Jit node steps
+    # env.graph.init = jax.jit(env.graph.init)
+    # for node in nodes.values():
+    #     node.step = jax.jit(node.step)
 
     # Evaluate async env
-    gs_async, obs_async, ss_async = evaluate(env, name="async", backend="numpy", use_jit=False, seed=0)
+    gs_async, obs_async, ss_async = evaluate(env, name="async", use_jit=False, seed=0)
 
     # Gather record
     record = env.graph.get_episode_record()
@@ -114,8 +106,8 @@ def test_compiler():
     env_mcs = DummyEnv(graph=graph, max_steps=env.max_steps, name="env_mcs")
 
     # Test graph with timings & output buffers already set
-    _, obs, info = env_mcs.reset(rng=jumpy.random.PRNGKey(0), graph_state=init_gs)
-    _, obs, info = env_mcs.reset(rng=jumpy.random.PRNGKey(0))
+    _, obs, info = env_mcs.reset(rng=jax.random.PRNGKey(0), graph_state=init_gs)
+    _, obs, info = env_mcs.reset(rng=jax.random.PRNGKey(0))
 
     # Plot progress
     must_plot = False
@@ -131,25 +123,32 @@ def test_compiler():
     env_mcs.graph = pickle.loads(pickle.dumps(env_mcs.graph))
 
     # Evaluate compiled envs
-    _, _, _ = evaluate(env_mcs, name="mcs-nojit-numpy", backend="numpy", use_jit=False, seed=0)
-    gs_mcs, obs_mcs, ss_mcs = evaluate(env_mcs, name="mcs-jit-jax", backend="jax", use_jit=True, seed=0, vmap=1)
+    gs_mcs, obs_mcs, ss_mcs = evaluate(env_mcs, name="mcs-jit", use_jit=True, seed=0, vmap=100)
 
     # Compare
     def compare(_async, _mcs):
-        if not isinstance(_async, (onp.ndarray, jnp.ndarray)):
-            _equal_mcs = onp.allclose(_async, _mcs)
-            _op_mcs = "==" if _equal_mcs else "!="
-            msg = f"{_async} {_op_mcs} {_mcs}"
+        _async = _async
+        _equal_mcs = onp.allclose(_async, _mcs)
+        _op_mcs = "==" if _equal_mcs else "!="
+        msg = f"{_async} {_op_mcs} {_mcs}"
+        try:
             assert _equal_mcs, msg
-        else:
-            for i in range(len(_async)):
-                _equal_mcs = onp.allclose(_async[i], _mcs[i])
-                _op_mcs = "==" if _equal_mcs else "!="
-                msg = f"{_async} {_op_mcs} {_mcs}"
-                try:
-                    assert _equal_mcs, msg
-                except AssertionError:
-                    raise
+        except AssertionError:
+            raise
+        # if not isinstance(_async, (onp.ndarray, jnp.ndarray)):
+        #     _equal_mcs = onp.allclose(_async, _mcs)
+        #     _op_mcs = "==" if _equal_mcs else "!="
+        #     msg = f"{_async} {_op_mcs} {_mcs}"
+        #     assert _equal_mcs, msg
+        # else:
+        #     for i in range(len(_async)):
+        #         _equal_mcs = onp.allclose(_async[i], _mcs[i])
+        #         _op_mcs = "==" if _equal_mcs else "!="
+        #         msg = f"{_async} {_op_mcs} {_mcs}"
+        #         try:
+        #             assert _equal_mcs, msg
+        #         except AssertionError:
+        #             raise
 
     # Test InputState API
     _ = ss_mcs[0].inputs["observer"][0]

@@ -14,8 +14,6 @@ import dill as pickle
 import time
 import jax
 import numpy as onp
-import jumpy
-import jumpy.numpy as jp
 from stable_baselines3.common.vec_env import VecMonitor
 
 import matplotlib.pyplot as plt

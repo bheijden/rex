@@ -9,7 +9,7 @@ repository = "https://github.com/bheijden/rex"
 documentation = "https://github.com/bheijden/rex"
 packages = [
     { include = "rex" },
-    { include = "jumpy"},
+#    { include = "jumpy"},
 ]
 
 [tool.poetry.dependencies]
@@ -48,6 +48,7 @@ tqdm = "^4.64.1"
 #torch = "^1.13.1"
 #torchvision = "^0.14.1"
 #torchaudio = "^0.13.1"
+jupyter = "^1.0.0"
 
 
 [tool.poetry.dev-dependencies]

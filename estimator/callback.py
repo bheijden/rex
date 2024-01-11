@@ -4,10 +4,7 @@ import jax
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
-import jumpy
-import jumpy.numpy as jp
 import jax.numpy as jnp
-import rex.jumpy as rjp
 import numpy as onp
 import time
 
@@ -50,11 +47,11 @@ class BaseCallback:
 
 @struct.dataclass
 class LogMetric:
-	mask: jp.ndarray
-	ts_epoch_sec: jp.ndarray
-	ts_epoch_nsec: jp.ndarray
-	loss: jp.ndarray
-	fps: jp.ndarray
+	mask: jax.typing.ArrayLike
+	ts_epoch_sec: jax.typing.ArrayLike
+	ts_epoch_nsec: jax.typing.ArrayLike
+	loss: jax.typing.ArrayLike
+	fps: jax.typing.ArrayLike
 
 
 class LogCallback(BaseCallback):
@@ -96,7 +93,7 @@ class LogCallback(BaseCallback):
 		loss = frame.loss[:steps]
 
 		art_loss_line = self._artists[0]
-		art_loss_line.set_data(jp.arange(0, loss.shape[0]), loss)
+		art_loss_line.set_data(jnp.arange(0, loss.shape[0]), loss)
 
 		return self._artists
 
@@ -141,11 +138,11 @@ class LogCallback(BaseCallback):
 		_loss, _params = scan_out
 
 		# Update metric
-		mask = rjp.index_update(metric.mask, epoch, True, copy=False)
-		ts_epoch_sec = rjp.index_update(metric.ts_epoch_sec, epoch+1, ts_epoch_sec, copy=False)
-		ts_epoch_nsec = rjp.index_update(metric.ts_epoch_nsec, epoch+1, ts_epoch_nsec, copy=False)
-		fps = rjp.index_update(metric.fps, epoch, _fps, copy=False)
-		loss = rjp.index_update(metric.loss, slice(steps-num_steps, steps), _loss, copy=False)
+		mask = metric.mask.at[epoch].set(True)
+		ts_epoch_sec = metric.ts_epoch_sec.at[epoch+1].set(ts_epoch_sec)
+		ts_epoch_nsec = metric.ts_epoch_nsec.at[epoch+1].set(ts_epoch_nsec)
+		fps = metric.fps.at[epoch].set(_fps)
+		loss = metric.loss.at[slice(epoch*num_steps, steps)].set(_loss)
 		print(f"epoch {epoch} | step {steps} | {_fps:.2f} steps/sec | min(loss)= {_loss.min():.3f} | loss: {_loss.mean():.3f} +/- {_loss.std():.3f} | max(loss)= {_loss.max():.3f}")
 
 		# Update plot
@@ -198,19 +195,19 @@ class StateFitCallback(BaseCallback):
 		self._axes = self._axes.flatten()
 
 		# Plot targets
-		targets = jp.stack((self._ts_sensor, self._nodes["sensor"]._outputs.cos_th[self._eps, :num_sensor]))
+		targets = jnp.stack((self._ts_sensor, self._nodes["sensor"]._outputs.cos_th[self._eps, :num_sensor]))
 		_ = self._axes[0].scatter(*targets, color=ewheel["blue"], label=f"target", s=self._size)
 		art_cos_th = self._axes[0].scatter(*([], []), color=ewheel["orange"], label=f"cos(th)", s=self._size)
-		targets = jp.stack((self._ts_sensor, self._nodes["sensor"]._outputs.cos_th2[self._eps, :num_sensor]))
+		targets = jnp.stack((self._ts_sensor, self._nodes["sensor"]._outputs.cos_th2[self._eps, :num_sensor]))
 		_ = self._axes[1].scatter(*targets, color=ewheel["blue"], label=f"target", s=self._size)
 		art_cos_th2 = self._axes[1].scatter(*([], []), color=ewheel["orange"], label=f"cos(th2)", s=self._size)
-		targets = jp.stack((self._ts_sensor, self._nodes["sensor"]._outputs.thdot[self._eps, :num_sensor]))
+		targets = jnp.stack((self._ts_sensor, self._nodes["sensor"]._outputs.thdot[self._eps, :num_sensor]))
 		_ = self._axes[2].scatter(*targets, color=ewheel["blue"], label=f"target", s=self._size)
 		art_thdot = self._axes[2].scatter(*([], []), color=ewheel["orange"], label=f"thdot", s=self._size)
-		targets = jp.stack((self._ts_sensor, self._nodes["sensor"]._outputs.thdot2[self._eps, :num_sensor]))
+		targets = jnp.stack((self._ts_sensor, self._nodes["sensor"]._outputs.thdot2[self._eps, :num_sensor]))
 		_ = self._axes[3].scatter(*targets, color=ewheel["blue"], label=f"target", s=self._size)
 		art_thdot2 = self._axes[3].scatter(*([], []), color=ewheel["orange"], label=f"thdot2", s=self._size)
-		targets = jp.stack((self._ts_actuator, self._nodes["actuator"]._outputs.action[self._eps, :num_actuator, 0]))
+		targets = jnp.stack((self._ts_actuator, self._nodes["actuator"]._outputs.action[self._eps, :num_actuator, 0]))
 
 		art_action = self._axes[4].scatter(*targets, color=ewheel["blue"], label=f"action", s=self._size)
 
@@ -223,17 +220,17 @@ class StateFitCallback(BaseCallback):
 		# Prepare artists
 		self._art_dict = dict(cos_th=art_cos_th, cos_th2=art_cos_th2, thdot=art_thdot, thdot2=art_thdot2, action=art_action)
 
-	def _update_plot(self, frame: jp.ndarray):
+	def _update_plot(self, frame: jax.typing.ArrayLike):
 		artists = self._art_dict
 		ws = frame
 		art_hidden = artists["cos_th"]
-		art_hidden.set_offsets(jp.stack((self._ts_world, jp.cos(ws.th[self._eps])), axis=1))
+		art_hidden.set_offsets(jnp.stack((self._ts_world, jnp.cos(ws.th[self._eps])), axis=1))
 		art_hidden = artists["cos_th2"]
-		art_hidden.set_offsets(jp.stack((self._ts_world, jp.cos(ws.th2[self._eps])), axis=1))
+		art_hidden.set_offsets(jnp.stack((self._ts_world, jnp.cos(ws.th2[self._eps])), axis=1))
 		art_hidden = artists["thdot"]
-		art_hidden.set_offsets(jp.stack((self._ts_world, ws.thdot[self._eps]), axis=1))
+		art_hidden.set_offsets(jnp.stack((self._ts_world, ws.thdot[self._eps]), axis=1))
 		art_hidden = artists["thdot2"]
-		art_hidden.set_offsets(jp.stack((self._ts_world, ws.thdot2[self._eps]), axis=1))
+		art_hidden.set_offsets(jnp.stack((self._ts_world, ws.thdot2[self._eps]), axis=1))
 		return (art for art in self._art_dict.values())
 
 	def on_training_start(self, config: Config) -> Metric:
@@ -291,7 +288,7 @@ class StateFitCallback(BaseCallback):
 
 @struct.dataclass
 class ParamFitMetric:
-	mask: jp.ndarray
+	mask: jax.typing.ArrayLike
 	params: Any
 
 
@@ -329,12 +326,12 @@ class ParamFitCallback(BaseCallback):
 		def plot_targets(ax, t):
 			ax.set_xlim(0, num_steps+1)
 			if not isinstance(t, _NoValue):
-				x = jp.arange(0, num_steps)
+				x = jnp.arange(0, num_steps)
 				art_line, = ax.plot(x, onp.ones_like(x)*t, color=ewheel["grape"], label="hidden")
 				return art_line
 
 		def plot_preds(ax, p, label):
-			x = jp.arange(0, steps)
+			x = jnp.arange(0, steps)
 			art_line, = ax.plot(x, onp.ones_like(x)*p, color=ewheel["orange"], label=label)
 			return art_line
 
@@ -356,7 +353,7 @@ class ParamFitCallback(BaseCallback):
 		params = jax.tree_util.tree_map(lambda p: p[:steps], frame.params)
 
 		def update_preds(art, p, ):
-			x = jp.arange(0, steps)
+			x = jnp.arange(0, steps)
 			art.set_data(x, p)
 			return art
 
@@ -369,7 +366,7 @@ class ParamFitCallback(BaseCallback):
 		num_steps = config.num_training_steps_per_epoch
 		mask = onp.zeros((num_epochs,), dtype=bool)
 		params = jax.tree_util.tree_map(lambda x: onp.zeros((num_epochs*num_steps+1,), dtype=onp.float32), config.params.get("world", None))
-		params = jax.tree_util.tree_map(lambda x, y: rjp.index_update(x, 0, y), params, config.params.get("world", None))
+		params = jax.tree_util.tree_map(lambda x, y: x.at[0].set(y), params, config.params.get("world", None))
 		metric = ParamFitMetric(mask=mask, params=params)
 
 		self._frames.append(metric)
@@ -391,8 +388,8 @@ class ParamFitCallback(BaseCallback):
 
 		_loss, _params = scan_out
 		params_epoch = _params.get("world", None)
-		params = jax.tree_util.tree_map(lambda x, y: rjp.index_update(x, slice(epoch*num_steps+1, steps), y), metric.params, params_epoch)
-		mask = rjp.index_update(metric.mask, epoch, True, copy=False)
+		params = jax.tree_util.tree_map(lambda x, y: x.at[epoch*num_steps+1:steps].set(y), metric.params, params_epoch)
+		mask = metric.mask.at[epoch].set(True)
 
 		# Update Metric
 		metric = ParamFitMetric(mask, params)

@@ -40,7 +40,7 @@ def deprecation_warning(msg: str, stacklevel: int = 2):
     stack = inspect.stack()
     frame = stack[stacklevel]
     # Extract information
-    module = inspect.getmodule(frame[0]).__name__
+    module = inspect.getmodule(frame[0]).__name__ if inspect.getmodule(frame[0]) is not None else "unknown"
     filename = frame.filename
     lineno = frame.lineno
     function_name = frame.function

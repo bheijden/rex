@@ -11,7 +11,7 @@ import jax
 import jumpy
 import jax.numpy as jnp
 import numpy as onp
-import rex.jumpy as rjp
+import rex.jax_utils as rjax
 import jumpy.numpy as jp
 from stable_baselines3.common.vec_env import VecMonitor
 
@@ -151,12 +151,12 @@ if __name__ == "__main__":
 
 	@struct.dataclass
 	class Loss:
-		loss: jp.float32
-		rloss: jp.float32
-		dloss: jp.float32
+		loss: Union[float, jax.typing.ArrayLike]
+		rloss: Union[float, jax.typing.ArrayLike]
+		dloss: Union[float, jax.typing.ArrayLike]
 
 
-	alpha_dloss = nodes["world"].default_state(jumpy.random.PRNGKey(0)).replace(th=jp.float32(0.e0), th2=jp.float32(0.e0), thdot=jp.float32(0.e-2), thdot2=jp.float32(0.e-3))
+	alpha_dloss = nodes["world"].default_state(jax.random.PRNGKey(0)).replace(th=jp.float32(0.e0), th2=jp.float32(0.e0), thdot=jp.float32(0.e-2), thdot2=jp.float32(0.e-3))
 
 	def loss_fn(graph_state):
 		"""Get loss."""
@@ -169,10 +169,10 @@ if __name__ == "__main__":
 		# Calculate transition loss
 		fwd_state = graph_state.nodes["world"].state
 		# NOTE: mode="clip" disables negative indexing.
-		est_state = rjp.tree_take(graph_state.nodes["estimator"].params.world_states, graph_state.step + 1, mode="clip")
+		est_state = rjax.tree_take(graph_state.nodes["estimator"].params.world_states, graph_state.step + 1, mode="clip")
 		dloss = jax.tree_util.tree_map(lambda x, y: (x - y) ** 2, est_state, fwd_state)
 		dloss = jax.tree_util.tree_map(lambda e, a: a*e, dloss, alpha_dloss)
-		dloss = jax.tree_util.tree_reduce(lambda acc, l: acc + jp.sum(l), dloss, jp.float32(0.))
+		dloss = jax.tree_util.tree_reduce(lambda acc, l: acc + jp.sum(l), dloss, 0.)
 		loss = rloss + dloss
 		output = Loss(loss=loss, rloss=rloss, dloss=dloss)
 		return output
@@ -188,7 +188,7 @@ if __name__ == "__main__":
 	init_gs = init_graph_state(cenv, nodes, record_network, S, Gs, Gs_monomorphism, data)
 
 	# Define initial params
-	p_tree = jax.tree_util.tree_map(lambda x: None, nodes["world"].default_params(jumpy.random.PRNGKey(0)))
+	p_tree = jax.tree_util.tree_map(lambda x: None, nodes["world"].default_params(jax.random.PRNGKey(0)))
 	# p_world = p_tree.replace(mass=jp.float32(0.3), mass2=jp.float32(0.3), K=jp.float32(1.0), J=jp.float32(0.02))
 	p_world = jax.tree_util.tree_map(lambda x: x * 1.2, p_tree.replace(# J=jp.float32(0.037),
 	                                                                   # J2=jp.float32(0.000111608131930852),
@@ -215,7 +215,7 @@ if __name__ == "__main__":
 			return loss
 		return prior_fn
 
-	guess = nodes["world"].default_params(jumpy.random.PRNGKey(0))
+	guess = nodes["world"].default_params(jax.random.PRNGKey(0))
 	prior_fn = make_prior_fn(guess, multiplier=10000)
 
 	import optax
@@ -223,7 +223,7 @@ if __name__ == "__main__":
 
 	# Define callbacks
 	from estimator.callback import LogCallback, StateFitCallback, ParamFitCallback
-	targets = nodes["world"].default_params(jumpy.random.PRNGKey(0))
+	targets = nodes["world"].default_params(jax.random.PRNGKey(0))
 	callbacks = {"log": LogCallback(visualize=True),
 	             "state_fit": StateFitCallback(visualize=True),
 	             "param_fit": ParamFitCallback(targets=targets, visualize=True)}
@@ -235,8 +235,8 @@ if __name__ == "__main__":
 	                                             prior_fn=prior_fn, num_batches=50, num_steps=5, num_training_steps=10_000,
 	                                             num_training_steps_per_epoch=200, callbacks=callbacks)
 	# Print results
-	print(jax.tree_util.tree_map(lambda x, y: jp.stack([x, y], axis=0), opt_params["world"],
-	                             nodes["world"].default_params(jumpy.random.PRNGKey(0))))
+	print(jax.tree_util.tree_map(lambda x, y: jnp.stack([x, y], axis=0), opt_params["world"],
+	                             nodes["world"].default_params(jax.random.PRNGKey(0))))
 
 	pause = input("Press any key to create an animation...")
 	print(pause)

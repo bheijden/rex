@@ -1,8 +1,8 @@
 from typing import Any, Dict, Tuple, Union
 
 import jax
-import jumpy
-import jumpy.numpy as jp
+import jax.numpy as jnp
+import numpy as onp
 from math import ceil
 from flax import struct
 from flax.core import FrozenDict
@@ -12,10 +12,6 @@ from rex.constants import WARN, LATEST, PHASE, FAST_AS_POSSIBLE, SIMULATED
 from rex.base import StepState, GraphState, Empty
 from rex.node import Node
 from rex.multiprocessing import new_process
-from rex.asynchronous import Agent as BaseAgent
-from rex.env import BaseEnv
-from rex.proto import log_pb2
-import rex.jumpy as rjp
 
 from envs.double_pendulum.env import Output as ActuatorOutput
 from envs.double_pendulum.render import Render
@@ -53,53 +49,53 @@ def build_double_pendulum(rates: Dict[str, float],
 
 	# render.connect(actuator, window=1, blocking=False, skip=False, delay_sim=Gaussian(mean=0., std=0.), delay=0.0, jitter=LATEST)
 
-	render.step = new_process(render.step)
+	# render.step = new_process(render.step)
 
 	return dict(world=world, actuator=actuator, sensor=sensor, render=render)
 
 
 @struct.dataclass
 class Params:
-	max_torque: jp.float32
-	max_speed: jp.float32
-	max_speed2: jp.float32
-	J: jp.float32
-	J2: jp.float32
-	mass: jp.float32
-	mass2: jp.float32
-	length: jp.float32
-	length2: jp.float32
-	b: jp.float32
-	b2: jp.float32
-	c: jp.float32
-	c2: jp.float32
-	K: jp.float32
+	max_torque: Union[float, jax.typing.ArrayLike]
+	max_speed: Union[float, jax.typing.ArrayLike]
+	max_speed2: Union[float, jax.typing.ArrayLike]
+	J: Union[float, jax.typing.ArrayLike]
+	J2: Union[float, jax.typing.ArrayLike]
+	mass: Union[float, jax.typing.ArrayLike]
+	mass2: Union[float, jax.typing.ArrayLike]
+	length: Union[float, jax.typing.ArrayLike]
+	length2: Union[float, jax.typing.ArrayLike]
+	b: Union[float, jax.typing.ArrayLike]
+	b2: Union[float, jax.typing.ArrayLike]
+	c: Union[float, jax.typing.ArrayLike]
+	c2: Union[float, jax.typing.ArrayLike]
+	K: Union[float, jax.typing.ArrayLike]
 
 
 @struct.dataclass
 class State:
-	th: jp.float32
-	th2: jp.float32
-	thdot: jp.float32
-	thdot2: jp.float32
+	th: Union[float, jax.typing.ArrayLike]
+	th2: Union[float, jax.typing.ArrayLike]
+	thdot: Union[float, jax.typing.ArrayLike]
+	thdot2: Union[float, jax.typing.ArrayLike]
 
 
 @struct.dataclass
 class SensorParams:
-	th_std: jp.float32
-	th2_std: jp.float32
-	thdot_std: jp.float32
-	thdot2_std: jp.float32
+	th_std: Union[float, jax.typing.ArrayLike]
+	th2_std: Union[float, jax.typing.ArrayLike]
+	thdot_std: Union[float, jax.typing.ArrayLike]
+	thdot2_std: Union[float, jax.typing.ArrayLike]
 
 
 @struct.dataclass
 class Output:
-	cos_th: jp.float32
-	sin_th: jp.float32
-	cos_th2: jp.float32
-	sin_th2: jp.float32
-	thdot: jp.float32
-	thdot2: jp.float32
+	cos_th: Union[float, jax.typing.ArrayLike]
+	sin_th: Union[float, jax.typing.ArrayLike]
+	cos_th2: Union[float, jax.typing.ArrayLike]
+	sin_th2: Union[float, jax.typing.ArrayLike]
+	thdot: Union[float, jax.typing.ArrayLike]
+	thdot2: Union[float, jax.typing.ArrayLike]
 
 
 def runge_kutta4(ode, dt, params, x, u):
@@ -124,29 +120,29 @@ def ode_double_pendulum(params: Params, x, u):
 	alpha2 = x[1]
 	alpha_dot1 = x[2]
 	alpha_dot2 = x[3]
-	M = jp.array([[J1 + J2 + m2 * l1 * l1 + 2 * P3 * jp.cos(alpha2), J2 + P3 * jp.cos(alpha2)],
-	              [J2 + P3 * jp.cos(alpha2), J2]])
-	C = jp.array([[b1 - 2 * P3 * alpha_dot2 * jp.sin(alpha2), -P3 * (alpha_dot2) * jp.sin(alpha2)],
-	              [P3 * alpha_dot1 * jp.sin(alpha2), b2]])
-	G = jp.array([[-F1 * jp.sin(alpha1) - F2 * jp.sin(alpha1 + alpha2)],
-	              [-F2 * jp.sin(alpha1 + alpha2)]])
-	U = jp.array([[K * u],
+	M = jnp.array([[J1 + J2 + m2 * l1 * l1 + 2 * P3 * jnp.cos(alpha2), J2 + P3 * jnp.cos(alpha2)],
+	              [J2 + P3 * jnp.cos(alpha2), J2]])
+	C = jnp.array([[b1 - 2 * P3 * alpha_dot2 * jnp.sin(alpha2), -P3 * (alpha_dot2) * jnp.sin(alpha2)],
+	              [P3 * alpha_dot1 * jnp.sin(alpha2), b2]])
+	G = jnp.array([[-F1 * jnp.sin(alpha1) - F2 * jnp.sin(alpha1 + alpha2)],
+	              [-F2 * jnp.sin(alpha1 + alpha2)]])
+	U = jnp.array([[K * u],
 	              [0]])
-	alpha_dot = jp.array([[alpha_dot1],
+	alpha_dot = jnp.array([[alpha_dot1],
 	                      [alpha_dot2]])
-	# Minv = 1/(jp.linalg.det(M)+0.000001)*jp.array([[J2, -(J2 + P3 * jp.cos(alpha2))],
+	# Minv = 1/(jnp.linalg.det(M)+0.000001)*jnp.array([[J2, -(J2 + P3 * jnp.cos(alpha2))],
 	#                                             [-(J2 + P3 * cos(alpha2)), J1 + J2 + 2 * P3 * cos(alpha2)]])
-	Minv = jp.linalg.inv(M)
+	Minv = jnp.linalg.inv(M)
 	totoal_torque = U + G
 	coli = C @ alpha_dot
 	ddx = Minv @ (totoal_torque - coli)
 	# print(x,[x[2], x[3], ddx1, ddx2],u,np.linalg.det(M))
 	# print("force",totoal_torque,coli)
-	return jp.array([x[2], x[3], ddx[0][0], ddx[1][0]])
+	return jnp.array([x[2], x[3], ddx[0][0], ddx[1][0]])
 
 
-def _angle_normalize(th: jp.array):
-	th_norm = th - 2 * jp.pi * jp.floor((th + jp.pi) / (2 * jp.pi))
+def _angle_normalize(th: jax.typing.ArrayLike):
+	th_norm = th - 2 * jnp.pi * jnp.floor((th + jnp.pi) / (2 * jnp.pi))
 	return th_norm
 
 
@@ -169,11 +165,11 @@ class World(Node):
 		# At this point, the inputs are not yet fully unpickled.
 		self.inputs = inputs
 
-	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
+	def default_params(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> Params:
 		"""Default params of the node."""
 		if graph_state is None or graph_state.nodes.get("root", None) is None:
-			max_torque, max_speed, max_speed2 = jp.float32(8.0), jp.float32(50.0), jp.float32(50.0)
-			length, length2 = jp.float32(0.1), jp.float32(0.1)
+			max_torque, max_speed, max_speed2 = 8.0, 50.0, 50.0
+			length, length2 = 0.1, 0.1
 		else:
 			agent_params = graph_state.nodes["root"].params
 			max_torque = agent_params.max_torque
@@ -182,43 +178,43 @@ class World(Node):
 		return Params(max_torque=max_torque,
 		              max_speed=max_speed,
 		              max_speed2=max_speed2,
-		              J=jp.float32(0.037),
-		              J2=jp.float32(0.000111608131930852),
-		              mass=jp.float32(0.18),
-		              mass2=jp.float32(0.0691843934004535),
+		              J=0.037,
+		              J2=0.000111608131930852,
+		              mass=0.18,
+		              mass2=0.0691843934004535,
 		              length=length,
 		              length2=length2,
-		              b=jp.float32(0.975872107940422),
-		              b2=jp.float32(1.07098956449896e-05),
-		              c=jp.float32(0.06),
-		              c2=jp.float32(0.0185223578523340),
-		              K=jp.float32(1.09724557347983),
+		              b=0.975872107940422,
+		              b2=1.07098956449896e-05,
+		              c=0.06,
+		              c2=0.0185223578523340,
+		              K=1.09724557347983,
 		              )
 
-	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
+	def default_state(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> State:
 		"""Default state of the node."""
-		rng_th, rng_thdot = jumpy.random.split(rng, num=2)
+		rng_th, rng_thdot = jax.random.split(rng, num=2)
 		if not self.eval_env:
-			th = jumpy.random.uniform(rng_th, shape=(), low=-3.14, high=3.14)
-			th2 = jumpy.random.uniform(rng_th, shape=(), low=-3.14, high=3.14)
-			thdot = jumpy.random.uniform(rng_th, shape=(), low=-3.14, high=3.14)
-			thdot2 = jumpy.random.uniform(rng_th, shape=(), low=-3.14, high=3.14)
+			th = jax.random.uniform(rng_th, shape=(), minval=-3.14, maxval=3.14)
+			th2 = jax.random.uniform(rng_th, shape=(), minval=-3.14, maxval=3.14)
+			thdot = jax.random.uniform(rng_th, shape=(), minval=-3.14, maxval=3.14)
+			thdot2 = jax.random.uniform(rng_th, shape=(), minval=-3.14, maxval=3.14)
 		else:
-			# goal: th2 = jp.pi - th
+			# goal: th2 = jnp.pi - th
 			# [th, th2] = [0, 0] = th=down, th2=down,
 			# [th, th2] = [pi, 0] = th=up, th2=up
 			# [th, th2] = [0, pi] = th=down , th2=up
 			# [th, th2] = [pi, pi] = th=up, th2=down
-			# alpha = jumpy.random.uniform(rng_th, shape=(), low=-jp.pi, high=jp.pi)
+			# alpha = jax.random.uniform(rng_th, shape=(), minval=-jnp.pi, maxval=jnp.pi)
 			# th = alpha
-			# th2 = jp.pi - alpha
-			th = jumpy.random.uniform(rng_th, shape=(), low=-0.3, high=0.3)*0
-			th2 = jumpy.random.uniform(rng_th, shape=(), low=-0.3, high=0.3)*0
-			thdot = 0.  # jumpy.random.uniform(rng_thdot, shape=(), low=-0.05, high=0.05)
-			thdot2 = 0.  # jumpy.random.uniform(rng_thdot, shape=(), low=-0.1, high=0.1)
+			# th2 = jnp.pi - alpha
+			th = jax.random.uniform(rng_th, shape=(), minval=-0.3, maxval=0.3)*0
+			th2 = jax.random.uniform(rng_th, shape=(), minval=-0.3, maxval=0.3)*0
+			thdot = 0.  # jax.random.uniform(rng_thdot, shape=(), low=-0.05, high=0.05)
+			thdot2 = 0.  # jax.random.uniform(rng_thdot, shape=(), low=-0.1, high=0.1)
 		return State(th=th, th2=th2, thdot=thdot, thdot2=thdot2)
 
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
+	def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> State:
 		"""Default output of the node."""
 		# Grab output from state
 		try:
@@ -227,10 +223,10 @@ class World(Node):
 			thdot = graph_state.nodes["world"].state.thdot
 			thdot2 = graph_state.nodes["world"].state.thdot2
 		except (AttributeError):
-			th = jp.float32(0.)
-			th2 = jp.float32(0.)
-			thdot = jp.float32(0.)
-			thdot2 = jp.float32(0.)
+			th = 0.
+			th2 = 0.
+			thdot = 0.
+			thdot2 = 0.
 		return State(th=th, th2=th2, thdot=thdot, thdot2=thdot2)
 
 	def step(self, step_state: StepState) -> Tuple[StepState, State]:
@@ -241,7 +237,7 @@ class World(Node):
 
 		# Get action
 		u = list(inputs.values())[0].data.action[-1][0]
-		x = jp.array([state.th, state.th2, state.thdot, state.thdot2])
+		x = jnp.array([state.th, state.th2, state.thdot, state.thdot2])
 		# print(step_state.eps, step_state.seq, list(inputs.values())[0].seq[0], f"u={u} || x={x}")
 		next_x = x
 
@@ -253,8 +249,8 @@ class World(Node):
 		next_th, next_th2, next_thdot, next_thdot2 = next_x
 
 		# Clip speed
-		next_thdot = jp.clip(next_thdot, -params.max_speed, params.max_speed)
-		next_thdot2 = jp.clip(next_thdot2, -params.max_speed, params.max_speed)
+		next_thdot = jnp.clip(next_thdot, -params.max_speed, params.max_speed)
+		next_thdot2 = jnp.clip(next_thdot2, -params.max_speed, params.max_speed)
 
 		# Update state
 		new_state = state.replace(th=next_th, th2=next_th2, thdot=next_thdot, thdot2=next_thdot2)
@@ -267,10 +263,10 @@ class World(Node):
 
 class Sensor(Node):
 
-	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> SensorParams:
-		return SensorParams(th_std=jp.float32(0.0), th2_std=jp.float32(0.0), thdot_std=jp.float32(0.0), thdot2_std=jp.float32(0.0))
+	def default_params(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> SensorParams:
+		return SensorParams(th_std=0.0, th2_std=0.0, thdot_std=0.0, thdot2_std=0.0)
 
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
+	def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> Output:
 		"""Default output of the node."""
 		# Grab output from state
 		try:
@@ -279,11 +275,11 @@ class Sensor(Node):
 			thdot = graph_state.nodes["world"].state.thdot
 			thdot2 = graph_state.nodes["world"].state.thdot2
 		except (AttributeError):
-			th = jp.float32(0.)
-			th2 = jp.float32(0.)
-			thdot = jp.float32(0.)
-			thdot2 = jp.float32(0.)
-		return Output(cos_th=jp.cos(th), sin_th=jp.sin(th), cos_th2=jp.cos(th2), sin_th2=jp.sin(th2), thdot=thdot, thdot2=thdot2)
+			th = 0.
+			th2 = 0.
+			thdot = 0.
+			thdot2 = 0.
+		return Output(cos_th=jnp.cos(th), sin_th=jnp.sin(th), cos_th2=jnp.cos(th2), sin_th2=jnp.sin(th2), thdot=thdot, thdot2=thdot2)
 
 	def step(self, step_state: StepState) -> Tuple[StepState, Output]:
 		"""Step the node."""
@@ -298,26 +294,26 @@ class Sensor(Node):
 
 		# Add noise
 		th_std, th2_std, thdot_std, thdot2_std = params.th_std, params.th2_std, params.thdot_std, params.thdot2_std
-		new_rng, rng_th, rng_th2, rng_thdot, rng_thdot2 = jumpy.random.split(rng, num=5)
-		th = th + th_std * rjp.normal(rng_th, shape=th.shape, dtype=jp.float32)
-		th2 = th2 + th2_std * rjp.normal(rng_th2, shape=th2.shape, dtype=jp.float32)
-		thdot = thdot + thdot_std * rjp.normal(rng_thdot, shape=thdot.shape, dtype=jp.float32)
-		thdot2 = thdot2 + thdot2_std * rjp.normal(rng_thdot2, shape=thdot2.shape, dtype=jp.float32)
+		new_rng, rng_th, rng_th2, rng_thdot, rng_thdot2 = jax.random.split(rng, num=5)
+		th = th + th_std * jax.random.normal(rng_th, shape=th.shape, dtype=jnp.float32)
+		th2 = th2 + th2_std * jax.random.normal(rng_th2, shape=th2.shape, dtype=jnp.float32)
+		thdot = thdot + thdot_std * jax.random.normal(rng_thdot, shape=thdot.shape, dtype=jnp.float32)
+		thdot2 = thdot2 + thdot2_std * jax.random.normal(rng_thdot2, shape=thdot2.shape, dtype=jnp.float32)
 
 		# Update state
 		new_step_state = step_state.replace(rng=new_rng)
 
 		# Prepare output
-		output = Output(cos_th=jp.cos(th), sin_th=jp.sin(th), cos_th2=jp.cos(th2), sin_th2=jp.sin(th2), thdot=thdot,
+		output = Output(cos_th=jnp.cos(th), sin_th=jnp.sin(th), cos_th2=jnp.cos(th2), sin_th2=jnp.sin(th2), thdot=thdot,
 		                thdot2=thdot2)
 		return new_step_state, output
 
 
 class Actuator(Node):
 
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ActuatorOutput:
+	def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> ActuatorOutput:
 		"""Default output of the node."""
-		return ActuatorOutput(action=jp.array([0.0], dtype=jp.float32))
+		return ActuatorOutput(action=onp.array([0.0]))
 
 	def step(self, step_state: StepState) -> Tuple[StepState, ActuatorOutput]:
 		"""Step the node."""

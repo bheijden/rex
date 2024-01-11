@@ -30,7 +30,7 @@ if __name__ == "__main__":
 	# Evaluate
 	t_slp = 0.001
 	T = 1000
-	rng = jumpy.random.PRNGKey(jp.int32(0))
+	rng = jax.random.PRNGKey(jp.int32(0))
 	tstart = time.time()
 	eps_steps = 0
 	done = False

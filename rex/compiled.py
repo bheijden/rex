@@ -2,12 +2,12 @@ from typing import Any, Dict, List, Tuple, Callable, Union
 import functools
 import networkx as nx
 from flax.core import FrozenDict
-import jumpy
 import jax
+from jax.random import KeyArray
+from jax.typing import ArrayLike
 import jax.numpy as jnp
 import numpy as onp
-import jumpy.numpy as jp
-import rex.jumpy as rjp
+import rex.jax_utils as rjax
 
 from rex.utils import deprecation_warning
 from rex.node import Node
@@ -18,6 +18,7 @@ from rex.supergraph import get_node_data, get_graph_buffer, check_generations_un
 
 int32 = Union[jnp.int32, onp.int32]
 float32 = Union[jnp.float32, onp.float32]
+
 
 def invert_dict_with_list_values(input_dict):
     """
@@ -37,7 +38,7 @@ def invert_dict_with_list_values(input_dict):
     return inverted_dict
 
 
-def get_buffer_size(buffer: GraphBuffer) -> jp.int32:
+def get_buffer_size(buffer: GraphBuffer) -> jnp.int32:
     leaves = jax.tree_util.tree_leaves(buffer)
     size = leaves[0].shape[0] if len(leaves) > 0 else 1
     return size
@@ -46,8 +47,8 @@ def get_buffer_size(buffer: GraphBuffer) -> jp.int32:
 def update_output(buffer: GraphBuffer, output: Output, seq: int32) -> Output:
     size = get_buffer_size(buffer)
     mod_seq = seq % size
-    # todo: copy=True needed? --> `False` would lead to faster execution with numpy backend
-    new_buffer = jax.tree_map(lambda _b, _o: rjp.index_update(_b, mod_seq, _o, copy=True), buffer, output)
+    # new_buffer = jax.tree_map(lambda _b, _o: rjax.index_update(_b, mod_seq, _o, copy=True), buffer, output)
+    new_buffer = jax.tree_map(lambda _b, _o: jnp.array(_b).at[mod_seq].set(jnp.array(_o)), buffer, output)
     return new_buffer
 
 
@@ -84,7 +85,7 @@ def make_update_inputs(name: str, inputs_data: Dict[str, Dict[str, str]]):
             buffer = graph_state.buffer[node_name]
             size = get_buffer_size(buffer)
             mod_seq = t["seq"] % size
-            inputs = rjp.tree_take(buffer, mod_seq)
+            inputs = rjax.tree_take(buffer, mod_seq)
             _new = InputState.from_outputs(t["seq"], t["ts_sent"], t["ts_recv"], inputs, is_data=True)
             new_inputs[input_name] = _new
 
@@ -93,7 +94,7 @@ def make_update_inputs(name: str, inputs_data: Dict[str, Dict[str, str]]):
     return _update_inputs
 
 
-def old_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, generations: List[List[str]], skip: List[str] = None):
+def old_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, root_slot: str, generations: List[List[str]], skip: List[str] = None):
     # todo: Buffer size may not be big enough, when updating graph_state during generational loop.
     #       Specifically, get_buffer_sizes_from_timings must be adapted to account for this.
     #       Or, alternatively, we can construct S such that it has a single node per generation (i.e. linear graph).
@@ -101,12 +102,13 @@ def old_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, generations: List[Li
     INTERMEDIATE_UPDATE = False
 
     # Define update function
-    root_slot = generations[-1][0]
     root = S.nodes[root_slot]["kind"]
+    root_gen_idx = [i for i, gen in enumerate(generations) if root_slot in gen][0]
     node_data = get_node_data(S)
     update_input_fns = {name: make_update_inputs(name, data["inputs"]) for name, data in node_data.items()}
 
     # Determine if all generations contain all slot_kinds
+    # NOTE! This assumes that the root is the only node in the last generation.
     is_uniform = check_generations_uniformity(S, generations[:-1])
     slots_to_kinds = {n: data["kind"] for n, data in S.nodes(data=True)}
     kinds_to_slots = invert_dict_with_list_values(slots_to_kinds)
@@ -142,7 +144,7 @@ def old_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, generations: List[Li
         new_outputs = dict()
         for slot_kind, timings_node in timings_gen.items():
             # Skip slots
-            if slot_kind in skip_slots:
+            if slot_kind == root_slot or slot_kind in skip_slots:
                 continue
 
             if INTERMEDIATE_UPDATE:
@@ -164,7 +166,7 @@ def old_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, generations: List[Li
             no_op = lambda *args: (_old_ss, _old_output)
             # no_op = jax.checkpoint(no_op) # todo: apply jax.checkpoint to no_op?
             try:
-                new_ss, new_output = jumpy.lax.cond(pred, node_step_fns[kind], no_op, graph_state, timings_node)
+                new_ss, new_output = jax.lax.cond(pred, node_step_fns[kind], no_op, graph_state, timings_node)
             except TypeError as e:
                 new_ss, new_output = node_step_fns[kind](graph_state, timings_node)
                 print(f"TypeError: kind={kind}")
@@ -200,18 +202,18 @@ def old_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, generations: List[Li
 
         # Slice timings
         timings_mcs = jax.tree_map(
-            lambda _tb, _size: rjp.dynamic_slice(_tb, [step] + [0 * s for s in _size], [1] + _size)[0], timings, slice_sizes
+            lambda _tb, _size: jax.lax.dynamic_slice(_tb, [step] + [0 * s for s in _size], [1] + _size)[0], timings, slice_sizes
         )
 
         # Run generations
-        # todo: implement uniform generation implementation.
         # NOTE! len(generations)+1 = len(timings_mcs) --> last generation is the root.
         if not is_uniform:
-            for gen, timings_gen in zip(generations[:-1], timings_mcs):
+            for gen, timings_gen in zip(generations, timings_mcs):
                 assert all([node in gen for node in timings_gen.keys()]), f"Missing nodes in timings: {gen}"
                 graph_state, _ = _run_generation(graph_state, timings_gen)
         else:
             flattened_timings = dict()
+            # NOTE! This assumes that the root is the only node in the last generation.
             [flattened_timings.update(timings_gen) for timings_gen in timings_mcs[:-1]]  # Remember: this does include root_slot
             slots_timings = {}
             for kind, slots in kinds_to_slots.items():  # Remember: kinds_to_slots does not include root_slot
@@ -219,10 +221,10 @@ def old_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, generations: List[Li
                 slots_timings[slots[0]] = jax.tree_util.tree_map(lambda *args: jnp.stack(args, axis=0), *timings_to_stack)
             all_shapes = [v["run"].shape for k, v in slots_timings.items()]
             assert all([s == all_shapes[0] for s in all_shapes]), "Shapes of slots are not equal"
-            graph_state, _ = jumpy.lax.scan(_run_generation, graph_state, slots_timings)
+            graph_state, _ = jax.lax.scan(_run_generation, graph_state, slots_timings)
 
         # Run root input update
-        new_ss_root = update_input_fns[root](graph_state, timings_mcs[-1][root_slot])
+        new_ss_root = update_input_fns[root](graph_state, timings_mcs[root_gen_idx][root_slot])
         graph_state = graph_state.replace(nodes=graph_state.nodes.copy({root: new_ss_root}))
 
         # Increment step (new step may exceed max_step) --> clipping is done at the start of run_S.
@@ -232,12 +234,11 @@ def old_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, generations: List[Li
     return _run_S
 
 
-def new_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, generations: List[List[str]], skip: List[str] = None):
+def new_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, root_slot: str, generations: List[List[str]], skip: List[str] = None):
     # Determine which slots to skip
     skip_slots = [n for n, data in S.nodes(data=True) if data["kind"] in skip] if skip is not None else []
 
     # Define update function
-    root_slot = generations[-1][0]
     root = S.nodes[root_slot]["kind"]
     node_data = get_node_data(S)
     update_input_fns = {name: make_update_inputs(name, data["inputs"]) for name, data in node_data.items()}
@@ -286,7 +287,7 @@ def new_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, generations: List[Li
             # Run node step
             # todo: apply jax.checkpoint to no_op?
             no_op = lambda *args: graph_state
-            graph_state = jumpy.lax.cond(pred, node_step_fns[kind], no_op, graph_state, timings_node)
+            graph_state = jax.lax.cond(pred, node_step_fns[kind], no_op, graph_state, timings_node)
         return graph_state
 
     def _run_S(graph_state: CompiledGraphState) -> CompiledGraphState:
@@ -301,7 +302,7 @@ def new_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, generations: List[Li
 
         # Slice timings
         timings_mcs = jax.tree_map(
-            lambda _tb, _size: rjp.dynamic_slice(_tb, [step] + [0 * s for s in _size], [1] + _size)[0], timings, slice_sizes
+            lambda _tb, _size: jax.lax.dynamic_slice(_tb, [step] + [0 * s for s in _size], [1] + _size)[0], timings, slice_sizes
         )
 
         # Run generations
@@ -330,17 +331,18 @@ class CompiledGraph(BaseGraph):
         self._S = S
         self._default_timings = default_timings
 
-        if default_timings is None:
-            deprecation_warning("default_timings is None. This means that the graph will not be able to run without a buffer.", stacklevel=2)
+        # if default_timings is None:
+        #     deprecation_warning("default_timings is None. This means that the graph will not be able to run without a buffer.", stacklevel=2)
 
         # Get generations
         self._generations = list(nx.topological_generations(S))
-        self._root_slot = self._generations[-1][0]
+        self._root_slot = [n for n, data in S.nodes(data=True) if data["kind"] == self.root.name][0]
+        self._root_gen_idx = [i for i, gen in enumerate(self._generations) if self._root_slot in gen][0]
         self._root_kind = S.nodes[self._root_slot]["kind"]
         self._node_data = get_node_data(S)
 
         # Make chunk runner
-        self.__run_until_root = make_run_S(self.nodes_and_root, S, self._generations, skip=skip)
+        self.__run_until_root = make_run_S(self.nodes_and_root, S, self._root_slot, self._generations, skip=skip)
 
     def __getstate__(self):
         args, kwargs = (), dict(nodes=self.nodes, root=self.root, S=self.S, default_timings=self._default_timings)
@@ -354,8 +356,8 @@ class CompiledGraph(BaseGraph):
     def S(self):
         return self._S
 
-    def init(self, rng: jp.ndarray = None, step_states: StepStates = None, starting_step: jp.int32 = 0,
-             starting_eps: jp.int32 = 0, randomize_eps: bool = False, order: Tuple[str, ...] = None) -> CompiledGraphState:
+    def init(self, rng: KeyArray = None, step_states: StepStates = None, starting_step: Union[int, ArrayLike] = 0,
+             starting_eps: Union[int, ArrayLike] = 0, randomize_eps: bool = False, order: Tuple[str, ...] = None) -> CompiledGraphState:
         new_gs: GraphState = super().init(rng=rng, step_states=step_states, starting_eps=starting_eps,
                                           randomize_eps=randomize_eps, order=order)
 
@@ -396,7 +398,7 @@ class CompiledGraph(BaseGraph):
 
             # Update graph state
             new_graph_state = graph_state.replace_step(step=graph_state.step)  # Make sure step is clipped to max_step size
-            timing = rjp.tree_take(graph_state.timings_eps[-1][root_slot], i=new_graph_state.step)
+            timing = rjax.tree_take(graph_state.timings_eps[self._root_gen_idx][root_slot], i=new_graph_state.step)
             new_graph_state = update_state(graph_state, timing, new_ss, new_output)
             return new_graph_state
 
@@ -404,7 +406,7 @@ class CompiledGraph(BaseGraph):
             return graph_state
 
         # Run root node if step > 0, else skip
-        graph_state = jumpy.lax.cond(graph_state.step == 0, _skip_root_step, _run_root_step)
+        graph_state = jax.lax.cond(graph_state.step == 0, _skip_root_step, _run_root_step)
         return graph_state
 
     def max_eps(self, graph_state: CompiledGraphState = None):

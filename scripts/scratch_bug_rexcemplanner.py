@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import jumpy
 import jax
 import jumpy.numpy as jp
-import rex.jumpy as rjp
+import rex.jax_utils as rjax
 import jax.numpy as jnp
 import numpy as onp
 
@@ -89,15 +89,15 @@ if __name__ == "__main__":
     jit_planner_debug = jax.jit(planner._debug)
     for i in range(5, num_steps-1):
         # Get step states
-        ss_init_brax = rjp.tree_take(ss_brax, i)
-        new_ss_brax = rjp.tree_take(ss_brax, i+1)
+        ss_init_brax = rjax.tree_take(ss_brax, i)
+        new_ss_brax = rjax.tree_take(ss_brax, i+1)
 
-        ss_init_rex = rjp.tree_take(ss_rex, i)
-        new_ss_rex = rjp.tree_take(ss_rex, i+1)
+        ss_init_rex = rjax.tree_take(ss_rex, i)
+        new_ss_rex = rjax.tree_take(ss_rex, i+1)
 
         # Get outputs
-        new_plan_brax = rjp.tree_take(outputs_brax, i)
-        new_plan_rex = rjp.tree_take(outputs_rex, i)
+        new_plan_brax = rjax.tree_take(outputs_brax, i)
+        new_plan_rex = rjax.tree_take(outputs_rex, i)
 
         # Prepare rex step_state
         ss_init = ss_init_brax.replace(params=ss_init_rex.params)
@@ -117,15 +117,15 @@ if __name__ == "__main__":
     ax_rex, ax_brax = axes_traj[0], axes_traj[1]
     for i in range(5, num_steps - 1):
         # Get step states
-        ss_init_brax = rjp.tree_take(ss_brax, i)
-        new_ss_brax = rjp.tree_take(ss_brax, i + 1)
+        ss_init_brax = rjax.tree_take(ss_brax, i)
+        new_ss_brax = rjax.tree_take(ss_brax, i + 1)
 
-        ss_init_rex = rjp.tree_take(ss_rex, i)
-        new_ss_rex = rjp.tree_take(ss_rex, i + 1)
+        ss_init_rex = rjax.tree_take(ss_rex, i)
+        new_ss_rex = rjax.tree_take(ss_rex, i + 1)
 
         # Get outputs
-        new_plan_brax = rjp.tree_take(outputs_brax, i)
-        new_plan_rex = rjp.tree_take(outputs_rex, i)
+        new_plan_brax = rjax.tree_take(outputs_brax, i)
+        new_plan_rex = rjax.tree_take(outputs_rex, i)
         # Get joint position
         jpos_now = ss_init_rex.inputs["armsensor"].data.jpos[-1, joint_idx]
         joint_timestamps.append(ss_init_rex.inputs["armsensor"].ts_recv[-1])
@@ -139,16 +139,16 @@ if __name__ == "__main__":
         ax_rex.plot(new_plan_rex.timestamps, jpos_plan, color="black", marker="x")
 
     # Combine trajectory
-    seq = 0 * jp.arange(-len(trajectory), 0, dtype=jp.int32) - 1
-    ts_sent = 0 * jp.arange(-len(trajectory), 0, dtype=jp.float32)
-    ts_recv = 0 * jp.arange(-len(trajectory), 0, dtype=jp.float32)
+    seq = 0 * jnp.arange(-len(trajectory), 0, dtype=jnp.int32) - 1
+    ts_sent = 0 * jnp.arange(-len(trajectory), 0, dtype=jnp.float32)
+    ts_recv = 0 * jnp.arange(-len(trajectory), 0, dtype=jnp.float32)
     history = InputState.from_outputs(seq, ts_sent, ts_recv, trajectory)
 
     global_plan = get_global_plan(history.data, debug=False)
     jpos_global = get_next_jpos_vmap_ts(global_plan, global_plan.timestamps)[:, joint_idx]
     ax_rex.plot(global_plan.timestamps, jpos_global, color="red", alpha=1.0, linestyle="--", marker="x")
 
-    ax_rex.plot(jp.array(joint_timestamps), jp.array(joint_trajectory), color="blue", alpha=0.5, linestyle="--", marker="x")
+    ax_rex.plot(jnp.array(joint_timestamps), jnp.array(joint_trajectory), color="blue", alpha=0.5, linestyle="--", marker="x")
 
     plt.show()
 

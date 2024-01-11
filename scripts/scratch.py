@@ -1,8 +1,6 @@
 import jumpy
-import jumpy.numpy as jp
 from rex.env import BaseEnv
 import rex.utils as utils
-import rex.jumpy as rjp
 
 import sbx
 import stable_baselines3 as sb3
@@ -60,7 +58,7 @@ class RolloutWrapper(object):
     def single_rollout(self, rng_input):
         """Rollout a pendulum episode with lax.scan."""
         # Reset the environment
-        rng_reset, rng_policy, rng_episode = jumpy.random.split(rng_input, num=3)
+        rng_reset, rng_policy, rng_episode = jax.random.split(rng_input, num=3)
         state, obs, info = self.env.reset(rng_reset)
 
         if self.model_forward is not None:
@@ -72,7 +70,7 @@ class RolloutWrapper(object):
         def policy_step(state_input, tmp):
             """lax.scan compatible step transition in jax env."""
             obs, state, policy_state, rng, cum_reward, valid_mask = state_input
-            rng, rng_net = jumpy.random.split(rng, 2)
+            rng, rng_net = jax.random.split(rng, 2)
             if self.model_forward is not None:
                 scaled_action = self.model_forward.policy._predict(obs, deterministic=True)
                 action = self.model_forward.policy.unscale_action(scaled_action)
@@ -94,7 +92,7 @@ class RolloutWrapper(object):
             return carry, y
 
         # Scan over episode step loop
-        carry_out, scan_out = jumpy.lax.scan(
+        carry_out, scan_out = jax.lax.scan(
             policy_step,
             [
                 obs,
@@ -123,11 +121,11 @@ class RolloutWrapper(object):
 rw = exp.RolloutWrapper(env, model_forward=model)
 
 nenvs = 32
-seed = jumpy.random.PRNGKey(0)
-rng = jumpy.random.split(seed, num=nenvs)
+seed = jax.random.PRNGKey(0)
+rng = jax.random.split(seed, num=nenvs)
 for i in range(5):
-    seed = jumpy.random.PRNGKey(i)
-    rng = jumpy.random.split(seed, num=nenvs)
+    seed = jax.random.PRNGKey(i)
+    rng = jax.random.split(seed, num=nenvs)
     timer = utils.timer(f"{i=}", log_level=0)
     with timer:
         obs, action, reward, next_obs, done, cum_return = rw.batch_rollout(rng)
@@ -138,7 +136,7 @@ for i in range(5):
 # import matplotlib.pyplot as plt
 # fig, axes = plt.subplots(nrows=3)
 # axes = axes.flatten()
-# th, th2 = jp.arctan2(obs[:, 1], obs[:, 0]), jp.arctan2(obs[:, 3], obs[:, 2])
+# th, th2 = jnp.arctan2(obs[:, 1], obs[:, 0]), jnp.arctan2(obs[:, 3], obs[:, 2])
 # axes[0].plot(th)
 # axes[1].plot(th2)
-# axes[2].plot(jp.pi - jp.abs(th + th2))
+# axes[2].plot(jnp.pi - jnp.abs(th + th2))

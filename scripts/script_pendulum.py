@@ -5,9 +5,7 @@ import jumpy.numpy as jp
 import jax.numpy as jnp
 import numpy as onp
 
-import rex.jumpy as rjp
 from rex.proto import log_pb2
-from rex.jumpy import use
 from rex.utils import timer
 from rex.distributions import Gaussian
 from rex.constants import LATEST, WARN, FAST_AS_POSSIBLE, SIMULATED, \
@@ -24,62 +22,61 @@ def evaluate(env, name: str = "env", backend: str = "numpy", use_jit: bool = Fal
 	action_space = env.action_space()
 
 	use_jit = use_jit and backend == "jax"
-	with use(backend=backend):
-		rng = jumpy.random.PRNGKey(jp.int32(seed))
+	rng = jax.random.PRNGKey(jp.int32(seed))
 
-		# vmap env
-		env_reset = rjp.vmap(env.reset)
-		env_step = rjp.vmap(env.step)
-		rng = jumpy.random.split(rng, num=vmap)
-		action = rjp.vmap(action_space.sample)(rng)
+	# vmap env
+	env_reset = jax.vmap(env.reset)
+	env_step = jax.vmap(env.step)
+	rng = jax.random.split(rng, num=vmap)
+	action = jax.vmap(action_space.sample)(rng)
 
-		# Get reset and step function
-		env_reset = jax.jit(env_reset, backend=device) if use_jit else env_reset
-		env_step = jax.jit(env_step, backend=device) if use_jit else env_step
+	# Get reset and step function
+	env_reset = jax.jit(env_reset, backend=device) if use_jit else env_reset
+	env_step = jax.jit(env_step, backend=device) if use_jit else env_step
 
-		# Reset environment
-		with timer(f"{name} | jit reset", log_level=WARN):
-			graph_state, obs, info = env_reset(rng)
+	# Reset environment
+	with timer(f"{name} | jit reset", log_level=WARN):
+		graph_state, obs, info = env_reset(rng)
 
-		# Initial step (warmup)
-		with timer(f"{name} | jit step", log_level=WARN):
+	# Initial step (warmup)
+	with timer(f"{name} | jit step", log_level=WARN):
+		graph_state, obs, reward, done, info = env_step(graph_state, action)
+
+	# Run environment
+	fps = []
+	for _ in range(num_eps):
+		# New record
+		gs_lst = []
+		obs_lst = []
+		ss_lst = []
+
+		# Reset
+		graph_state, obs, info = env_reset(rng)
+		gs_lst.append(graph_state)
+		obs_lst.append(obs)
+		ss_lst.append(graph_state.nodes["root"])
+
+		tstart = time.time()
+		eps_steps = 0
+		while True:
 			graph_state, obs, reward, done, info = env_step(graph_state, action)
-
-		# Run environment
-		fps = []
-		for _ in range(num_eps):
-			# New record
-			gs_lst = []
-			obs_lst = []
-			ss_lst = []
-
-			# Reset
-			graph_state, obs, info = env_reset(rng)
-			gs_lst.append(graph_state)
 			obs_lst.append(obs)
+			gs_lst.append(graph_state)
 			ss_lst.append(graph_state.nodes["root"])
+			eps_steps += 1
+			# done = done[0] if vmap > 1 else done
+			if done[0]:
+				# Time env stopping
+				tend = time.time()
+				env.stop()
+				tstop = time.time()
 
-			tstart = time.time()
-			eps_steps = 0
-			while True:
-				graph_state, obs, reward, done, info = env_step(graph_state, action)
-				obs_lst.append(obs)
-				gs_lst.append(graph_state)
-				ss_lst.append(graph_state.nodes["root"])
-				eps_steps += 1
-				# done = done[0] if vmap > 1 else done
-				if done[0]:
-					# Time env stopping
-					tend = time.time()
-					env.stop()
-					tstop = time.time()
-
-					# Print timings
-					fps.append(vmap*eps_steps / (tstop - tstart))
-					print(
-						f"{name=} | agent_steps={eps_steps} | chunk_index={graph_state.step} | t={(tstop - tstart): 2.4f} sec | t_s={(tstop - tend): 2.4f} sec | fps={vmap*eps_steps / (tend - tstart): 2.4f} | fps={vmap*eps_steps / (tstop - tstart): 2.4f} (incl. stop)")
-					break
-		print(f"{name=} | fps={onp.mean(fps): 2.4f} +/- {onp.std(fps): 2.4f}")
+				# Print timings
+				fps.append(vmap*eps_steps / (tstop - tstart))
+				print(
+					f"{name=} | agent_steps={eps_steps} | chunk_index={graph_state.step} | t={(tstop - tstart): 2.4f} sec | t_s={(tstop - tend): 2.4f} sec | fps={vmap*eps_steps / (tend - tstart): 2.4f} | fps={vmap*eps_steps / (tstop - tstart): 2.4f} (incl. stop)")
+				break
+	print(f"{name=} | fps={onp.mean(fps): 2.4f} +/- {onp.std(fps): 2.4f}")
 	return gs_lst, obs_lst, ss_lst
 
 
@@ -154,8 +151,8 @@ if __name__ == "__main__":
 	import matplotlib.pyplot as plt
 	import matplotlib
 	matplotlib.use("TkAgg")
-	arr_obs_trace = jp.array(obs_trace)
-	arr_obs = jp.array(obs)
+	arr_obs_trace = jnp.array(obs_trace)
+	arr_obs = jnp.array(obs)
 	fig, axes = plt.subplots(3, 1, sharex=True)
 	axes = axes.flatten()
 	for i, ax in enumerate(axes):

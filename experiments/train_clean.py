@@ -9,8 +9,6 @@ import dill as pickle
 import time
 import jax
 import numpy as onp
-import jumpy
-import jumpy.numpy as jp
 from stable_baselines3.common.vec_env import VecMonitor
 
 
@@ -147,9 +145,9 @@ if __name__ == "__main__":
 	# def make_replay_step(node, outputs, step_states: StepState = None):
 	# 	def _replay_step(step_state: StepState):
 	# 		seq = step_state.seq
-	# 		output = rjp.tree_take(outputs, seq, axis=0)
+	# 		output = rjax.tree_take(outputs, seq, axis=0)
 	# 		if step_states is not None:
-	# 			new_step_state = rjp.tree_take(step_states, seq+1, axis=0)
+	# 			new_step_state = rjax.tree_take(step_states, seq+1, axis=0)
 	# 		else:
 	# 			new_step_state = step_state
 	# 		return new_step_state, output

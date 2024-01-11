@@ -1,10 +1,8 @@
 import os
 from typing import Any, Dict, Tuple, Union, List
 import numpy as np
-import jumpy
 import brax
 from brax.io import html
-import jumpy.numpy as jp
 import jax
 import jax.experimental.host_callback as hcb
 from jax.debug import print as jax_print
@@ -23,7 +21,6 @@ from rex.distributions import Distribution, Gaussian
 from rex.constants import WARN, LATEST, PHASE
 from rex.base import StepState, GraphState, Empty
 from rex.node import Node
-from rex.multiprocessing import new_process
 
 from envs.vx300s.env import ActuatorOutput, ArmOutput, BoxOutput
 # from envs.vx300s.render import Render
@@ -76,11 +73,11 @@ class State:
 
 @struct.dataclass
 class BraxOutput:
-    jpos: jp.ndarray
-    eepos: jp.ndarray
-    eeorn: jp.ndarray
-    boxpos: jp.ndarray
-    boxorn: jp.ndarray
+    jpos: jax.typing.ArrayLike
+    eepos: jax.typing.ArrayLike
+    eeorn: jax.typing.ArrayLike
+    boxpos: jax.typing.ArrayLike
+    boxorn: jax.typing.ArrayLike
 
 
 PIPELINE = {
@@ -117,7 +114,7 @@ class World(Node):
         kwargs.update(dict(xml_path=self._xml_path, dt_brax=self.dt_brax, backend=self.backend, debug=self.debug))
         return args, kwargs, inputs
 
-    def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
+    def default_params(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> Params:
         """Default params of the node."""
         # Try to grab params from graph_state
         try:
@@ -128,7 +125,7 @@ class World(Node):
             pass
         return Params()
 
-    def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
+    def default_state(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> State:
         """Default state of the node."""
         # if graph_state is not None and "supervisor" in graph_state.nodes:
         # Try to grab state from graph_state
@@ -140,11 +137,11 @@ class World(Node):
         qpos = jnp.concatenate([home_boxpos, home_boxyaw, goalpos, home_jpos, np.array([0.])], dtype=np.float32)
         # else:
         #     qpos = self.sys.init_q
-        qd = jnp.zeros(self.sys.qd_size(), dtype=jp.float32)
+        qd = jnp.zeros(self.sys.qd_size(), dtype=jnp.float32)
         pipeline_state = self._pipeline.init(self.sys, qpos, qd)
         return State(pipeline_state=pipeline_state)
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BraxOutput:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> BraxOutput:
         """Default output of the node."""
         # Grab output from state
         # if graph_state is not None:
@@ -156,11 +153,11 @@ class World(Node):
 
     def _get_output(self, pipeline_state: BraxState = None) -> BraxOutput:
         if pipeline_state is None:
-            jpos = jnp.zeros((self.sys.act_size(),), dtype=jp.float32)
-            eepos = jnp.zeros((3,), dtype=jp.float32)
-            eeorn = jnp.array([0, 0, 0, 1], dtype=jp.float32)
-            boxpos = jnp.zeros((3,), dtype=jp.float32)
-            boxorn = jnp.array([0, 0, 0, 1], dtype=jp.float32)
+            jpos = jnp.zeros((self.sys.act_size(),), dtype=jnp.float32)
+            eepos = jnp.zeros((3,), dtype=jnp.float32)
+            eeorn = jnp.array([0, 0, 0, 1], dtype=jnp.float32)
+            boxpos = jnp.zeros((3,), dtype=jnp.float32)
+            boxorn = jnp.array([0, 0, 0, 1], dtype=jnp.float32)
         else:
             x_i = pipeline_state.x.vmap().do(
                 Transform.create(pos=self.sys.link.inertia.transform.pos)
@@ -172,7 +169,7 @@ class World(Node):
             boxorn = self._convert_wxyz_to_xyzw(x_i.rot[self._box_idx])  # quaternion (w,x,y,z) -> (x,y,z,w)
         return BraxOutput(jpos=jpos, eepos=eepos, eeorn=eeorn, boxpos=boxpos, boxorn=boxorn)
 
-    def _convert_wxyz_to_xyzw(self, quat: jp.ndarray):
+    def _convert_wxyz_to_xyzw(self, quat: jax.typing.ArrayLike):
         """Convert quaternion (w,x,y,z) -> (x,y,z,w)"""
         return jnp.array([quat[1], quat[2], quat[3], quat[0]], dtype="float32")
 
@@ -233,7 +230,7 @@ class ArmSensor(Node):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ArmOutput:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> ArmOutput:
         """Default output of the node."""
         world = self.get_connected_output("world").node
         brax_output = world.default_output(rng, graph_state)
@@ -257,7 +254,7 @@ class BoxSensor(Node):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> BoxOutput:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> BoxOutput:
         """Default output of the node."""
         world = self.get_connected_output("world").node
         brax_output = world.default_output(rng, graph_state)
@@ -281,7 +278,7 @@ class ArmActuator(Node):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ActuatorOutput:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> ActuatorOutput:
         """Default output of the node."""
         world = self.get_connected_input("world").node
         brax_output = world.default_output(rng, graph_state)

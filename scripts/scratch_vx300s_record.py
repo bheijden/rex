@@ -1,10 +1,8 @@
 import os
 import matplotlib.pyplot as plt
 
-import jumpy
 import jax
 import jumpy.numpy as jp
-import rex.jumpy as rjp
 import jax.numpy as jnp
 import numpy as onp
 
@@ -25,14 +23,14 @@ import experiments as exp
 
 @struct.dataclass
 class EEPose:
-    eepos: jp.ndarray
-    eeorn: jp.ndarray
+    eepos: jax.typing.ArrayLike
+    eeorn: jax.typing.ArrayLike
 
 
-def get_ee_pose(sys: System, jpos: jp.ndarray) -> EEPose:
+def get_ee_pose(sys: System, jpos: jax.typing.ArrayLike) -> EEPose:
     # Set
-    qpos = jp.concatenate([sys.init_q[:6], jpos, jp.array([0])])
-    pipeline_state = s_pipeline.init(sys, qpos, jp.zeros_like(sys.init_q))
+    qpos = jnp.concatenate([sys.init_q[:6], jpos, jnp.array([0])])
+    pipeline_state = s_pipeline.init(sys, qpos, jnp.zeros_like(sys.init_q))
     x_i = pipeline_state.x.vmap().do(
         Transform.create(pos=sys.link.inertia.transform.pos)
     )

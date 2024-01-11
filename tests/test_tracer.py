@@ -1,6 +1,6 @@
 import pytest
 import time
-import jumpy
+import jax
 from rex.constants import WARN
 import rex.supergraph as tracer
 from scripts.dummy import build_dummy_env
@@ -12,7 +12,7 @@ def test_tracer(supergraph_mode):
 
 	# Simulate
 	tstart = time.time()
-	graph_state, obs, info = env.reset(jumpy.random.PRNGKey(0))
+	graph_state, obs, info = env.reset(jax.random.PRNGKey(0))
 	steps = 0
 	while True:
 		steps += 1
@@ -46,6 +46,6 @@ def test_tracer(supergraph_mode):
 
 
 if __name__ == "__main__":
+	test_tracer("generational")
 	test_tracer("topological")
 	test_tracer("MCS")
-	test_tracer("generational")

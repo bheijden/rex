@@ -1,10 +1,8 @@
 import pytest
 from concurrent.futures.process import BrokenProcessPool
 import os
-import jumpy
 import jax
-import rex.jumpy as rjp
-import jumpy.numpy as jp
+import jax.numpy as jnp
 import numpy as onp
 
 from rex.base import StepState
@@ -40,8 +38,8 @@ class Node:
 		return pytree_out
 
 
-@pytest.mark.parametrize("backend, jit", [("numpy", False), ("jax", False), ("jax", True)])
-def test_mp(backend, jit):
+@pytest.mark.parametrize("jit", [False, True])
+def test_mp(jit):
 	# Log PID of mainprocess
 	log(name="mainprocess", color="red", log_level=WARN, id="main_thread", msg=f"START")
 
@@ -55,12 +53,11 @@ def test_mp(backend, jit):
 	n.step = jax.jit(n.step) if jit else n.step
 
 	# Steps
-	with rjp.use(backend=backend):
-		for i in range(5):
-			pytree_in = [jp.array([1, 2, 3]) + i, jp.array([4, 5, 6]) + i]
-			pytree_out = n.step(pytree_in)
-			pytree_equal = jax.tree_map(lambda x, y: onp.isclose(x + 1, y).all(), pytree_in, pytree_out)
-			assert all(pytree_equal), "Pytree not equal"
+	for i in range(5):
+		pytree_in = [onp.array([1, 2, 3]) + i, onp.array([4, 5, 6]) + i]
+		pytree_out = n.step(pytree_in)
+		pytree_equal = jax.tree_map(lambda x, y: onp.isclose(x + 1, y).all(), pytree_in, pytree_out)
+		assert all(pytree_equal), "Pytree not equal"
 
 
 @pytest.mark.parametrize(
@@ -78,7 +75,7 @@ def test_mp_error(raise_error_in_initializer, raise_error_in_step, exception_typ
 	n.step = new_process(n.step, max_workers=2, initializer=initializer, initargs=(raise_error_in_initializer, raise_error_in_step))
 
 	# Try to step
-	pytree_in = [jp.array([1, 2, 3]), jp.array([4, 5, 6])]
+	pytree_in = [onp.array([1, 2, 3]), onp.array([4, 5, 6])]
 	with pytest.raises(exception_type):
 		pytree_out = n.step(pytree_in)
 
@@ -92,13 +89,18 @@ def test_mp_with_rex_nodes():
 	sensor = nodes["sensor"]
 
 	# Grab initial step state
-	graph_state, obs, info = env.reset(jumpy.random.PRNGKey(0))
+	graph_state, obs, info = env.reset(jax.random.PRNGKey(0))
 	env.stop()
 	step_state = graph_state.nodes[sensor.name]
 
 	# Wrap the step function into a new process
-	sensor.step = new_process(sensor.step, max_workers=2, initializer=initializer, initargs=(False,))
+	sensor.step = new_process(sensor.step, max_workers=2, initializer=initializer, initargs=(False,), method="spawn")
 
 	# Step
 	numpy_ss = jax.tree_util.tree_map(lambda x: onp.array(x), step_state)
-	step_state = sensor.step(numpy_ss)
+	step_state, _ = sensor.step(numpy_ss)
+	step_state, _ = sensor.step(step_state)
+
+
+if __name__ == "__main__":
+	test_mp_with_rex_nodes()

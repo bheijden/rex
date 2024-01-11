@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Tuple, Generator, Callable, Union
 import jumpy.numpy as jp
-import rex.jumpy as rjp
+import rex.jax_utils as rjax
 from rex.graph import BaseGraph
 from rex.base import InputState, StepState, GraphState, State
 from rex.proto import log_pb2
@@ -152,7 +152,7 @@ def make_graph_step(chunks: Dict[int, SplitOutput], start_index: int, end_index:
         next_chunk_index = graph_state.step
 
         # Run step chunk
-        next_graph_state, next_ts_step, next_step_state = rjp.switch(next_chunk_index-jp.int32(start_index), step_chunks, graph_state, step_state, action)
+        next_graph_state, next_ts_step, next_step_state = rjax.switch(next_chunk_index-jp.int32(start_index), step_chunks, graph_state, step_state, action)
 
         return next_graph_state, next_ts_step, next_step_state
 

@@ -4,7 +4,6 @@ import multiprocessing as mp
 from concurrent.futures.process import _sendback_result, _ExceptionWithTraceback
 from concurrent.futures import _base, Future, CancelledError, ProcessPoolExecutor
 import traceback
-import jumpy
 
 from rex.constants import ERROR
 from rex.utils import log
@@ -97,11 +96,8 @@ class _NewProcess:
         When we are tracing, we call the wrapped function directly,
         because tracing must happen in the same thread.
         """
-        if jumpy.core.is_jitted():
-            return self._unwrapped_fn(*args, **kwargs)
-        else:
-            f = self.submit(*args, **kwargs)
-            return f.result()
+        f = self.submit(*args, **kwargs)
+        return f.result()
 
     def _done_callback(self, f: Future):
         """Callback function that is called when the future is done."""
@@ -127,8 +123,8 @@ class _NewProcess:
         self._executor.shutdown(wait=wait)
 
 
-def new_process(fn: Callable, max_workers: int = 1, initializer: Callable = None, initargs: Tuple = ()) -> _NewProcess:
-    return _NewProcess(fn, max_workers=max_workers, initializer=initializer, initargs=initargs)
+def new_process(fn: Callable, max_workers: int = 1, initializer: Callable = None, initargs: Tuple = (), method: str = "fork") -> _NewProcess:
+    return _NewProcess(fn, max_workers=max_workers, initializer=initializer, initargs=initargs, method=method)
 
 
 # This is a decorator (does not work with class methods...)

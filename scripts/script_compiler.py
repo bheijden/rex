@@ -5,7 +5,6 @@ import numpy as onp
 import jumpy.numpy as jp
 import jax
 
-from rex.jumpy import use
 from rex.utils import timer
 from rex.constants import WARN, SYNC, FAST_AS_POSSIBLE, PHASE, SIMULATED
 from rex.proto import log_pb2
@@ -58,7 +57,7 @@ if __name__ == "__main__":
         env_step = jax.jit(env.step) if use_jit else env.step
 
         # Get initial graph state
-        seed = jumpy.random.PRNGKey(0)
+        seed = jax.random.PRNGKey(0)
 
         # Reset environment (warmup)
         with timer("jit reset", log_level=WARN):

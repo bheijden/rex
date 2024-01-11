@@ -1,5 +1,5 @@
 import dill as pickle
-import jumpy
+import jax
 import time
 import seaborn as sns
 sns.set()
@@ -18,7 +18,7 @@ def test_plot():
 
     # Simulate
     tstart = time.time()
-    graph_state, obs, info = env.reset(jumpy.random.PRNGKey(0))
+    graph_state, obs, info = env.reset(jax.random.PRNGKey(0))
     steps = 0
     while True:
         steps += 1

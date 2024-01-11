@@ -1,12 +1,10 @@
+from typing import Union
 from functools import partial
 import jax
-import jax.numpy as jnp
 from jax.debug import print as jprint
 import jax.experimental.host_callback as hcb
 
-import jumpy.random
-import rex.jumpy as rjp
-import jumpy.numpy as jp
+import jax.numpy as jnp
 import jax.numpy as np
 from math import ceil
 
@@ -36,14 +34,14 @@ PIPELINES = {"generalized": gen_pipeline,
 class State:
     pipeline_state: base.State
     q_des: jnp.ndarray
-    cum_cost: jp.ndarray = struct.field(pytree_node=True, default_factory=lambda: jp.array(0.))
+    cum_cost: jax.typing.ArrayLike = struct.field(pytree_node=True, default_factory=lambda: jnp.array(0.))
 
 
 @struct.dataclass
 class BraxCEMParams:
     """See https://arxiv.org/pdf/1907.03613.pdf for details on CEM"""
-    dt_substeps: jp.float32
-    substeps: jp.int32
+    dt_substeps: Union[float, jax.typing.ArrayLike]
+    substeps: Union[int, jax.typing.ArrayLike]
     sys: base.System
     cem_params: CEMParams
     cost_params: CostParams
@@ -51,8 +49,8 @@ class BraxCEMParams:
 
 @struct.dataclass
 class BraxCEMState:
-    goalpos: jp.ndarray
-    goalyaw: jp.ndarray
+    goalpos: jax.typing.ArrayLike
+    goalyaw: jax.typing.ArrayLike
     prev_plans: InputState
 
 
@@ -76,7 +74,7 @@ class BraxCEMPlanner(Node):
         self._z_fixed = z_fixed
         self._pipeline = pipeline
         self._horizon = horizon
-        self._u_max = u_max * jp.ones((6,), dtype=jp.float32) if isinstance(u_max, float) else jp.array(u_max, dtype=jp.float32)
+        self._u_max = u_max * jnp.ones((6,), dtype=jnp.float32) if isinstance(u_max, float) else jnp.array(u_max, dtype=jnp.float32)
         assert self._u_max.shape == (6,)
         self._dt = dt
         self._dt_substeps = dt_substeps
@@ -92,15 +90,15 @@ class BraxCEMPlanner(Node):
         self._jit_run_cem = jax.jit(self.run_cem, device=self._gpu_device if self._gpu_device else self._cpu_device)
         self._jit_get_init_jpos = jax.jit(self.get_init_plan)
 
-    def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> BraxCEMParams:
+    def default_params(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> BraxCEMParams:
         if "planner" in graph_state.nodes:
             return graph_state.nodes["planner"].params
         else:
             dt, dt_substeps, substeps = get_stepsizes(dt=self._dt, dt_substeps=self._dt_substeps)
             # params_sup = graph_state.nodes["supervisor"].params
             cost_params = CostParams.default()
-            cem_params = CEMParams(u_min=-self._u_max * jp.ones((6,), dtype=jp.float32),
-                                   u_max=self._u_max * jp.ones((6,), dtype=jp.float32),
+            cem_params = CEMParams(u_min=-self._u_max * jnp.ones((6,), dtype=jnp.float32),
+                                   u_max=self._u_max * jnp.ones((6,), dtype=jnp.float32),
                                    sampling_smoothing=self._sampling_smoothing,
                                    evolution_smoothing=self._evolution_smoothing)
             params = BraxCEMParams(dt_substeps=dt_substeps,
@@ -110,26 +108,26 @@ class BraxCEMPlanner(Node):
                                    cost_params=cost_params)
         return params
 
-    def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> BraxCEMState:
+    def default_state(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> BraxCEMState:
         goalpos = graph_state.nodes["supervisor"].state.goalpos
         goalyaw = graph_state.nodes["supervisor"].state.goalyaw
 
         # Initialize previous plans
         plan = self.default_output(rng, graph_state)
-        seq = 0 * jp.arange(-self.window_prev_plans, 0, dtype=jp.int32) - 1
-        ts_sent = 0 * jp.arange(-self.window_prev_plans, 0, dtype=jp.float32)
-        ts_recv = 0 * jp.arange(-self.window_prev_plans, 0, dtype=jp.float32)
+        seq = 0 * jnp.arange(-self.window_prev_plans, 0, dtype=jnp.int32) - 1
+        ts_sent = 0 * jnp.arange(-self.window_prev_plans, 0, dtype=jnp.float32)
+        ts_recv = 0 * jnp.arange(-self.window_prev_plans, 0, dtype=jnp.float32)
         _msgs = [plan] * self.window_prev_plans
         prev_plans = InputState.from_outputs(seq, ts_sent, ts_recv, _msgs)
         return BraxCEMState(prev_plans=prev_plans, goalpos=goalpos, goalyaw=goalyaw)
 
-    def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> PlannerOutput:
+    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> PlannerOutput:
         p_sup = graph_state.nodes["supervisor"].params
         p_plan = graph_state.nodes["planner"].params
         jpos = p_sup.home_jpos
-        jvel = jp.zeros((self._horizon, jpos.shape[0]), dtype=jp.float32)
+        jvel = jnp.zeros((self._horizon, jpos.shape[0]), dtype=jnp.float32)
         dt = p_plan.dt_substeps * p_plan.substeps
-        timestamps = dt * jp.arange(0, self._horizon + 1, dtype=jp.float32)
+        timestamps = dt * jnp.arange(0, self._horizon + 1, dtype=jnp.float32)
         return PlannerOutput(jpos=jpos, jvel=jvel, timestamps=timestamps)
 
     def step(self, step_state: StepState):
@@ -144,15 +142,15 @@ class BraxCEMPlanner(Node):
         ts_offset = self.output.phase  # todo: Add communication delay?
         ts_future = ts_now + ts_offset
         dt = params.dt_substeps * params.substeps
-        timestamps = dt * jp.arange(0, self._horizon + 1, dtype=jp.float32) + ts_now
+        timestamps = dt * jnp.arange(0, self._horizon + 1, dtype=jnp.float32) + ts_now
 
         # Determine where arm.jpos will be at t+t_offset
-        rng, rng_cem = jumpy.random.split(rng, num=2)
+        rng, rng_cem = jax.random.split(rng, num=2)
         goalpos = state.goalpos
         jpos_now = step_state.inputs["armsensor"][-1].data.jpos
         # jpos_future = get_next_jpos(last_plan, timestamps[0])
         boxpos_now = step_state.inputs["boxsensor"][-1].data.boxpos
-        boxyaw_now = jp.array([step_state.inputs["boxsensor"][-1].data.wrapped_yaw])
+        boxyaw_now = jnp.array([step_state.inputs["boxsensor"][-1].data.wrapped_yaw])
 
         # Fixe boxpos_now[z] to be self._z_fixed
         boxpos_now = boxpos_now.at[2].set(self._z_fixed)
@@ -166,7 +164,7 @@ class BraxCEMPlanner(Node):
         new_step_state = step_state.replace(rng=rng, state=new_state)
         return new_step_state, new_plan
 
-    def get_init_plan(self, last_plan: PlannerOutput, timestamps: jp.ndarray) -> PlannerOutput:
+    def get_init_plan(self, last_plan: PlannerOutput, timestamps: jax.typing.ArrayLike) -> PlannerOutput:
         get_next_jpos_vmap = jax.vmap(get_next_jpos, in_axes=(None, 0))
         jpos_timestamps = get_next_jpos_vmap(last_plan, timestamps)
         dt = timestamps[1:] - timestamps[:-1]
@@ -219,7 +217,7 @@ class BraxCEMPlanner(Node):
 
                 # Add cost at every step
                 total_steps = time_step*_params.substeps + i
-                c = cost(_params, next_state, jp.zeros_like(action), total_steps)
+                c = cost(_params, next_state, jnp.zeros_like(action), total_steps)
                 next_state = next_state.replace(cum_cost=c + next_state.cum_cost)
                 return i + 1, next_state
 
@@ -237,7 +235,7 @@ class BraxCEMPlanner(Node):
                 x_next = dynamics(params, x, u, t)
                 return x_next, x_next
 
-            x_next, stacked_x_next = jumpy.lax.scan(f=dynamics_for_scan, init=x0, xs=(U, np.arange(U.shape[0])))
+            x_next, stacked_x_next = jax.lax.scan(f=dynamics_for_scan, init=x0, xs=(U, np.arange(U.shape[0])))
             return x_next.cum_cost
 
         # Get initial pose
@@ -265,7 +263,7 @@ class BraxCEMPlanner(Node):
     def print_sys_info(self):
         print_sys_info(self._sys, self._pipeline)
 
-    def _convert_wxyz_to_xyzw(self, quat: jp.ndarray):
+    def _convert_wxyz_to_xyzw(self, quat: jax.typing.ArrayLike):
         """Convert quaternion (w,x,y,z) -> (x,y,z,w)"""
         return jnp.array([quat[1], quat[2], quat[3], quat[0]], dtype="float32")
 

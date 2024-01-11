@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 import jumpy
 import jax
 import jumpy.numpy as jp
-import rex.jumpy as rjp
 import jax.numpy as jnp
 import numpy as onp
 
@@ -26,7 +25,7 @@ def get_next_jpos(plan, ts):
 
         # Calculate the interpolation factor alpha
         alpha = (ts - last_timestamp) / (current_timestamp - last_timestamp + jp.float32(1e-6))
-        alpha = jp.clip(alpha, jp.float32(0), jp.float32(1))
+        alpha = jnp.clip(alpha, jp.float32(0), jp.float32(1))
 
         # Determine interpolated delta
         interpolated_delta = alpha * current_delta * (current_timestamp - last_timestamp)
@@ -42,8 +41,8 @@ def get_next_jpos(plan, ts):
 
 def update_global_plan(timestamps_global, jvel_global, timestamps, jvel):
     idx = jp.argmax(timestamps_global > timestamps[0])
-    timestamps_global = rjp.dynamic_update_slice(timestamps_global, timestamps, (idx,))
-    jvel_global = rjp.dynamic_update_slice(jvel_global, jvel, (idx, 0))
+    timestamps_global = jax.lax.dynamic_update_slice(timestamps_global, timestamps, jnp.array((idx,), dtype=jnp.int32))
+    jvel_global = jax.lax.dynamic_update_slice(jvel_global, jvel, jnp.array((idx, 0), jnp.int32))
     return timestamps_global, jvel_global
 
 
@@ -55,8 +54,8 @@ def get_global_plan(plan_history: PlannerOutput, debug: bool = False):
 
     # Initialize global plan
     jpos_global = plan_history.jpos[0]
-    jvel_global = jp.zeros((num_plans * horizon + num_plans - 1,) + other_dims, dtype=jp.float32)
-    timestamps_global = jp.amax(plan_history.timestamps[-1]) + 1e-6*jp.arange(1, num_plans*horizon+num_plans+1, dtype=jp.float32)
+    jvel_global = jnp.zeros((num_plans * horizon + num_plans - 1,) + other_dims, dtype=jnp.float32)
+    timestamps_global = jp.amax(plan_history.timestamps[-1]) + 1e-6*jnp.arange(1, num_plans*horizon+num_plans+1, dtype=jnp.float32)
 
     # Update global plan
     for i in range(num_plans):
@@ -74,7 +73,7 @@ def get_global_plan(plan_history: PlannerOutput, debug: bool = False):
     return plan_global
 
 
-def get_init_plan(last_plan: PlannerOutput, timestamps: jp.ndarray) -> PlannerOutput:
+def get_init_plan(last_plan: PlannerOutput, timestamps: jax.typing.ArrayLike) -> PlannerOutput:
     get_next_jpos_vmap = jumpy.vmap(get_next_jpos, include=(False, True))
     jpos_timestamps = get_next_jpos_vmap(last_plan, timestamps)
     dt = timestamps[1:] - timestamps[:-1]
@@ -96,29 +95,29 @@ num_plans = 4
 num_joints = 3
 joint_idx = 0
 
-first_plan = PlannerOutput(jpos=jp.zeros((num_joints,)),
-                           jvel=jp.zeros((horizon, num_joints)),
-                           timestamps=dt_horizon*jp.arange(0, horizon + 1, dtype=jp.float32))
+first_plan = PlannerOutput(jpos=jnp.zeros((num_joints,)),
+                           jvel=jnp.zeros((horizon, num_joints)),
+                           timestamps=dt_horizon*jnp.arange(0, horizon + 1, dtype=jnp.float32))
 
 _msgs = [first_plan] * num_plans
-seq = 0 * jp.arange(-num_plans, 0, dtype=jp.int32) - 1
-ts_sent = 0 * jp.arange(-num_plans, 0, dtype=jp.float32)
-ts_recv = 0 * jp.arange(-num_plans, 0, dtype=jp.float32)
+seq = 0 * jnp.arange(-num_plans, 0, dtype=jnp.int32) - 1
+ts_sent = 0 * jnp.arange(-num_plans, 0, dtype=jnp.float32)
+ts_recv = 0 * jnp.arange(-num_plans, 0, dtype=jnp.float32)
 prev_plans = InputState.from_outputs(seq, ts_sent, ts_recv, _msgs)
 
 fig, ax_traj = plt.subplots(1, 1)
 trajectory = []
-rngs = jumpy.random.split(jumpy.random.PRNGKey(0), num=num_steps)
+rngs = jax.random.split(jax.random.PRNGKey(0), num=num_steps)
 for i in range(0, num_steps):
     # i*dt_planner
     ts_next = dt_future + i*dt_planner
-    timestamps = ts_next + dt_horizon * jp.arange(0, horizon + 1, dtype=jp.float32)
+    timestamps = ts_next + dt_horizon * jnp.arange(0, horizon + 1, dtype=jnp.float32)
 
     # Get init plan
     init_plan = get_init_plan(prev_plans[-1].data, timestamps)
 
     # Get new plan
-    jvel = jumpy.random.uniform(rngs[i], (horizon, num_joints), low=-1, high=1)
+    jvel = jax.random.uniform(rngs[i], (horizon, num_joints), minval=-1, maxval=1)
     new_plan = init_plan.replace(jvel=jvel)
     trajectory.append(new_plan)
 
@@ -153,9 +152,9 @@ for i in range(0, num_steps):
             ax.hlines(jpos_next[j, joint_idx], xmin=0, xmax=10, color=c, alpha=0.5, linestyle="--")
             ax.scatter(ts_next, jpos_next[j, joint_idx], color=c, alpha=0.5, marker="^")
 
-seq = 0 * jp.arange(-len(trajectory), 0, dtype=jp.int32) - 1
-ts_sent = 0 * jp.arange(-len(trajectory), 0, dtype=jp.float32)
-ts_recv = 0 * jp.arange(-len(trajectory), 0, dtype=jp.float32)
+seq = 0 * jnp.arange(-len(trajectory), 0, dtype=jnp.int32) - 1
+ts_sent = 0 * jnp.arange(-len(trajectory), 0, dtype=jnp.float32)
+ts_recv = 0 * jnp.arange(-len(trajectory), 0, dtype=jnp.float32)
 history = InputState.from_outputs(seq, ts_sent, ts_recv, trajectory)
 
 global_plan = get_global_plan(history.data, debug=False)

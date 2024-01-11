@@ -1,6 +1,6 @@
 from typing import Any, Dict, Tuple, Union
-import jumpy
-import jumpy.numpy as jp
+import jax
+import jax.numpy as jnp
 from math import ceil
 from flax import struct
 from rex.distributions import Distribution, Gaussian
@@ -54,31 +54,31 @@ def build_pendulum(rates: Dict[str, float],
 @struct.dataclass
 class Params:
 	"""Pendulum ode param definition"""
-	max_speed: jp.float32
-	J: jp.float32
-	mass: jp.float32
-	length: jp.float32
-	b: jp.float32
-	K: jp.float32
-	R: jp.float32
-	c: jp.float32
-	d: jp.float32
+	max_speed: Union[float, jax.typing.ArrayLike]
+	J: Union[float, jax.typing.ArrayLike]
+	mass: Union[float, jax.typing.ArrayLike]
+	length: Union[float, jax.typing.ArrayLike]
+	b: Union[float, jax.typing.ArrayLike]
+	K: Union[float, jax.typing.ArrayLike]
+	R: Union[float, jax.typing.ArrayLike]
+	c: Union[float, jax.typing.ArrayLike]
+	d: Union[float, jax.typing.ArrayLike]
 
 
 @struct.dataclass
 class State:
 	"""Pendulum ode state definition"""
 
-	th: jp.float32
-	thdot: jp.float32
+	th: Union[float, jax.typing.ArrayLike]
+	thdot: Union[float, jax.typing.ArrayLike]
 
 
 @struct.dataclass
 class Output:
 	"""Pendulum ode output definition"""
 
-	th: jp.float32
-	thdot: jp.float32
+	th: Union[float, jax.typing.ArrayLike]
+	thdot: Union[float, jax.typing.ArrayLike]
 
 
 def runge_kutta4(ode, dt, params, x, u):
@@ -92,9 +92,9 @@ def runge_kutta4(ode, dt, params, x, u):
 def ode_pendulum(params: Params, x, u):
 	g, J, m, l, b, K, R, c, d = 9.81, params.J, params.mass, params.length, params.b, params.K, params.R, params.c, params.d
 
-	ddx = (u * K / R + m * g * l * jp.sin(x[0]) - b * x[1] - x[1] * K * K / R - c * (2 * sigmoid(d * x[1]) - 1)) / J
+	ddx = (u * K / R + m * g * l * jnp.sin(x[0]) - b * x[1] - x[1] * K * K / R - c * (2 * sigmoid(d * x[1]) - 1)) / J
 
-	return jp.array([x[1], ddx])
+	return jnp.array([x[1], ddx])
 
 
 def sigmoid(x):
@@ -103,11 +103,11 @@ def sigmoid(x):
 	# We can use these properties to avoid computing the exponential in these cases.
 	large_positive = x > 35
 	large_negative = x < -35
-	safe_x = jp.where(large_positive, 0, jp.where(large_negative, 0, x))
+	safe_x = jnp.where(large_positive, 0, jnp.where(large_negative, 0, x))
 
-	pos = 1.0 / (1.0 + jp.exp(-safe_x))
+	pos = 1.0 / (1.0 + jnp.exp(-safe_x))
 	neg = 1.0 - pos
-	return jp.where(x >= 0, pos, neg)
+	return jnp.where(x >= 0, pos, neg)
 
 
 class World(Node):
@@ -129,7 +129,7 @@ class World(Node):
 		# At this point, the inputs are not yet fully unpickled.
 		self.inputs = inputs
 
-	def default_params(self, rng: jp.ndarray, graph_state: GraphState = None) -> Params:
+	def default_params(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> Params:
 		"""Default params of the node."""
 		# Try to grab params from graph_state
 		try:
@@ -138,17 +138,17 @@ class World(Node):
 				return params
 		except (AttributeError, KeyError):
 			pass
-		return Params(max_speed=jp.float32(22.0),
-		              J=jp.float32(0.000159931461600856),
-		              mass=jp.float32(0.0508581731919534),
-		              length=jp.float32(0.0415233722862552),
-		              b=jp.float32(1.43298488358436e-05),
-		              K=jp.float32(0.0333391179016334),
-		              R=jp.float32(7.73125142447252),
-		              c=jp.float32(0.000975041213361349),
-		              d=jp.float32(165.417960777425))
+		return Params(max_speed=22.0,
+		              J=0.000159931461600856,
+		              mass=0.0508581731919534,
+		              length=0.0415233722862552,
+		              b=1.43298488358436e-05,
+		              K=0.0333391179016334,
+		              R=7.73125142447252,
+		              c=0.000975041213361349,
+		              d=165.417960777425)
 
-	def default_state(self, rng: jp.ndarray, graph_state: GraphState = None) -> State:
+	def default_state(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> State:
 		"""Default state of the node."""
 		# Try to grab state from graph_state
 		try:
@@ -158,24 +158,24 @@ class World(Node):
 		except (AttributeError, KeyError):
 			pass
 		# Else, return default state
-		rng_th, rng_thdot = jumpy.random.split(rng, num=2)
+		rng_th, rng_thdot = jax.random.split(rng, num=2)
 		if not self.eval_env:
-			th = jumpy.random.uniform(rng_th, shape=(), low=-3.14, high=3.14)
-			thdot = jumpy.random.uniform(rng_thdot, shape=(), low=-9., high=9.)
+			th = jax.random.uniform(rng_th, shape=(), minval=-3.14, maxval=3.14)
+			thdot = jax.random.uniform(rng_thdot, shape=(), minval=-9., maxval=9.)
 		else:
-			th = jumpy.random.uniform(rng_th, shape=(), low=-0.2, high=0.2) + 3.14
-			thdot = jumpy.random.uniform(rng_thdot, shape=(), low=0., high=0.)
+			th = jax.random.uniform(rng_th, shape=(), minval=-0.2, maxval=0.2) + 3.14
+			thdot = jax.random.uniform(rng_thdot, shape=(), minval=0., maxval=0.)
 		return State(th=th, thdot=thdot)
 
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
+	def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> Output:
 		"""Default output of the node."""
 		# Grab output from state
 		try:
 			th = graph_state.nodes["world"].state.th
 			thdot = graph_state.nodes["world"].state.thdot
 		except (AttributeError):
-			th = jp.float32(0.)
-			thdot = jp.float32(0.)
+			th = 0.
+			thdot = 0.
 		return Output(th=th, thdot=thdot)
 
 	def step(self, step_state: StepState) -> Tuple[StepState, Output]:
@@ -186,7 +186,7 @@ class World(Node):
 
 		# Get action
 		u = list(inputs.values())[0].data.action[-1][0]
-		x = jp.array([state.th, state.thdot])
+		x = jnp.array([state.th, state.thdot])
 		next_x = x
 
 		# Calculate next state
@@ -195,7 +195,7 @@ class World(Node):
 
 		# Update state
 		next_th, next_thdot = next_x
-		next_thdot = jp.clip(next_thdot, -params.max_speed, params.max_speed)
+		next_thdot = jnp.clip(next_thdot, -params.max_speed, params.max_speed)
 		new_state = state.replace(th=next_th, thdot=next_thdot)
 		new_step_state = step_state.replace(state=new_state)
 
@@ -207,15 +207,15 @@ class World(Node):
 
 class Sensor(Node):
 
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> Output:
+	def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> Output:
 		"""Default output of the node."""
 		# Grab output from state
 		try:
 			th = graph_state.nodes["world"].state.th
 			thdot = graph_state.nodes["world"].state.thdot
 		except (AttributeError):
-			th = jp.float32(0.)
-			thdot = jp.float32(0.)
+			th = 0.
+			thdot = 0.
 		return Output(th=th, thdot=thdot)
 
 	def step(self, step_state: StepState) -> Tuple[StepState, Output]:
@@ -234,9 +234,9 @@ class Sensor(Node):
 
 class Actuator(Node):
 
-	def default_output(self, rng: jp.ndarray, graph_state: GraphState = None) -> ActuatorOutput:
+	def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> ActuatorOutput:
 		"""Default output of the node."""
-		return ActuatorOutput(action=jp.array([0.0], dtype=jp.float32))
+		return ActuatorOutput(action=jnp.array([0.0], dtype=jnp.float32))
 
 	def step(self, step_state: StepState) -> Tuple[StepState, ActuatorOutput]:
 		"""Step the node."""
