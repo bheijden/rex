@@ -11,18 +11,19 @@ def test_tracer(supergraph_mode):
 	env, nodes = build_dummy_env()
 
 	# Simulate
-	tstart = time.time()
-	graph_state, obs, info = env.reset(jax.random.PRNGKey(0))
-	steps = 0
-	while True:
-		steps += 1
-		graph_state, obs, reward, terminated, truncated, info = env.step(graph_state, None)
-		done = terminated | truncated
-		if done:
-			tend = time.time()
-			env.stop()
-			print(f"agent_steps={steps} | t={(tend - tstart): 2.4f} sec | fps={steps / (tend - tstart): 2.4f}")
-			break
+	for eps in range(5):
+		tstart = time.time()
+		graph_state, obs, info = env.reset(jax.random.PRNGKey(0))
+		steps = 0
+		while True:
+			steps += 1
+			graph_state, obs, reward, terminated, truncated, info = env.step(graph_state, None)
+			done = terminated | truncated
+			if done:
+				tend = time.time()
+				env.stop()
+				print(f"agent_steps={steps} | t={(tend - tstart): 2.4f} sec | fps={steps / (tend - tstart): 2.4f}")
+				break
 
 	# Gather the records
 	record = env.graph.get_episode_record()
@@ -46,6 +47,6 @@ def test_tracer(supergraph_mode):
 
 
 if __name__ == "__main__":
+	test_tracer("MCS")
 	test_tracer("generational")
 	test_tracer("topological")
-	test_tracer("MCS")
