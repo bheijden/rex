@@ -29,6 +29,12 @@ class Node:
 		self.pid = os.getpid()  # Sets the PID of the main process
 		self.raise_error_in_step = False
 
+	def __getstate__(self):
+		return self.pid, self.raise_error_in_step
+
+	def __setstate__(self, state):
+		self.pid, self.raise_error_in_step = state
+
 	def step(self, pytree_in):
 		assert self.pid == os.getpid(), "Process ID changed"
 		log("worker", "blue", WARN, "worker", f"pid={self.pid}")
@@ -47,7 +53,7 @@ def test_mp():
 	n = Node()
 
 	# Wrap the step function into a new process
-	n.step = new_process(n.step, max_workers=2, initializer=initializer, initargs=(False,))
+	n.step = new_process(n.step, max_workers=2, initializer=initializer, initargs=(False,), method="spawn")
 
 	# Optionally jit the step function
 	# n.step = jax.jit(n.step) if jit else n.step
@@ -72,7 +78,7 @@ def test_mp_error(raise_error_in_initializer, raise_error_in_step, exception_typ
 	n = Node()
 
 	# Wrap the step function into a new process
-	n.step = new_process(n.step, max_workers=2, initializer=initializer, initargs=(raise_error_in_initializer, raise_error_in_step))
+	n.step = new_process(n.step, max_workers=2, initializer=initializer, initargs=(raise_error_in_initializer, raise_error_in_step), method="spawn")
 
 	# Try to step
 	pytree_in = [onp.array([1, 2, 3]), onp.array([4, 5, 6])]
@@ -103,4 +109,6 @@ def test_mp_with_rex_nodes():
 
 
 if __name__ == "__main__":
+	test_mp()
 	test_mp_with_rex_nodes()
+	test_mp_error(False, True, ValueError)

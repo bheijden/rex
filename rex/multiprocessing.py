@@ -123,7 +123,7 @@ class _NewProcess:
         self._executor.shutdown(wait=wait)
 
 
-def new_process(fn: Callable, max_workers: int = 1, initializer: Callable = None, initargs: Tuple = (), method: str = "fork") -> _NewProcess:
+def new_process(fn: Callable, max_workers: int = 1, initializer: Callable = None, initargs: Tuple = (), method: str = "spawn") -> _NewProcess:
     return _NewProcess(fn, max_workers=max_workers, initializer=initializer, initargs=initargs, method=method)
 
 
