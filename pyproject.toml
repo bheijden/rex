@@ -22,7 +22,7 @@ termcolor = "^2.1.1"
 networkx = "^3.1"
 # CUDA 11.4 and CuDNN 8.2. This wheel is deprecated and will be discontinued with jax 0.4.8.
 # CUDA >11.4 needed for jax version above 0.4.16.
-# poetry run pip install --upgrade "jax[cuda11_pip]==0.4.16" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html  # todo: this is the one that works
+# poetry run pip install --upgrade "jax[cuda11_pip]==0.4.13" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html  # todo: this is the one that works
 jax = "^0.4.1"
 matplotlib = "^3.6.2"
 seaborn = "^0.12.1"

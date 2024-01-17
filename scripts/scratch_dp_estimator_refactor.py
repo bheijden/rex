@@ -1,6 +1,7 @@
 from typing import Union
 import time
 import os
+import dill as pickle
 import seaborn as sns
 sns.set()
 import matplotlib.pyplot as plt
@@ -60,11 +61,12 @@ SEED = 0
 NUM_ENVS = 10
 SAVE_FREQ = 40_000
 NSTEPS = 200_000
-NUM_EVAL_PRE = 2
+NUM_EVAL_PRE = 1
 NUM_EVAL_POST = 20
 HYPERPARAMS = {"learning_rate": 0.01}
 CONTINUE = True
 MINIMAL = True
+PRELOAD = True
 
 # Record settings
 RECORD_SETTINGS = {"agent": dict(node=True, outputs=True, rngs=True, states=True, params=True, step_states=True),
@@ -96,17 +98,42 @@ for node in env.graph.nodes_and_root.values():
     with timer(f"eval[{node.name}]", log_level=100):
         _, _ = node.step(graph_state.nodes[node.name])
 
-# Load model
-model = exp.load_model(MODEL_PRELOAD, MODEL_CLS, env=gym_env, seed=SEED, module=MODEL_MODULE)
 
-# Make policy
-policy = exp.make_policy(model)
+if PRELOAD:
+    # Load record
+    with open("./record_pre.pb", "rb") as f:
+        record_pre = log_pb2.ExperimentRecord()
+        record_pre.ParseFromString(f.read())
 
-# Evaluate model
-record_pre = exp.eval_env(gym_env, policy, n_eval_episodes=NUM_EVAL_PRE, verbose=True, seed=SEED,
-                          record_settings=RECORD_SETTINGS)
+    # Load data
+    with open("./data_pre.pkl", "rb") as f:
+        data = pickle.load(f)
+else:
+    # Load model
+    model = exp.load_model(MODEL_PRELOAD, MODEL_CLS, env=gym_env, seed=SEED, module=MODEL_MODULE)
 
-if True or not MINIMAL:
+    # Make policy
+    policy = exp.make_policy(model)
+
+    # Evaluate model
+    record_pre = exp.eval_env(gym_env, policy, n_eval_episodes=NUM_EVAL_PRE, verbose=True, seed=SEED,
+                              record_settings=RECORD_SETTINGS)
+
+    # Prepare data
+    data = exp.RecordHelper(record_pre)
+    data.record = None
+    data._record = None
+    data._nodes = None
+
+    # Save record
+    with open("./record_pre.pb", "wb") as f:
+        f.write(record_pre.SerializeToString())
+
+    # pickle data
+    with open("./data_pre.pkl", "wb") as f:
+        pickle.dump(data, f)
+
+if not MINIMAL:
     # Plot
     fig_gr, _ = exp.show_graph(record_pre.episode[-1])
     fig_com, _ = exp.show_communication(record_pre.episode[-1])
@@ -219,9 +246,6 @@ if not MINIMAL:
             res = rw.batch_rollout(rng)
         fps = env.max_steps * nenvs / timer.duration
         print(f"[{timer.name}] time={timer.duration} sec | fps={fps:.0f} steps/sec")
-
-# Prepare data
-data = exp.RecordHelper(record_pre)
 
 # Build estimator
 from estimator import build_estimator
