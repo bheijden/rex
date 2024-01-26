@@ -65,7 +65,13 @@ class ArmOutput:
 
     @property
     def orn_to_3x3(self):
-        q = self.eeorn
+        """Get the rotation matrix from eeorn (quaternion xyzw)"""
+        return self.static_orn_to_3x3(self.eeorn)
+
+    @staticmethod
+    def static_orn_to_3x3(orn):
+        """Get the rotation matrix from orn (quaternion xyzw)"""
+        q = orn
         d = jnp.dot(q, q)
         x, y, z, w = q
         s = 2 / d
@@ -87,11 +93,37 @@ class BoxOutput:
     boxorn: jax.typing.ArrayLike
 
     @property
+    def orn_to_3x3(self):
+        """Get the rotation matrix from boxorn (quaternion xyzw)"""
+        return self.static_orn_to_3x3(self.boxorn)
+
+    @property
     def wrapped_yaw(self):
         """Get the wrapped yaw from boxorn (quaternion xyzw)"""
-        rot = self.orn_to_3x3
-        # import numpy as onp
-        # import jax.numpy as jnp
+        return self.static_wrapped_yaw(self.boxorn)
+
+    @staticmethod
+    def static_orn_to_3x3(orn):
+        """Get the rotation matrix from orn (quaternion xyzw)"""
+        q = orn
+        d = jnp.dot(q, q)
+        x, y, z, w = q
+        s = 2 / d
+        xs, ys, zs = x * s, y * s, z * s
+        wx, wy, wz = w * xs, w * ys, w * zs
+        xx, xy, xz = x * xs, x * ys, x * zs
+        yy, yz, zz = y * ys, y * zs, z * zs
+
+        return jnp.array([
+            jnp.array([1 - (yy + zz), xy - wz, xz + wy]),
+            jnp.array([xy + wz, 1 - (xx + zz), yz - wx]),
+            jnp.array([xz - wy, yz + wx, 1 - (xx + yy)]),
+        ])
+
+    @staticmethod
+    def static_wrapped_yaw(boxorn):
+        """Get the wrapped yaw from boxorn (quaternion xyzw)"""
+        rot = BoxOutput.static_orn_to_3x3(boxorn)
         # Remove z axis from rotation matrix
         axis_idx = 2  # Upward pointing axis of robot base
         z_idx = jnp.argmax(jnp.abs(rot[axis_idx, :]), axis=0)  # Take absolute value, if axis points downward.
@@ -112,22 +144,45 @@ class BoxOutput:
         yaw = th % (jnp.pi / 2)
         return yaw
 
-    @property
-    def orn_to_3x3(self):
-        q = self.boxorn
-        d = jnp.dot(q, q)
-        x, y, z, w = q
-        s = 2 / d
-        xs, ys, zs = x * s, y * s, z * s
-        wx, wy, wz = w * xs, w * ys, w * zs
-        xx, xy, xz = x * xs, x * ys, x * zs
-        yy, yz, zz = y * ys, y * zs, z * zs
 
-        return jnp.array([
-            jnp.array([1 - (yy + zz), xy - wz, xz + wy]),
-            jnp.array([xy + wz, 1 - (xx + zz), yz - wx]),
-            jnp.array([xz - wy, yz + wx, 1 - (xx + yy)]),
-        ])
+
+        # rot = self.orn_to_3x3
+        # # Remove z axis from rotation matrix
+        # axis_idx = 2  # Upward pointing axis of robot base
+        # z_idx = jnp.argmax(jnp.abs(rot[axis_idx, :]), axis=0)  # Take absolute value, if axis points downward.
+        # # Calculate angle
+        # tmp = rot[[i for i in range(2) if i !=axis_idx], :]
+        # rot_red = jnp.zeros((2, 2), dtype=jnp.float32)
+        # rot_red = rot_red + tmp[:, [0, 1]]*(z_idx == 2)
+        # rot_red = rot_red + tmp[:, [1, 2]]*(z_idx == 0)
+        # rot_red = rot_red + tmp[:, [0, 2]]*(z_idx == 1)
+        # s = jnp.sign(jnp.take(rot[axis_idx], z_idx))
+        # c1 = (s > 0) * (z_idx == 1)
+        # c2 = (s < 0) * (z_idx != 1)
+        # c = jnp.logical_or(c1, c2)
+        # rot_red = (1-c) * rot_red + c * rot_red @ jnp.array([[0, 1], [1, 0]], dtype=jnp.float32)
+        # th_cos = rot_red[0, 0]
+        # th_sin = rot_red[1, 0]
+        # th = jnp.arctan2(th_sin, th_cos)
+        # yaw = th % (jnp.pi / 2)
+        # return yaw
+
+    # @property
+    # def orn_to_3x3(self):
+    #     q = self.boxorn
+    #     d = jnp.dot(q, q)
+    #     x, y, z, w = q
+    #     s = 2 / d
+    #     xs, ys, zs = x * s, y * s, z * s
+    #     wx, wy, wz = w * xs, w * ys, w * zs
+    #     xx, xy, xz = x * xs, x * ys, x * zs
+    #     yy, yz, zz = y * ys, y * zs, z * zs
+    #
+    #     return jnp.array([
+    #         jnp.array([1 - (yy + zz), xy - wz, xz + wy]),
+    #         jnp.array([xy + wz, 1 - (xx + zz), yz - wx]),
+    #         jnp.array([xz - wy, yz + wx, 1 - (xx + yy)]),
+    #     ])
 
 
 def get_next_jpos(plan, ts):

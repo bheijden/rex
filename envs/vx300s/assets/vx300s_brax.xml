@@ -163,6 +163,7 @@
                                     <geom class="arm" mesh="gripper_bar_mesh" euler="0 0 1.5707963267948966" pos="-0.020175 0 0" contype="4" conaffinity="4"/>
                                     <!-- To follow the gripper link (ee_link is dummy joint)-->
                                     <body name="ee_link" euler="0 0 0" pos="0.1072 0 0">
+                                        <inertial euler="0 0 0" pos="0 0 0" mass="0.00001" diaginertia="0.000001 0.000001 0.000001"/>-->
                                         <joint name="ee_link" type="slide" axis="1 0 0" range="-0.01 0.01"/>
                                         <geom type="sphere" rgba="1 0 0 1" pos="0 0 0" size="0.01" contype="0" conaffinity="0"/>
                                     </body>

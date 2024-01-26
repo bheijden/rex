@@ -19,9 +19,28 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
-from stable_baselines3.common.vec_env import VecMonitor
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.base_class import BaseAlgorithm
+try:
+    from stable_baselines3.common.vec_env import VecMonitor
+    from stable_baselines3.common.monitor import Monitor
+    from stable_baselines3.common.base_class import BaseAlgorithm
+    from stable_baselines3.common.utils import obs_as_tensor as sb3_obs_as_tensor
+    import stable_baselines3.common.on_policy_algorithm
+
+    def obs_as_tensor(obs, device):
+        """Monkeypatch needed to convert jax arrays to pytorch tensors in stable-baselines3."""
+        if isinstance(obs, jax.numpy.ndarray):
+            np_obs = onp.asarray(obs)
+            return sb3_obs_as_tensor(np_obs, device)
+        else:
+            return sb3_obs_as_tensor(obs, device)
+
+    stable_baselines3.common.on_policy_algorithm.obs_as_tensor = obs_as_tensor
+except ImportError:
+    print(f"Could not import stable_baselines3. Some functionality will be missing.")
+    BaseAlgorithm = None
+    Monitor = None
+    VecMonitor = None
+    sb3_obs_as_tensor = None
 
 import rex.utils as utils
 from rex.compiled import CompiledGraph
@@ -549,21 +568,10 @@ class RexVecEnv:
         return env
 
 
-from stable_baselines3.common.utils import obs_as_tensor as sb3_obs_as_tensor
+# from stable_baselines3.common.utils import obs_as_tensor as sb3_obs_as_tensor
 
 
-def obs_as_tensor(obs, device):
-    """Monkeypatch needed to convert jax arrays to pytorch tensors in stable-baselines3."""
-    if isinstance(obs, jax.numpy.ndarray):
-        np_obs = onp.asarray(obs)
-        return sb3_obs_as_tensor(np_obs, device)
-    else:
-        return sb3_obs_as_tensor(obs, device)
 
-
-import stable_baselines3.common.on_policy_algorithm
-
-stable_baselines3.common.on_policy_algorithm.obs_as_tensor = obs_as_tensor
 
 
 class _NoValue: pass

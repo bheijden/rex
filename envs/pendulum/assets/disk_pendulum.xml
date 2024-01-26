@@ -28,13 +28,13 @@
         <geom name="table" type="plane" pos="0 0.0 -0.1" size="1 1 0.1" contype="8" conaffinity="11" condim="3"/>
         <body name="disk" pos="0.0 0.0 0.0" euler="1.5708 0.0 0.0">
             <joint name="hinge_joint" type="hinge" axis="0 0 1" range="-180 180" armature="0.00022993" damping="0.0001" limited="false" frictionloss="123"/>
-            <geom name="disk_geom" type="cylinder" size="0.06 0.001" contype="0" conaffinity="0" condim="1" mass="0.0"/>
-            <geom name="mass_geom" type="cylinder" size="0.02 0.005" contype="0" conaffinity="0"  condim="1" rgba="0.04 0.04 0.04 1"
+            <geom name="disk_geom" type="cylinder" size="0.06 0.001" contype="0" conaffinity="0" condim="3" mass="0.0"/>
+            <geom name="mass_geom" type="cylinder" size="0.02 0.005" contype="0" conaffinity="0"  condim="3" rgba="0.04 0.04 0.04 1"
                   pos="0.0 0.04 0." mass="0.05085817"/>
         </body>
     </worldbody>
 
     <actuator>
-        <motor joint="hinge_joint" ctrllimited="true" ctrlrange="-3.0 3.0"  gear="0.01"/>
+        <motor joint="hinge_joint" ctrllimited="false" ctrlrange="-3.0 3.0"  gear="0.01"/>
     </actuator>
 </mujoco>

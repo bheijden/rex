@@ -43,12 +43,11 @@ def cem_rex(objective,
       hyperparams: a dictionary of algorithm hyperparameters with following keys
         sampling_smoothing -- amount of smoothing in action sampling. Refer to
                             eq. 3-4 in https://arxiv.org/pdf/1907.03613.pdf for
-                              more details. evolution_smoothing -- amount of
-                              smoothing in updating mean and standard deviation
-                              elite_portion -- proportion of samples that is
-                              considered elites max_iter -- maximum number of
-                              iterations num_samples -- number of action sequences
-                              sampled
+                              more details.
+        evolution_smoothing -- amount of smoothing in updating mean and standard deviation
+        elite_portion -- proportion of samples that is considered elites
+        max_iter -- maximum number of iterations
+        num_samples -- number of action sequences sampled
   
     Returns:
       X: Optimal state trajectory.
