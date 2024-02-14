@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import rex.utils as utils
 from rex.constants import SILENT, DEBUG, INFO, WARN, SIMULATED, WALL_CLOCK
 from rex.supergraph import get_network_record
-from scripts.dummy import build_dummy_env
+from tests.dummy import build_dummy_env
 
 utils.set_log_level(WARN)
 

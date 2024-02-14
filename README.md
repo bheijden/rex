@@ -20,19 +20,16 @@
 
 [//]: # ([Full documentation and tutorials &#40;including package creation and contributing&#41; are available here.]&#40;https://eagerx.readthedocs.io/en/master/&#41;)
 
-[//]: # (Installation)
+Installation
+------------
 
-[//]: # (------------)
+You can install the package using pip:
 
-[//]: # ()
-[//]: # (You can install the package using pip:)
+```bash
 
-[//]: # ()
-[//]: # (```bash)
+pip3 install rex-lib
 
-[//]: # (pip3 install rex)
-
-[//]: # (```)
+```
 
 Cite EAGERx
 -----------
@@ -41,7 +38,7 @@ If you are using rex for your scientific publications, please cite:
 
 ``` {.sourceCode .bibtex}
 @article{rex,
-    author  = {van der Heijden, Bas and Luijkx, Jelle, and Ferranti, Laura and Kober, Jens and Babuska, Robert},
+    author  = {van der Heijden, Bas and Ferranti, Laura and Kober, Jens and Babuska, Robert},
     title = {rex: Robotic Environments with jaX.},
     year = {2022},
     publisher = {GitHub},

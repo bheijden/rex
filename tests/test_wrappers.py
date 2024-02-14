@@ -1,6 +1,6 @@
 import jax
 from rex.wrappers import GymWrapper, VecGymWrapper, AutoResetWrapper
-from scripts.dummy import build_dummy_env, DummyEnv, build_dummy_compiled_env
+from tests.dummy import build_dummy_env, DummyEnv, build_dummy_compiled_env
 
 
 def test_auto_reset_wrapper():

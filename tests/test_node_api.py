@@ -1,4 +1,4 @@
-from scripts.dummy import DummyNode
+from tests.dummy import DummyNode
 from rex.distributions import Distribution, Gaussian, GMM
 from rex.constants import LATEST, BUFFER, WARN, DEBUG, ERROR, READY
 import rex.utils as utils

@@ -11,7 +11,7 @@ from rex.open_colors import ecolor, fcolor
 import rex.utils as utils
 from rex.plot import get_subplots
 from rex.wrappers import GymWrapper
-from scripts.dummy import build_dummy_env
+from tests.dummy import build_dummy_env
 
 
 def test_gmm_estimator():

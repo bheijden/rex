@@ -10,7 +10,7 @@ from rex.multiprocessing import new_process
 from rex.constants import WARN, ERROR
 from rex.utils import log
 from rex.base import StepState, Output
-from scripts.dummy import build_dummy_env
+from tests.dummy import build_dummy_env
 
 
 # Create initialize function that updates the pid (as an example)

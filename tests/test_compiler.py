@@ -11,7 +11,7 @@ from rex.constants import SILENT, DEBUG, INFO, WARN
 from rex.supergraph import get_network_record, get_timings_from_network_record, get_graph_buffer
 from rex.compiled import CompiledGraph
 
-from scripts.dummy import DummyEnv, build_dummy_env
+from tests.dummy import DummyEnv, build_dummy_env
 
 
 def evaluate(env, name: str = "env", use_jit: bool = False, seed: int = 0, vmap: int = 1):
@@ -112,7 +112,7 @@ def test_compiler():
     # Plot progress
     must_plot = False
     if must_plot:
-        from scripts.dummy_plot import plot_delay, plot_graph, plot_grouped, plot_threads
+        from tests.dummy_plot import plot_delay, plot_graph, plot_grouped, plot_threads
         r = {n.info.name: n for n in record.node}
         # plot_graph(trace_seq)
         plot_delay(r)

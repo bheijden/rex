@@ -11,7 +11,7 @@ from rex.wrappers import GymWrapper, VecGymWrapper
 from rex.constants import WARN, ERROR, SYNC, SIMULATED, PHASE, FAST_AS_POSSIBLE, DEBUG
 from rex.proto import log_pb2
 from rex.asynchronous import AsyncGraph
-from scripts.dummy import build_dummy_env, DummyEnv
+from tests.dummy import build_dummy_env, DummyEnv
 
 
 def process_record(record: log_pb2.ExperimentRecord):

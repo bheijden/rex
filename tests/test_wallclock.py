@@ -10,7 +10,7 @@ from rex.proto import log_pb2
 from rex.constants import LATEST, BUFFER, SILENT, DEBUG, INFO, WARN, SYNC, ASYNC, REAL_TIME, FAST_AS_POSSIBLE, FREQUENCY, PHASE, SIMULATED, WALL_CLOCK
 from rex.distributions import Gaussian, GMM
 from rex.base import GraphState, StepState
-from scripts.dummy import DummyNode
+from tests.dummy import DummyNode
 from rex.asynchronous import AsyncGraph
 
 utils.set_log_level(WARN)

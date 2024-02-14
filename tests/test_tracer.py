@@ -3,7 +3,7 @@ import time
 import jax
 from rex.constants import WARN
 import rex.supergraph as tracer
-from scripts.dummy import build_dummy_env
+from tests.dummy import build_dummy_env
 
 
 @pytest.mark.parametrize("supergraph_mode", ["topological", "MCS", "generational"])

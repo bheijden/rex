@@ -1,1 +1,0 @@
-from envs.vx300s.real.world import build_vx300s

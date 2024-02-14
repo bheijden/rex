@@ -135,6 +135,7 @@ dmypy.json
 logs/
 *.zip
 *.mp4
+gmm_step.gif
 *.pb
 scripts/wandb/
 paper/wandb/
