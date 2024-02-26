@@ -71,7 +71,7 @@ class GymWrapper(Wrapper, gym.Env):
         self._name = self.env.graph.root.name
         self._graph_state: GraphState = None
         self._seed: int = None
-        self._rng: jax.random.KeyArray = None
+        self._rng: jax.Array = None
 
     @property
     def action_space(self) -> gym.Space:
@@ -110,7 +110,7 @@ class GymWrapper(Wrapper, gym.Env):
         self._graph_state, obs, reward, terminated, truncated, info = self._step(self._graph_state, action)
         return obs, reward, terminated, truncated, info
 
-    def _reset(self, rng: jax.random.KeyArray) -> Tuple[jax.Array, GraphState, jax.Array, Dict]:
+    def _reset(self, rng: jax.Array) -> Tuple[jax.Array, GraphState, jax.Array, Dict]:
         new_rng, rng_reset = jax.random.split(rng, num=2)
         graph_state, obs, info = self.env.reset(rng_reset)
         return new_rng, jax.lax.stop_gradient(graph_state), jax.lax.stop_gradient(obs), info
@@ -167,7 +167,7 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
         self._name = self.unwrapped.graph.root.name
         self._graph_state: GraphState = None
         self._seed: int = None
-        self._rng: jax.random.KeyArray = None
+        self._rng: jax.Array = None
 
         # Vectorize environments
         self._env_step = jax.vmap(self.env.step)
@@ -215,7 +215,7 @@ class VecGymWrapper(Wrapper, sb3VecEnv):
             new_infos,
         )
 
-    def _reset(self, rng: jax.random.KeyArray) -> Tuple[jax.Array, GraphState, jax.Array, List[Dict]]:
+    def _reset(self, rng: jax.Array) -> Tuple[jax.Array, GraphState, jax.Array, List[Dict]]:
         new_rng, *rng_envs = jax.random.split(rng, num=self.num_envs + 1)
         graph_state, obs, info = self._env_reset(jnp.array(rng_envs))
         new_infos = self._transpose_infos(info)

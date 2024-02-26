@@ -1,4 +1,4 @@
-from typing import Optional, Any, TYPE_CHECKING
+from typing import Optional, Any, TYPE_CHECKING, Dict
 from collections import deque
 from jax import jit
 from jax import numpy as jnp
@@ -73,6 +73,10 @@ class Output:
             return Gaussian(self.node.phase) + self.delay_sim
         else:
             return self._phase_dist
+
+    @property
+    def inputs_dict(self) -> Dict[str, Input]:
+        return {i.name: i for i in self.inputs}
 
     def warmup(self, graph_state: GraphState, device):
         _ = self.phase_dist

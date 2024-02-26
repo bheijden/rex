@@ -41,7 +41,7 @@ class BaseGraph:
 
         self.__init__(*args, **kwargs)
 
-    def init(self, rng: ArrayLike = None, step_states: StepStates = None, starting_eps: ArrayLike = 0,
+    def init(self, rng: ArrayLike = None, step_states: Dict[str, StepStates] = None, starting_eps: ArrayLike = 0,
              randomize_eps: bool = False, order: Tuple[str, ...] = None):
         # Determine initial step states
         step_states = step_states if step_states is not None else {}
@@ -76,7 +76,7 @@ class BaseGraph:
             preset_state = step_states[name].state if name in step_states else None
             # Params first, because the state may depend on them
             params = node.default_params(rng_params, graph_state) if preset_params is None else preset_params
-            step_states[node.name] = StepState(rng=rng_step, params=params, state=None, inputs=None)
+            step_states[node.name] = StepState(rng=rng_step, params=params, state=None, inputs=None, eps=starting_eps, seq=np.int32(0), ts=np.float32(0.))
             # Then, get the state (which may depend on the params)
             state = node.default_state(rng_state, graph_state) if preset_state is None else preset_state
             # Inputs are updated once all nodes have been initialized with their params and state

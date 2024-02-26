@@ -3,7 +3,6 @@ import functools
 import networkx as nx
 from flax.core import FrozenDict
 import jax
-from jax.random import KeyArray
 from jax.typing import ArrayLike
 import jax.numpy as jnp
 import numpy as onp
@@ -356,7 +355,7 @@ class CompiledGraph(BaseGraph):
     def S(self):
         return self._S
 
-    def init(self, rng: KeyArray = None, step_states: StepStates = None, starting_step: Union[int, ArrayLike] = 0,
+    def init(self, rng: jax.Array = None, step_states: Dict[str, StepStates] = None, starting_step: Union[int, ArrayLike] = 0,
              starting_eps: Union[int, ArrayLike] = 0, randomize_eps: bool = False, order: Tuple[str, ...] = None) -> CompiledGraphState:
         new_gs: GraphState = super().init(rng=rng, step_states=step_states, starting_eps=starting_eps,
                                           randomize_eps=randomize_eps, order=order)

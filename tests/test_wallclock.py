@@ -40,7 +40,6 @@ def test_wallclock():
         params = node.default_params(rng_params)
         state = node.default_state(rng_state)
         inputs = node.default_inputs(rng_inputs)
-        node.reset(rng_reset)
         return StepState(rng=rng_step, params=params, state=state, inputs=inputs)
 
     # Get PRNG

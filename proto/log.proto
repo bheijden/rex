@@ -41,6 +41,7 @@ message StepRecord {
     Header sent = 11; // Sent timestamp of output message
     double delay = 12; // Simulated computation delay
     Time comp_delay = 13; // Computation delay (sc not accurate if FAST_AS_POSSIBLE)
+    double phase_overwrite = 14; // Additional phase shift if ts_step is manually overwritten in .step(). Note that this may not lead to ts_step > ts_output.
 }
 
 message InputRecord {

@@ -26,7 +26,7 @@ class BaseEnv:
         self.__dict__.update(state)
 
     @abc.abstractmethod
-    def reset(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> RexResetReturn:
+    def reset(self, rng: jax.Array, graph_state: GraphState = None) -> RexResetReturn:
         raise NotImplementedError
 
     @abc.abstractmethod

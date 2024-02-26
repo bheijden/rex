@@ -1,6 +1,7 @@
 import jax
+from jax import numpy as jnp
 from jax.typing import ArrayLike
-from typing import Any, Tuple, List, TypeVar, Dict, Union
+from typing import Any, Tuple, List, TypeVar, Dict, Union, Callable
 from flax import struct
 from flax.core import FrozenDict
 import jax.numpy as jnp
@@ -8,6 +9,7 @@ import rex.jax_utils as rjax
 import numpy as onp
 
 
+Tree = TypeVar("Tree")
 Output = TypeVar("Output")
 State = TypeVar("State")
 Params = TypeVar("Params")
@@ -69,7 +71,7 @@ class InputState:
 
 @struct.dataclass
 class StepState:
-    rng: jax.random.KeyArray
+    rng: jax.Array
     state: State
     params: Params
     inputs: FrozenDict[str, InputState] = struct.field(pytree_node=True, default_factory=lambda: None)
@@ -90,6 +92,9 @@ class GraphState:
 
     def replace_nodes(self, nodes: Union[Dict[str, StepState], FrozenDict[str, StepState]]):
         return self.replace(nodes=self.nodes.copy(nodes))
+
+    def try_get_node(self, node_name: str) -> Union[StepState, None]:
+        return self.nodes.get(node_name, None)
 
 
 @struct.dataclass
@@ -123,3 +128,67 @@ RexObs = Union[Dict[str, Any], ArrayLike]
 RexResetReturn = Tuple[GraphState, RexObs, Dict]
 RexStepReturn = Tuple[GraphState, RexObs, float, bool, bool, Dict]
 StepStates = Union[Dict[str, StepState], FrozenDict[str, StepState]]
+
+
+def linear_activation(y: Union[float, jax.typing.ArrayLike], yp: jax.typing.ArrayLike) -> jax.Array:
+    """Linear activation function.
+
+    :param y: Value to interpolate
+    :param yp: Array of values to interpolate (monotonically increasing)
+    :return: Activation array
+    """
+    activation = jnp.ones_like(yp)
+    y1 = yp[1:]
+    y0 = yp[:-1]
+    a = jnp.clip((y - y0) / (y1 - y0), 0., 1.)
+    activation = activation.at[1:].set(a)
+    activation = activation.at[:-1].add(-a)
+    return activation
+
+
+@struct.dataclass
+class Delay:
+    alpha: Union[float, jax.typing.ArrayLike] = struct.field(default=0.5)  # Value between [0, 1]
+    min: Union[float, jax.typing.ArrayLike] = struct.field(default=0.0)  # Minimum expected delay
+    max: Union[float, jax.typing.ArrayLike] = struct.field(default=0.0)  # Maximum expected delay
+    method: Callable = struct.field(pytree_node=False, default=linear_activation)  # Defines interpolation method: "linear"
+    discrete: bool = struct.field(pytree_node=False, default=True)  # Defines if discrete or continuous interpolation
+
+    def window(self, rate_out: Union[float, jax.typing.ArrayLike]) -> int:
+        return int(jnp.ceil(rate_out*(self.max - self.min)).astype(int) + 1)
+
+    @property
+    def value(self) -> Union[float, jax.Array]:
+        """Value of delay."""
+        return self.min + self.alpha * (self.max - self.min)
+
+    def activation(self, delays: jax.typing.ArrayLike) -> jax.Array:
+        """Activation function.
+        :param delays: Array of delays (monotonically decreasing)
+        :return: Activation array
+        """
+        activation = self.method(self.value, jnp.flip(delays))
+        return jnp.flip(activation)
+
+    def interpolate(self, delays: jax.typing.ArrayLike, x: Tree) -> Tree:
+        """Interpolate tree of values. The interpolation method is defined by the method attribute.
+
+        Note: - The shape of the input x must be (window, *x.shape)
+              - The shape of the output x_interp will be (*x.shape)
+              - The shape of the delays must be (window)
+              - discrete (true/false) defines if the interpolation is discrete or continuous
+
+        :param delays: Array of delays (monotonically decreasing)
+        :param x: Tree of values to interpolate
+        """
+        activation = self.activation(delays)
+
+        if self.discrete:
+            idx_max = jnp.argmax(activation)
+            _interpolate = lambda _x: _x[idx_max]
+        else:
+            def _interpolate(_x):
+                reshaped_activation = activation.reshape(activation.shape + (1,) * (len(_x.shape) - 1))
+                return jnp.sum(reshaped_activation * _x, axis=0)
+        x_interp = jax.tree_util.tree_map(_interpolate, x)
+        return x_interp

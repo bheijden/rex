@@ -104,8 +104,9 @@ def set_log_level(log_level: int, node: "BaseNode" = None, color: str = None):
 
 
 class timer:
-    def __init__(self, name: str = None, log_level: int = INFO):
+    def __init__(self, name: str = None, log_level: int = INFO, repeat: int = 1):
         self.name = name or "timer"
+        self.repeat = repeat
         self.log_level = log_level
         self.duration = None
 
@@ -115,7 +116,11 @@ class timer:
     def __exit__(self, type, value, traceback):
         self.duration = time() - self.tstart
         if self.log_level >= LOG_LEVEL:
-            log(name="tracer", color="white", log_level=self.log_level, id=f"{self.name}", msg=f"Elapsed: {self.duration}")
+            if self.repeat == 1:
+                msg = f"Elapsed: {self.duration:.4f} sec"
+            else:
+                msg = f"Elapsed: {self.duration / self.repeat:.4f} sec (x{self.repeat} repeats = {self.duration:.4f} sec)"
+            log(name="tracer", color="white", log_level=self.log_level, id=f"{self.name}", msg=msg)
 
 
 # def analyse_deadlock(nodes: List["Node"], log_level: int = INFO):
@@ -196,53 +201,6 @@ class AttrDict(dict):
         self.__dict__ = self
 
 
-def get_delay_data(record: log_pb2.ExperimentRecord, concatenate: bool = True):
-    get_step_delay = lambda s: s.delay  # todo: use comp_delay?
-    get_input_delay = lambda m: m.delay  # todo: use comm_delay?
-
-    exp_data, exp_info = [], []
-    for e in record.episode:
-        data, info = dict(inputs=dict(), step=dict()), dict(inputs=dict(), step=dict())
-        exp_data.append(data), exp_info.append(info)
-        for n in e.node:
-            node_name = n.info.name
-            # Fill info tree
-            info["inputs"][node_name] = dict()
-            info["step"][node_name] = n.info
-            for i in n.inputs:
-                input_name = i.info.name
-                info["inputs"][node_name][input_name] = (n.info, i.info)
-
-            # Fill data tree
-            delays = [get_step_delay(s) for s in n.steps]
-            data["step"][node_name] = onp.array(delays)
-            data["inputs"][node_name] = dict()
-            for i in n.inputs:
-                input_name = i.info.name
-                delays = [get_input_delay(m) for g in i.grouped for m in g.messages]
-                data["inputs"][node_name][input_name] = onp.array(delays)
-
-    data = jax.tree_map(lambda *x: onp.concatenate(x, axis=0), *exp_data) if concatenate else exp_data
-    info = jax.tree_map(lambda *x: x[0], *exp_info) if concatenate else exp_info
-    return data, info
-
-
-def get_timestamps(record: log_pb2.ExperimentRecord):
-    # Get timestamps
-    ts_data = []
-    for e in record.episode:
-        ts = dict()
-        ts_data.append(ts)
-        for n in e.node:
-            node_name = n.info.name
-            ts_node = dict()
-            ts[node_name] = ts_node
-
-            ts_node["ts_step"] = onp.array([s.ts_output for s in n.steps])
-            ts_node["ts_output"] = onp.array([s.ts_output for s in n.steps])
-    return ts_data
-
-
 def make_put_output_on_device(wrapped_fn, device):
     def put_output_on_device(step_state: StepState):
         new_step_state, output = wrapped_fn(step_state)
@@ -251,3 +209,5 @@ def make_put_output_on_device(wrapped_fn, device):
         return new_step_state, output_on_device
 
     return put_output_on_device
+
+

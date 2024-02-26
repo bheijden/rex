@@ -19,6 +19,8 @@ from flax import serialization
 from rex.base import GraphState, StepState, InputState, State, Output as BaseOutput, Params, Empty
 from rex.constants import (
     READY,
+    STARTING,
+    READY_TO_START,
     RUNNING,
     STOPPING,
     STOPPED,
@@ -54,7 +56,6 @@ class BaseNode:
         advance: bool = True,
         stateful: bool = True,
         scheduling: int = PHASE,
-
     ):
         self.name = name
         self.rate = rate
@@ -93,9 +94,10 @@ class BaseNode:
 
         # Log
         self._discarded = 0
-        self._max_records = 20000  # todo: make this configurable. Must be > 1.
+        self.max_records = 20000  # todo: make this configurable with a assert > 1.
         self._record_step_states: Deque[StepState] = None
         self._record_outputs: Deque[Output] = None
+        self.record_setting = dict(node=False, outputs=False, rngs=False, states=False, params=False, step_states=False)
 
         # Set starting ts
         self._ts_start = Future()
@@ -105,7 +107,7 @@ class BaseNode:
         self.q_ts_scheduled: Deque[Tuple[int, float]] = None
         self.q_ts_output_prev: Deque[float] = None
         self.q_ts_step: Deque[Tuple[int, float, float, log_pb2.StepRecord]] = None
-        self.q_rng_step: Deque[jax.random.KeyArray] = None
+        self.q_rng_step: Deque[jax.Array] = None
 
         # Only used if no step and reset fn are provided
         self._i = 0
@@ -183,31 +185,49 @@ class BaseNode:
 
     def record(
         self,
-        node: bool = False,
-        outputs: bool = False,
-        rngs: bool = False,
-        states: bool = False,
-        params: bool = False,
-        step_states: bool = False,
+        node: Union[bool, None] = None,
+        outputs: Union[bool, None] = None,
+        rngs: Union[bool, None] = None,
+        states: Union[bool, None] = None,
+        params: Union[bool, None] = None,
+        step_states: Union[bool, None] = None,
     ) -> log_pb2.NodeRecord:
         """Returns a NodeRecord proto log.
 
         Recording all the data can be very memory intensive. It is recommended to only record the data you need. In particular,
-        recording the step states can be excessively memory intensive, because it contains inputs that are duplicates of the
+        recording the step states can be very memory intensive, because it contains inputs that are duplicates of the
         outputs of other nodes.
 
         If you want to record all data with minimal duplication,
         set `node=True, outputs=True, rngs=True, states=True, params=True, step_states=False`.
 
-        :param node: Whether to record the (pickled) node state.
-        :param outputs: Whether to record the outputs.
-        :param rngs: Whether to record the random number generator state.
-        :param states: Whether to record the (pickled) state.
-        :param params: Whether to record the (pickled) params.
-        :param step_states: Whether to record the step states.
+        You can pre-set the default record settings by setting the `record_setting` attribute of the node. For example:
+        ```
+        node.record_setting["node"] = True
+        node.record_setting["outputs"] = True
+        ```
+
+        The maximum number of records is set to 20000. If the number of records exceeds this number, the oldest records are
+        discarded. This is to prevent memory overflow. If you want to change this number, set the `max_records` attribute
+        of the node.
+
+        :param node: Whether to record the (pickled) node state (overrides the default self.record_setting).
+        :param outputs: Whether to record the (pickled) outputs (overrides the default self.record_setting).
+        :param rngs: Whether to record the random number generator state (overrides the default self.record_setting).
+        :param states: Whether to record the (pickled) state (overrides the default self.record_setting).
+        :param params: Whether to record the (pickled) params (overrides the default self.record_setting).
+        :param step_states: Whether to record the (pickled) step states (overrides the default self.record_setting).
         :return: A NodeRecord proto log.
         """
         assert self._state not in [RUNNING], "Cannot extract the record while running. Stop first (by calling .stop())."
+
+        # Adjust record settings
+        node = node if node is not None else self.record_setting.get("node", False)
+        outputs = outputs if outputs is not None else self.record_setting.get("outputs", False)
+        rngs = rngs if rngs is not None else self.record_setting.get("rngs", False)
+        states = states if states is not None else self.record_setting.get("states", False)
+        params = params if params is not None else self.record_setting.get("params", False)
+        step_states = step_states if step_states is not None else self.record_setting.get("step_states", False)
 
         # If records were discarded, warn the user that the record is incomplete.
         if self._discarded > 0:
@@ -314,6 +334,10 @@ class BaseNode:
         info.inputs.extend([i.info for i in self.inputs])
         return info
 
+    @property
+    def inputs_dict(self) -> Dict[str, Input]:
+        return {i.input_name: i for i in self.inputs}
+
     @staticmethod
     def from_info(info: log_pb2.NodeInfo) -> "BaseNode":
         """Creates a BaseNode object from a node info object.
@@ -382,7 +406,7 @@ class BaseNode:
 
     def _submit(self, fn, *args, stopping: bool = False, **kwargs):
         with self._lock:
-            if self._state in [READY, RUNNING] or stopping:
+            if self._state in [READY, STARTING, READY_TO_START, RUNNING] or stopping:
                 f = self._executor.submit(fn, *args, **kwargs)
                 self._q_task.append((f, fn, args, kwargs))
                 f.add_done_callback(self._done_callback)
@@ -398,9 +422,17 @@ class BaseNode:
             error_msg = "".join(traceback.format_exception(None, e, e.__traceback__))
             log(self.name, "red", ERROR, "ERROR", error_msg)
 
-    def get_step_state(self, graph_state: GraphState) -> StepState:
-        """Get the step state of the node."""
-        return graph_state.nodes[self.name]
+    def get_step_state(self, graph_state: Union[GraphState, None], name: str = None) -> Union[StepState, None]:
+        """Returns the step state of itself, or another node based on the name.
+
+        If the node is not found, because the graph state is None or the node is not in the graph state,
+        None is returned.
+        """
+        name = name if isinstance(name, str) else self.name
+        if graph_state is None:
+            return None
+        else:
+            return graph_state.nodes.get(name, None)
 
     def now(self) -> Tuple[float, float]:
         """Get the passed time since according to the simulated and wall clock"""
@@ -467,7 +499,7 @@ class BaseNode:
         return output
 
     def get_connected_input(self, name: str) -> Input:
-        """Get the input channel of a node that is connected to the output of this node based.
+        """Get the input channel of a node that is connected to the output of this node.
 
         :param name: The name of the node corresponding to the connected input channel.
         :return: The connected input channel.
@@ -483,6 +515,11 @@ class BaseNode:
     @abc.abstractmethod
     def step(self, step_state: StepState) -> Tuple[StepState, Output]:
         raise NotImplementedError
+
+    @abc.abstractmethod
+    def startup(self, graph_state: GraphState = None, timeout: float = None) -> Union[bool, jax.Array]:
+        """Starts the node in the state specified by graph_state."""
+        return True
 
     def _step(self, step_state: StepState) -> Tuple[StepState, Output]:
         """Internal step function that is called in push_step().
@@ -538,7 +575,7 @@ class BaseNode:
         self._step_state = graph_state.nodes[self.name]
 
         # Log
-        self._discarded = 0  # Number of discarded records after reaching self._max_records
+        self._discarded = 0  # Number of discarded records after reaching self.max_records
         self._record_step_states: List[Union[StepState, bytes]] = []
         self._record_outputs: List[Union[Output, bytes]] = []
 
@@ -569,8 +606,29 @@ class BaseNode:
         self._state = READY
         self.log(RUNNING_STATES[self._state], log_level=DEBUG)
 
-    def _start(self, start: float):
+    def _startup(self, graph_state: GraphState = None, timeout: float = None) -> Future:
         assert self._state in [READY], f"{self.name} must first be reset, before it can start running."
+
+        def _starting() -> Union[bool, jax.Array]:
+            res = self.startup(graph_state, timeout=timeout)
+
+            # Set running state
+            self._state = READY_TO_START
+            self.log(RUNNING_STATES[self._state], log_level=DEBUG)
+            return res
+
+        with self._lock:
+            # Then, flip running state so that no more tasks can be scheduled
+            # This means that
+            self._state = STARTING
+            self.log(RUNNING_STATES[self._state], log_level=DEBUG)
+
+            # First, submit _stopping task
+            f = self._submit(_starting)
+        return f
+
+    def _start(self, start: float):
+        assert self._state in [READY_TO_START], f"{self.name} must first be ready to start (i.e. call ._startup), before it can start running."
         assert self._has_warmed_up, f"{self.name} must first be warmed up, before it can start running."
 
         # Set running state
@@ -630,7 +688,7 @@ class BaseNode:
             [i.stop().result(timeout=timeout) for i in self.inputs]
 
             # Record last step_state
-            if self._step_state is not None and len(self._record_step_states) < self._max_records + 1:
+            if self._step_state is not None and len(self._record_step_states) < self.max_records + 1:
                 self._record_step_states.append(self._step_state)
                 self._step_state = None
 
@@ -648,7 +706,6 @@ class BaseNode:
             f = self._submit(_stopping, stopping=True)
         return f
 
-    # @synchronized(RLock())
     def push_scheduled_ts(self):
         # Only run if there are elements in q_tick
         has_tick = len(self.q_tick) > 0
@@ -680,7 +737,6 @@ class BaseNode:
                 # Push expect (must be called from input thread)
                 i._submit(i.push_expected_blocking)
 
-    # @synchronized(RLock())
     def push_phase_shift(self):
         # If all blocking delays are known, and we know the expected next step timestamp
         has_all_ts_max = all([len(i.q_ts_max) > 0 for i in self.inputs if i.blocking])
@@ -727,11 +783,12 @@ class BaseNode:
                 ts_scheduled=ts_scheduled,
                 ts_max=ts_max,
                 ts_output_prev=ts_output_prev,
-                ts_step=ts_step,
+                ts_step=ts_step,  # May be overwritten in _step --> see push_step
                 phase=phase,
                 phase_scheduled=phase_scheduled,
                 phase_inputs=phase_inputs,
                 phase_last=phase_last,
+                phase_overwrite=0.,  # May be overwritten in _step --> see push_step
             )
             self.q_ts_step.append((tick, ts_step, delay, record_step))
 
@@ -770,7 +827,6 @@ class BaseNode:
                 # Push expect (must be called from input thread)
                 i._submit(i.push_expected_nonblocking)
 
-    # @synchronized(RLock())
     def push_step(self):
         has_grouped = all([len(i.q_grouped) > 0 for i in self.inputs])
         has_ts_step = len(self.q_ts_step) > 0
@@ -796,11 +852,10 @@ class BaseNode:
 
             # Update StepState with grouped messages
             # todo: have a single buffer for step_state used for both in and out
-            # todo: Makes a copy of the message. Is this necessary? Can we do in-place updates?
             step_state = self._step_state.replace(seq=tick, ts=ts_step_sc, inputs=inputs)
 
             # Log step_state
-            if len(self._record_step_states) < self._max_records:
+            if len(self._record_step_states) < self.max_records:
                 self._record_step_states.append(step_state)
 
             # Run step and get msg
@@ -808,7 +863,7 @@ class BaseNode:
 
             # Log output
             if (
-                output is not None and len(self._record_outputs) < self._max_records
+                output is not None and len(self._record_outputs) < self.max_records
             ):  # Agent returns None when we are stopping/resetting.
                 self._record_outputs.append(output)
 
@@ -821,11 +876,38 @@ class BaseNode:
                 assert delay_sc is not None
                 ts_output_sc = ts_step_sc + delay_sc
                 _, ts_output_wc = self.now()
+                phase_overwrite = 0.0
+                ts_step_sc = ts_step_sc
             else:
                 assert delay_sc is None
                 ts_output_sc, ts_output_wc = self.now()
-                delay_sc = ts_output_sc - ts_step_sc
-                assert delay_sc >= 0, "delay cannot be negative"
+                # ts_step_sc (i.e. step_state.ts) may be overwritten in the step function (i.e. to adjust to later time when sensor data was taken).
+                # Therefore, we use the potentially overwritten step_state.ts to calculate the delay.
+                new_step_ts_sc = float(step_state.ts)
+                if new_step_ts_sc < ts_step_sc:
+                    msg = ("Did you overwrite `step_state.ts` in the step function? Make sure it's not smaller than the original `step_state.ts`. "
+                           "Are the clocks producing the adjusted step_state.ts and the original step_state.ts consistent?")
+                    self.log(
+                        "timestamps",
+                        msg,
+                        log_level=ERROR,
+                    )
+                    raise ValueError(msg)
+                delay_sc = ts_output_sc - new_step_ts_sc
+                if delay_sc <= 0:
+                    msg = (
+                        "Did you overwrite `step_state.ts` in the step function? Make sure it does not exceed the current time (i.e. `self.now()[0]`)"
+                        "Are the clocks producing the adjusted step_state.ts and the original step_state.ts consistent?")
+                    self.log(
+                        "timestamps",
+                        msg,
+                        log_level=ERROR,
+                    )
+                    raise ValueError(msg)
+
+                # Re-calculate phase overwrite and ts_step_sc
+                phase_overwrite = new_step_ts_sc - ts_step_sc
+                ts_step_sc = new_step_ts_sc
 
                 # Add previous output timestamp to queue
                 # If we simulate the clock, ts_output_prev is already queued in push_phase_shift
@@ -840,6 +922,8 @@ class BaseNode:
             # Log sent times
             record_step.sent.CopyFrom(header)
             record_step.delay = delay_sc
+            record_step.ts_step = ts_step_sc
+            record_step.phase_overwrite = phase_overwrite
             record_step.ts_output = ts_output_sc
             record_step.comp_delay.CopyFrom(log_pb2.Time(sc=ts_output_sc - ts_step_sc, wc=ts_output_wc - ts_step_wc))
 
@@ -848,7 +932,7 @@ class BaseNode:
                 self.output.push_output(output, header)
 
             # Add step record
-            if len(self._record.steps) < self._max_records:
+            if len(self._record.steps) < self.max_records:
                 self._record.steps.append(record_step)
             elif self._discarded == 0:
                 self.log(
@@ -870,18 +954,18 @@ class BaseNode:
 
 
 class Node(BaseNode):
-    def default_params(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> Params:
+    def default_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> Params:
         """Default params of the node."""
         return Empty()
 
-    def default_state(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> State:
+    def default_state(self, rng: jax.Array = None, graph_state: GraphState = None) -> State:
         """Default state of the node."""
         return Empty()
 
-    def default_inputs(
-        self, rng: jax.random.KeyArray, graph_state: GraphState = None
-    ) -> FrozenDict[str, InputState]:  # Dict[str, InputState]:
+    def default_inputs(self, rng: jax.Array = None, graph_state: GraphState = None) -> FrozenDict[str, InputState]:  # Dict[str, InputState]:
         """Default inputs of the node."""
+        if rng is None:
+            rng = jax.random.PRNGKey(0)
         rngs = jax.random.split(rng, num=len(self.inputs))
         inputs = dict()
         for i, rng_output in zip(self.inputs, rngs):
@@ -894,17 +978,56 @@ class Node(BaseNode):
         return FrozenDict(inputs)
 
     @abc.abstractmethod
-    def default_output(self, rng: jax.random.KeyArray, graph_state: GraphState = None) -> BaseOutput:
+    def default_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> BaseOutput:
         """Default output of the node.
         NOTE: This is also used to determine the shape of every leaf in the output tree.
               Therefore, it should be able to return a valid output even if no graph_state is provided.
         """
         return Empty()
 
+    def default_step_state(self, rng: jax.Array = None, graph_state: GraphState = None) -> StepState:
+        """Default step state of the node.
+
+        Note: It can happen that, in order to get the default step_state, we need to have the step_states of other nodes.
+        :param rng: The random number generator.
+        :param graph_state: The graph state that contains the step states of all nodes required to get the default step state.
+        """
+        # Get default rng
+        if rng is None:
+            rng = jax.random.PRNGKey(0)
+        rng_params, rng_state, rng_step, rng_inputs = jax.random.split(rng, num=4)
+
+        # Get default graph state
+        graph_state = graph_state if graph_state is not None else GraphState(eps=onp.int32(0), nodes=FrozenDict({}))
+
+        # Get step states
+        step_states = graph_state.nodes
+        step_states = step_states.unfreeze() if isinstance(step_states, FrozenDict) else step_states
+        graph_state = graph_state.replace(nodes=step_states)
+
+        # Grab preset params and state if available
+        preset_eps = graph_state.eps
+        preset_seq = graph_state.nodes[self.name].seq if self.name in graph_state.nodes else onp.int32(0)
+        preset_ts = graph_state.nodes[self.name].ts if self.name in graph_state.nodes else onp.float32(0.)
+        preset_params = graph_state.nodes[self.name].params if self.name in graph_state.nodes else None
+        preset_state = graph_state.nodes[self.name].state if self.name in graph_state.nodes else None
+        preset_inputs = graph_state.nodes[self.name].inputs if self.name in graph_state.nodes else None
+        # Params first, because the state may depend on them
+        params = self.default_params(rng_params, graph_state) if preset_params is None else preset_params
+        step_states[self.name] = StepState(rng=rng_step, params=params, state=None, inputs=None, eps=preset_eps, seq=preset_seq, ts=preset_ts)
+        # Then, get the state (which may depend on the params)
+        state = self.default_state(rng_state, graph_state) if preset_state is None else preset_state
+        step_states[self.name] = StepState(rng=rng_step, params=params, state=state, inputs=None, eps=preset_eps, seq=preset_seq, ts=preset_ts)
+        # Finally, get the inputs
+        inputs = self.default_inputs(rng_inputs, graph_state) if preset_inputs is None else preset_inputs
+        # Prepare step state
+        step_state = StepState(rng=rng_step, params=params, state=state, inputs=inputs, eps=preset_eps, seq=preset_seq, ts=preset_ts)
+        return step_state
+
     @abc.abstractmethod
-    def reset(self, rng: jax.random.KeyArray, graph_state: GraphState = None):
-        """Reset the node."""
-        pass
+    def startup(self, graph_state: GraphState = None, timeout: float = None) -> Union[bool, jax.Array]:
+        """Starts the node in the state specified by graph_state."""
+        return True
 
     @abc.abstractmethod
     def step(self, step_state: StepState) -> Tuple[StepState, Output]:

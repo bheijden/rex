@@ -33,6 +33,9 @@ def test_node_api():
     reload_nodes = [reload_world, reload_sensor, reload_observer, reload_agent, reload_actuator]
     reload_nodes = {n.name: n for n in reload_nodes}
 
+    # Get default step_state
+    step_state = agent.default_step_state()
+
     # Re-initialize connections with info
     [n.connect_from_info(nodes[name].info.inputs, reload_nodes) for name, n in reload_nodes.items() if name != "root"]
 

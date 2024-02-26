@@ -18,7 +18,7 @@ class EmptyState:
 
 @struct.dataclass
 class DistState:
-    rng: jax.random.KeyArray
+    rng: jax.Array
     state: Any
 
 
@@ -85,7 +85,7 @@ class Gaussian:
     def cdf(self, x: jax.typing.ArrayLike):
         return self._dist.cdf(x)
 
-    def reset(self, rng: jax.random.KeyArray) -> DistState:
+    def reset(self, rng: jax.Array) -> DistState:
         return DistState(rng=rng, state=EmptyState())
 
     def sample(self, state: DistState, shape: Union[int, Tuple] = None) -> Tuple[DistState, jax.Array]:
@@ -220,7 +220,7 @@ class GMM:
             )
             return qs.reshape(shape)
 
-    def reset(self, rng: jax.random.KeyArray) -> DistState:
+    def reset(self, rng: jax.Array) -> DistState:
         return DistState(rng=rng, state=EmptyState())
 
     def sample(self, state: DistState, shape: Union[int, Tuple] = None) -> Tuple[DistState, jax.Array]:
@@ -305,7 +305,7 @@ class Recorded:
     def __getattr__(self, item):
         return getattr(self._dist, item)
 
-    def reset(self, rng: jax.random.KeyArray) -> DistState:
+    def reset(self, rng: jax.Array) -> DistState:
         return DistState(rng=rng, state=RecordedState(index=0))
 
     def sample(self, state: DistState, shape: Union[int, Tuple] = None) -> Tuple[DistState, jax.Array]:

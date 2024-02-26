@@ -102,6 +102,13 @@ class AsyncGraph(BaseGraph):
         # Check that all nodes have the same episode counter
         assert len({n.eps for n in self.nodes_and_root.values()}) == 1, "All nodes must have the same episode counter."
 
+        # Async startup
+        fs = [n._startup(graph_state, timeout=timeout) for n in self.nodes_and_root.values()]
+
+        # Wait for all nodes to finish startup
+        res = [f.result() for f in fs]
+        assert all(res), "Not all nodes were able to start up."
+
         # Start nodes (provide same starting timestamp to every node)
         start = time.time()
         for node in self.nodes_and_root.values():

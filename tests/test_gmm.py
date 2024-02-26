@@ -5,6 +5,7 @@ import numpy as onp
 import jax
 import matplotlib.pyplot as plt
 
+import rex.record_utils
 from rex.gmm_estimator import GMMEstimator
 from rex.proto import log_pb2
 from rex.open_colors import ecolor, fcolor
@@ -41,7 +42,7 @@ def test_gmm_estimator():
 		exp_record.episode.append(eps_record)
 
 	# Prepare data
-	data, info = utils.get_delay_data(exp_record, concatenate=True)
+	data, info = rex.record_utils.get_delay_data(exp_record, concatenate=True)
 
 	def init_estimator(x, i):
 		name = i.name if not isinstance(i, tuple) else f"{i[0].name}.input({i[1].name})"

@@ -180,7 +180,7 @@ def test_record_overflow():
 	env.log("test_api", "test_api", log_level=WARN)
 
 	# Set max record size
-	nodes["agent"]._max_records = 10
+	nodes["agent"].max_records = 10
 
 	# Seed the environment
 	env.seed(0)
