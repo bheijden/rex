@@ -8,7 +8,7 @@ from jax import numpy as jnp
 from jax import jit
 import jax.random as rnd
 
-from rex.base import InputState
+from rex.base import InputState, Delay
 from rex.constants import (
     READY,
     RUNNING,
@@ -28,7 +28,7 @@ from rex.constants import (
     LATEST,
     BUFFER,
 )
-from rex.distributions import Distribution, DistState
+from rex.distributions import Distribution, DistState, Gaussian
 from rex.proto import log_pb2 as log_pb2
 from rex.utils import log
 from rex.base import GraphState
@@ -50,13 +50,16 @@ class Input:
         delay: float,
         delay_sim: Distribution,
         name: str,
+        delay_sysid: Delay,
     ):
+        # Set attributes
         self.node = node
         self.output = output
         self.input_name = name
-        self.window = window
+        self._window = window  #: Window size
         self.blocking = blocking  #: Connection type
         self.delay_sim = delay_sim  #: Communication delay
+        self.delay_sysid = delay_sysid  #: Communication delay (system identification)
         self.skip = skip  #: Skip first dependency
         self.jitter = jitter  #: Jitter mode
         self.delay = delay if delay is not None else delay_sim.high
@@ -104,22 +107,28 @@ class Input:
         kwargs = dict(
             node=self.node.name,
             output=self.output.name,
-            window=self.window,
+            window=self._window,
             blocking=self.blocking,
             skip=self.skip,
             jitter=self.jitter,
             delay=self.delay,
             delay_sim=self.delay_sim,
             name=self.input_name,
+            delay_sysid=self.delay_sysid,
         )
         return args, kwargs
 
     def __setstate__(self, state):
         """Used for unpickling"""
         args, kwargs = state
+
         self.__init__(*args, **kwargs)
         # Only once the input is fully unpickled, (i.e. node & output are replaced with actual objects)
         self._unpickled = False
+
+    @property
+    def window(self):
+        return self._window + self.delay_sysid.delay_window(self.output.node.rate)
 
     @property
     def unpickled(self):
@@ -189,7 +198,7 @@ class Input:
             name=self.input_name,
             output=self.output.name,
             rate=self.output.rate,
-            window=self.window,
+            window=self.window,  # Excludes self.delay_sysid.delay_window(self.output.node.rate)
             blocking=self.blocking,
             skip=self.skip,
             jitter=self.jitter,
@@ -197,6 +206,8 @@ class Input:
             phase_dist=self.phase_dist.info,
             delay_sim=self.delay_sim.info,
             delay=self.delay,
+            delay_sysid=self.delay_sysid.info,
+            window_undelayed=self._window,
         )
 
     def unpickle(self, nodes: Dict[str, "BaseNode"]):
@@ -405,7 +416,6 @@ class Input:
             self.q_expected_select.append((scheduled_ts, num_msgs))
             self.push_selection()
 
-    # @synchronized(RLock())
     def push_ts_max(self):
         # Only called by blocking connections
         has_msgs = len(self.q_expected_ts_max) > 0 and self.q_expected_ts_max[0] <= len(self.q_ts_input)
@@ -420,7 +430,6 @@ class Input:
             # Push push_phase_shift (must be called from node thread)
             self.node._submit(self.node.push_phase_shift)
 
-    # @synchronized(RLock())
     def push_selection(self):
         has_expected = len(self.q_expected_select) > 0
         if has_expected:
@@ -541,7 +550,6 @@ class Input:
         # Push zip to buffer messages
         self.push_zip()
 
-    # @synchronized(RLock())
     def push_zip(self):
         has_msg = len(self.q_zip_msgs) > 0
         has_delay = len(self.q_zip_delay) > 0

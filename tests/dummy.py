@@ -61,9 +61,9 @@ def build_dummy_env() -> Tuple["DummyEnv", Dict[str, Node]]:
 
 def build_dummy_graph() -> Dict[str, Node]:
     # Create nodes
-    world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000))
-    sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007))
-    observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016))
+    world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000), advance=False)
+    sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007), advance=False)
+    observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016), advance=False)
     agent = DummyNode("agent", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
     actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), advance=False, stateful=True)
     nodes = [world, sensor, observer, agent, actuator]

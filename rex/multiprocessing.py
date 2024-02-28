@@ -124,6 +124,8 @@ class _NewProcess:
 
 
 def new_process(fn: Callable, max_workers: int = 1, initializer: Callable = None, initargs: Tuple = (), method: str = "spawn") -> _NewProcess:
+    # todo: new_process stopped working for wrapping .step methods of rex nodes. We need to fix this.
+    # raise NotImplementedError("This function stopped working after the upgrade to Python 3.8 and deprecation of jumpy. We need to fix this.")
     return _NewProcess(fn, max_workers=max_workers, initializer=initializer, initargs=initargs, method=method)
 
 

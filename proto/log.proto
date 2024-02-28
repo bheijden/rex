@@ -104,7 +104,19 @@ message InputInfo {
     GMM phase_dist = 9; // Distribution of the phase shift (provided every node keeps its rate).
     GMM delay_sim = 10; // Communication delay distribution
     float delay = 11; // Communication delay that is taken into account.
+    Delay delay_sysid = 12; // System identification of the communication delay
+    uint32 window_undelayed = 13; // Window size (internal use only)
 }
+
+message Delay {
+    float alpha = 1; // Alpha parameter of the delay distribution
+    float min = 2; // Minimum delay
+    float max = 3; // Maximum delay
+    string method = 4; // Method of the delay distribution
+    bool discrete = 5; // Whether the delay is discretely applied to the inputs
+    bool active = 6; // Whether the delay is active
+}
+
 
 message GMM {
     repeated Gaussian gaussians = 1;

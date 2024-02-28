@@ -1,8 +1,62 @@
 from tests.dummy import DummyNode
+from rex.base import Delay
 from rex.distributions import Distribution, Gaussian, GMM
 from rex.constants import LATEST, BUFFER, WARN, DEBUG, ERROR, READY
 import rex.utils as utils
 import pickle
+
+
+def test_node_api_sysid_delays():
+    # Create nodes
+    world = DummyNode("world", rate=20, delay_sim=Gaussian(0.000))
+    sensor = DummyNode("sensor", rate=20, delay_sim=Gaussian(0.007))
+    observer = DummyNode("observer", rate=30, delay_sim=Gaussian(0.016))
+    agent = DummyNode("root", rate=45, delay_sim=Gaussian(0.005, 0.001), advance=True)
+    actuator = DummyNode("actuator", rate=45, delay_sim=Gaussian(1 / 45), advance=False,
+                         stateful=True)
+    nodes = [world, sensor, observer, agent, actuator]
+    nodes = {n.name: n for n in nodes}
+
+    # Connect
+    sensor.connect(world, blocking=False, delay_sysid=Delay(alpha=0.5, min=0.0, max=1 / sensor.rate), skip=False, jitter=LATEST)
+    observer.connect(sensor, blocking=False, delay_sim=Gaussian(0.003), skip=False, jitter=BUFFER)
+    observer.connect(agent, blocking=False, delay_sim=Gaussian(0.003), skip=True, jitter=LATEST)
+    agent.connect(observer, blocking=True, delay_sim=Gaussian(0.003), skip=False, jitter=BUFFER)
+    actuator.connect(agent, blocking=True, delay_sim=Gaussian(0.003, 0.001), skip=False, jitter=BUFFER, delay=0.05)
+    world.connect(actuator, blocking=False, delay_sim=Gaussian(0.004), skip=True, jitter=BUFFER)
+
+    # Re-initialize Basenode with info (loses subclass info)
+    reload_world = DummyNode.from_info(world.info)
+    reload_sensor = DummyNode.from_info(sensor.info)
+    reload_observer = DummyNode.from_info(observer.info)
+    reload_agent = DummyNode.from_info(agent.info)
+    reload_actuator = DummyNode.from_info(actuator.info)
+    reload_nodes = [reload_world, reload_sensor, reload_observer, reload_agent, reload_actuator]
+    reload_nodes = {n.name: n for n in reload_nodes}
+
+    # Get default step_state
+    step_state = agent.default_step_state()
+
+    # Re-initialize connections with info
+    [n.connect_from_info(nodes[name].info.inputs, reload_nodes) for name, n in reload_nodes.items() if name != "root"]
+
+    # Re-initialize root connection with info
+    reload_nodes["root"].connect_from_info(nodes["root"].info.inputs[0], reload_nodes)
+
+    try:
+        [n.connect_from_info(nodes[name].info.inputs, reload_nodes) for name, n in reload_nodes.items()]
+    except AssertionError as e:
+        print(f"should fail here: {e}")
+
+    # API test
+    reload_sensor._phase_dist = reload_sensor.phase_dist
+    _ = reload_sensor.phase_dist
+
+    try:
+        agent.connect(actuator, blocking=True, delay_sim=Gaussian(0.003, 0.001), skip=False, jitter=BUFFER, delay=0.05)
+        agent.phase
+    except RecursionError as e:
+        pass
 
 
 def test_node_api():

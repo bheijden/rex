@@ -144,8 +144,11 @@ def create_graph(record: log_pb2.EpisodeRecord, excludes_inputs: List[str] = Non
             window = record_input.info.window
             edge_window = deque(maxlen=window)
             for i_step, (record_grouped, record_step) in enumerate(zip(record_input.grouped, record_node.steps)):
-                for i_msg, record_msg in enumerate(reversed(record_grouped.messages)):
-                    pruned = True if i_msg >= window or record_node.info.name in excludes_inputs else False
+                # for i_msg, record_msg in enumerate(reversed(record_grouped.messages)):
+                num_messages = len(record_grouped.messages)
+                for i_msg, record_msg in enumerate(record_grouped.messages):
+                    # pruned = True if i_msg >= window or record_node.info.name in excludes_inputs else False
+                    pruned = True if num_messages - i_msg > window or record_node.info.name in excludes_inputs else False
 
                     data = {
                         "kind": record_input.info.name,
@@ -165,7 +168,19 @@ def create_graph(record: log_pb2.EpisodeRecord, excludes_inputs: List[str] = Non
                     if pruned:
                         G_full.add_edge(id_source, id_target, **data)
                     else:
+                        # if i_step <= 2 and record_input.info.name == "world" and record_node.info.name == "sensor":
+                        #     print(f"{i_step=}, {[e[0] for e in edge_window]}")
                         edge_window.append((id_source, data))
+
+                # if i_step <= 2 and record_input.info.name == "world" and record_node.info.name == "sensor":
+                #     print(f"{i_step=}, {[e[0] for e in edge_window]}")
+                #     if i_step == 2:
+                #         print("wait")
+
+                # Verify edge window
+                edge_window_seqs = [e[1]["seq"] for e in edge_window]
+                assert all([(edge_window_seqs[i + 1] - edge_window_seqs[i]) == 1 for i in
+                            range(len(edge_window_seqs) - 1)]), "Window is not monotonically increasing."
 
                 # Add all messages in window as edge
                 id_target = f"{record_node.info.name}_{record_step.tick}"

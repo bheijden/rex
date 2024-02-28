@@ -16,7 +16,7 @@ import numpy as onp
 from flax.core import FrozenDict
 from flax import serialization
 
-from rex.base import GraphState, StepState, InputState, State, Output as BaseOutput, Params, Empty
+from rex.base import GraphState, StepState, InputState, Delay, State, Output as BaseOutput, Params, Empty
 from rex.constants import (
     READY,
     STARTING,
@@ -43,6 +43,7 @@ from rex.input import Input
 from rex.output import Output
 from rex.utils import log, NODE_COLOR, NODE_LOG_LEVEL
 from rex.distributions import Distribution, Gaussian, GMM
+from rex.jax_utils import no_weaktype, same_structure
 import rex.proto.log_pb2 as log_pb2
 
 
@@ -361,6 +362,27 @@ class BaseNode:
         )
         return node
 
+    @classmethod
+    def subclass_from_info(cls, info: log_pb2.NodeInfo, *args, **kwargs):
+        """Creates a subclass object from a node info object.
+
+        Make sure to call connect_from_info() on the resulting subclass object to connect it to the rest of the graph.
+
+        A subclass object is instantiated instead of the BaseNode. This means that subclass information is preserved,
+        but must also be provided in the *args and **kwargs.
+
+        Moreover, the signature of the subclass must be the same as the BaseNode, except for the additional *args and **kwargs.
+
+        """
+        # Initializes a subclass from a Node
+        name = info.name
+        rate = info.rate
+        delay_sim = GMM.from_info(info.delay_sim)
+        delay = info.delay
+        advance = info.advance
+        stateful = info.stateful
+        return cls(*args, name=name, rate=rate, delay_sim=delay_sim, delay=delay, advance=advance, stateful=stateful, **kwargs)
+
     def unpickle(self, nodes: Dict[str, "Node"]):
         """Unpickles the connections of the node.
 
@@ -384,15 +406,20 @@ class BaseNode:
             output_name = info.output
             output_node = nodes[output_name]
 
+            # Correct for delay_sysid window (use window_undelayed if available)
+            window = info.window_undelayed if info.window_undelayed > 0 else info.window
+
             # Connects a node to another node from an InputInfo proto log
             self.connect(
                 output_node,
                 blocking=info.blocking,
+                window=window,
                 skip=info.skip,
                 delay_sim=GMM.from_info(info.delay_sim),
                 delay=info.delay,
                 jitter=info.jitter,
                 name=info.name,
+                delay_sysid=Delay.from_info(info.delay_sysid),
             )
 
     def log(self, id: str, value: Optional[Any] = None, log_level: Optional[int] = None):
@@ -467,9 +494,14 @@ class BaseNode:
         skip: bool = False,
         jitter: int = LATEST,
         name: Optional[str] = None,
+        delay_sysid: Delay = None,
     ):
         # Use zero deterministic delay if no simulated delay distribution is specified
         delay_sim = delay_sim if delay_sim is not None else Gaussian(0.0, 0.0)
+
+        # Override delay_sim with delay_sysid if delay_sysid is active
+        delay_sysid = Delay(active=False) if delay_sysid is None else delay_sysid
+        delay_sim = delay_sysid.min_dist() if delay_sysid.active else delay_sim
 
         # Create new input
         name = name if isinstance(name, str) else node.output.name
@@ -477,7 +509,7 @@ class BaseNode:
         assert node.name not in [
             i.output.node.name for i in self.inputs
         ], "Cannot use the same output source for more than one input."
-        i = Input(self, node.output, window, blocking, skip, jitter, delay, delay_sim, name)
+        i = Input(self, node.output, window, blocking, skip, jitter, delay, delay_sim, name, delay_sysid)
         self.inputs.append(i)
 
         # Register the input with the output of the specified node
@@ -526,6 +558,9 @@ class BaseNode:
         This function can be overridden/wrapped without affecting step() directly.
         Hence, it does not change the effect of the step() function.
         """
+        # with jax.log_compiles():
+        #     same_structure(self._step_state, step_state, tag=self.name)
+        #     new_step_state, output = self.step(step_state)  # Synchronizer or Node
         new_step_state, output = self.step(step_state)
 
         # Update step_state (increment sequence number)
@@ -553,6 +588,21 @@ class BaseNode:
         assert not (
             clock in [WALL_CLOCK] and self._sync in [SYNC]
         ), "You can only simulate synchronously, if the clock=`SIMULATED`."
+
+        # Get blocking inputs
+        num_blocking_inputs = len([i for i in self.inputs if i.blocking])
+        if clock == SIMULATED and self.advance and num_blocking_inputs == 0:
+            # A node without inputs cannot run with advance=True in SIMULATED mode with zero simulated computation delay,
+            # because it would mean this node would run infinitely fast, which deadlocks downstream nodes that depend
+            # on it asynchronously).
+            if self.output.delay_sim.high == 0.0:
+                raise ValueError(f"Node `{self.name}` cannot run with advance=True in SIMULATED mode with zero simulated computation delay and no blocking connections. "
+                                 f"This would mean that this node would run infinitely fast, which deadlocks connected nodes with blocking=False.")
+            else:
+                # We could overwrite advance to False, and run the node asynchronously according to the simulated computation delay?
+                # For now, we just raise an error and ask the user to set advance to False.
+                raise NotImplementedError(f"Node `{self.name}` is running with advance=True in SIMULATED mode with non-zero simulated computation delay and no blocking connections. "
+                                          f"This is not yet supported. Please set advance to False.")
 
         # Warmup the node
         if not self._has_warmed_up:
@@ -848,11 +898,12 @@ class BaseNode:
                 for seq, ts_sent, ts_recv, msg in grouped:
                     input_state = i._jit_update_input_state(input_state, seq, ts_sent, ts_recv, msg)
                 inputs[i.input_name] = input_state
-            # inputs = FrozenDict({i.input_name: i.q_grouped.popleft() for i in self.inputs})
 
             # Update StepState with grouped messages
             # todo: have a single buffer for step_state used for both in and out
-            step_state = self._step_state.replace(seq=tick, ts=ts_step_sc, inputs=inputs)
+            tick_promoted = onp.array(tick).astype(self._step_state.seq.dtype)
+            ts_step_sc_promoted = onp.array(ts_step_sc).astype(self._step_state.ts.dtype)
+            step_state = self._step_state.replace(seq=tick_promoted, ts=ts_step_sc_promoted, inputs=FrozenDict(inputs))
 
             # Log step_state
             if len(self._record_step_states) < self.max_records:
@@ -860,6 +911,9 @@ class BaseNode:
 
             # Run step and get msg
             new_step_state, output = self._step(step_state)
+
+            # Get new ts_step_sc_promoted
+            new_ts_step_sc_promoted = new_step_state.ts if new_step_state is not None else ts_step_sc_promoted
 
             # Log output
             if (
@@ -883,7 +937,7 @@ class BaseNode:
                 ts_output_sc, ts_output_wc = self.now()
                 # ts_step_sc (i.e. step_state.ts) may be overwritten in the step function (i.e. to adjust to later time when sensor data was taken).
                 # Therefore, we use the potentially overwritten step_state.ts to calculate the delay.
-                new_step_ts_sc = float(step_state.ts)
+                new_step_ts_sc = ts_step_sc if ts_step_sc_promoted == new_ts_step_sc_promoted else float(new_ts_step_sc_promoted)
                 if new_step_ts_sc < ts_step_sc:
                     msg = ("Did you overwrite `step_state.ts` in the step function? Make sure it's not smaller than the original `step_state.ts`. "
                            "Are the clocks producing the adjusted step_state.ts and the original step_state.ts consistent?")
@@ -954,6 +1008,22 @@ class BaseNode:
 
 
 class Node(BaseNode):
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        identifier = cls.__name__
+        if 'default_output' in cls.__dict__:
+            cls.default_output = no_weaktype(identifier=f"{identifier}.default_output")(cls.default_output)
+        if 'default_params' in cls.__dict__:
+            cls.default_params = no_weaktype(identifier=f"{identifier}.default_params")(cls.default_params)
+        if 'default_state' in cls.__dict__:
+            cls.default_state = no_weaktype(identifier=f"{identifier}.default_state")(cls.default_state)
+        if 'default_inputs' in cls.__dict__:
+            cls.default_inputs = no_weaktype(identifier=f"{identifier}.default_inputs")(cls.default_inputs)
+        if 'default_step_state' in cls.__dict__:
+            cls.default_step_state = no_weaktype(identifier=f"{identifier}.default_step_state")(cls.default_step_state)
+        if 'step' in cls.__dict__:
+            cls.step = no_weaktype(identifier=f"{identifier}.step")(cls.step)
+
     def default_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> Params:
         """Default params of the node."""
         return Empty()
@@ -974,7 +1044,9 @@ class Node(BaseNode):
             ts_sent = 0 * onp.arange(-window, 0, dtype=onp.float32)
             ts_recv = 0 * onp.arange(-window, 0, dtype=onp.float32)
             outputs = [i.output.node.default_output(rng_output, graph_state) for _ in range(window)]
-            inputs[i.input_name] = InputState.from_outputs(seq, ts_sent, ts_recv, outputs)
+            delay_sysid = i.delay_sysid
+            rate_out = i.output.node.rate
+            inputs[i.input_name] = InputState.from_outputs(seq, ts_sent, ts_recv, outputs, delay_sysid, rate_out)
         return FrozenDict(inputs)
 
     @abc.abstractmethod

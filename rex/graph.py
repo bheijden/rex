@@ -9,12 +9,19 @@ import numpy as np
 # import jumpy.numpy as jp
 from flax.core import FrozenDict
 
+from rex.jax_utils import no_weaktype
 from rex.base import StepState, StepStates, GraphState, Output
 from rex.proto import log_pb2
 from rex.node import Node
 
 
 class BaseGraph:
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        identifier = cls.__name__
+        if "init" in cls.__dict__:
+            cls.init = no_weaktype(identifier=f"{identifier}.init")(cls.init)
+
     def __init__(self, root: Node, nodes: Dict[str, Node], skip: List[str]):
         # Exclude the node for which this environment is a drop-in replacement (i.e. the root)
         nodes = {node.name: node for _, node in nodes.items() if node.name != root.name}
@@ -41,6 +48,7 @@ class BaseGraph:
 
         self.__init__(*args, **kwargs)
 
+    @no_weaktype(identifier="BaseGraph.init")
     def init(self, rng: ArrayLike = None, step_states: Dict[str, StepStates] = None, starting_eps: ArrayLike = 0,
              randomize_eps: bool = False, order: Tuple[str, ...] = None):
         # Determine initial step states
@@ -89,8 +97,12 @@ class BaseGraph:
                 continue
             node = self.nodes_and_root[name]
             step_states[name] = step_states[name].replace(inputs=node.default_inputs(rng_inputs, graph_state))
-        # NOTE: usd to be eps=jp.as_int32(starting_eps) --> why?
+        # NOTE: used to be eps=jp.as_int32(starting_eps) --> why?
         return GraphState(eps=starting_eps, nodes=FrozenDict(step_states))
+
+        # Promote all to no weak type (avoids recompilation)
+        # gs = jax.tree_util.tree_map(lambda x: promote_to_no_weak_type(x), GraphState(eps=starting_eps, nodes=FrozenDict(step_states)))
+        # return gs
 
     def start(self, graph_state: GraphState, timeout: float = None) -> GraphState:
         return graph_state

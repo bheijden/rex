@@ -3,7 +3,7 @@ from collections import deque
 from jax import jit
 from jax import numpy as jnp
 import jax.random as rnd
-from rex.constants import READY, RUNNING, STOPPING, STOPPED, RUNNING_STATES, DEBUG
+from rex.constants import READY, RUNNING, STOPPING, STOPPED, RUNNING_STATES, DEBUG, WARN
 from rex.distributions import Gaussian, Distribution, DistState
 from rex.input import Input
 from rex.proto import log_pb2 as log_pb2
@@ -148,4 +148,5 @@ class Output:
         # Only send output if we are running
         if self._state in [RUNNING]:
             # Push message to inputs
+            self.log("push_ts_output", ts_output, log_level=DEBUG)
             [i._submit(i.push_ts_input, ts_output, header) for i in self.inputs]

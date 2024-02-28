@@ -49,6 +49,7 @@ class _Synchronizer:
         self._q_obs.append(_new_f_obs)
 
         # Set observations as future result
+        # print(f"[SET] _step: seq={step_state.seq}, ts={step_state.ts:.2f}")
         self._f_obs.set_result(step_state)
         self._f_obs = _new_f_obs
 
@@ -56,6 +57,7 @@ class _Synchronizer:
         if not self._must_reset:
             try:
                 step_state, output = self._f_act.result()
+                # print(f"[GET] _step: seq={step_state.seq}, ts={step_state.ts:.2f}")
                 self._q_act.popleft()
                 return step_state, output
             except CancelledError:  # If cancelled is None, we are going to reset
@@ -132,6 +134,7 @@ class AsyncGraph(BaseGraph):
     def run_until_root(self, graph_state: GraphState) -> GraphState:
         # Retrieve obs
         next_step_state = self._synchronizer.observation.popleft().result()
+        # print(f"[GET] run_until_root: seq={next_step_state.seq}, ts={next_step_state.ts:.2f}")
         self._initial_step = False
         nodes = {name: node._step_state for name, node in self.nodes_and_root.items()}
         nodes[self.root.name] = next_step_state
@@ -155,6 +158,7 @@ class AsyncGraph(BaseGraph):
         next_step_state = new_ss.replace(seq=new_ss.seq + 1)
 
         # Set the result to be the step_state and output (action)  of the root.
+        # print(f"[SET] run_root: seq={new_ss.seq}, ts={new_ss.ts:.2f}")
         self._synchronizer.action[-1].set_result((new_ss, new_output))
 
         # Get graph_state

@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as onp
 import rex.jax_utils as rjax
 
-from rex.utils import deprecation_warning
+from rex.jax_utils import promote_to_no_weak_type
 from rex.node import Node
 from rex.graph import BaseGraph
 from rex.base import InputState, StepState, StepStates, CompiledGraphState, GraphState, Output, Timings, GraphBuffer
@@ -85,7 +85,10 @@ def make_update_inputs(name: str, inputs_data: Dict[str, Dict[str, str]]):
             size = get_buffer_size(buffer)
             mod_seq = t["seq"] % size
             inputs = rjax.tree_take(buffer, mod_seq)
-            _new = InputState.from_outputs(t["seq"], t["ts_sent"], t["ts_recv"], inputs, is_data=True)
+            _new = InputState.from_outputs(t["seq"], t["ts_sent"], t["ts_recv"], inputs,
+                                           delay_sysid=ss.inputs[input_name].delay_sysid,
+                                           rate=ss.inputs[input_name].rate,
+                                           is_data=True)
             new_inputs[input_name] = _new
 
         return ss.replace(eps=eps, seq=seq, ts=ts_step, inputs=FrozenDict(new_inputs))
@@ -371,7 +374,11 @@ class CompiledGraph(BaseGraph):
         new_cgs = CompiledGraphState(step=None, eps=None, nodes=new_gs.nodes, timings=timings, timings_eps=None, buffer=buffer)
         new_cgs = new_cgs.replace_step(step=starting_step)  # (Clips step to valid value)
         new_cgs = new_cgs.replace_eps(eps=new_gs.eps)  # (Clips eps to valid value & updates timings_eps)
+
         return new_cgs
+        # Promote all to no weak type (avoids recompilation)
+        # new_cgs = jax.tree_util.tree_map(lambda x: promote_to_no_weak_type(x), new_cgs)
+        # return new_cgs
 
     def run_until_root(self, graph_state: CompiledGraphState) -> CompiledGraphState:
         # Run supergraph (except for root)

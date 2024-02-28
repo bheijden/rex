@@ -66,7 +66,7 @@ def _truncated_stack(*data: jax.typing.ArrayLike) -> Optional[jax.Array]:
     data = tree_map(lambda d: d[:min_length], data)
 
     # Stack data
-    data_stacked = tree_map(lambda *d: jnp.stack(d), *data)
+    data_stacked = tree_map(lambda *d: onp.stack(d), *data)
     return data_stacked
 
 
@@ -101,7 +101,7 @@ class RecordHelper:
         self._data_stacked: Dict[str, Dict[str, Any]] = None
         self._timestamps: List[Dict[str, Dict[str, Any]]] = None
         self._timestamps_stacked: Dict[str, Dict[str, Any]] = None
-        self._nodes: List[Dict[str, Union[str, Node, Agent]]] = []
+        self._nodes: List[Dict[str, Union[str, Node]]] = []
 
         # Pre-process record data
         self._preprocess_data()
@@ -156,9 +156,9 @@ class RecordHelper:
     def delays(self):
         node_delays = {}
         for name, delays in self._delays_stacked["step"].items():
-            nodes[name] = dict(step=delays, inputs={})
+            node_delays[name] = dict(step=delays, inputs={})
             for input_name, input_delays in self._delays_stacked["inputs"][name].items():
-                nodes[name]["inputs"][input_name] = input_delays
+                node_delays[name]["inputs"][input_name] = input_delays
         return node_delays
 
     @property
