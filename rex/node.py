@@ -553,9 +553,9 @@ class BaseNode:
         """Starts the node in the state specified by graph_state."""
         return True
 
-    def _step(self, step_state: StepState) -> Tuple[StepState, Output]:
+    def async_step(self, step_state: StepState) -> Tuple[StepState, Output]:
         """Internal step function that is called in push_step().
-        This function can be overridden/wrapped without affecting step() directly.
+        This function can be overridden/wrapped (e.g. jit) without affecting step() directly.
         Hence, it does not change the effect of the step() function.
         """
         # with jax.log_compiles():
@@ -910,7 +910,7 @@ class BaseNode:
                 self._record_step_states.append(step_state)
 
             # Run step and get msg
-            new_step_state, output = self._step(step_state)
+            new_step_state, output = self.async_step(step_state)
 
             # Get new ts_step_sc_promoted
             new_ts_step_sc_promoted = new_step_state.ts if new_step_state is not None else ts_step_sc_promoted

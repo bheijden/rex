@@ -1,8 +1,33 @@
-from typing import Any, Union
+import functools
+from typing import Any, Union, Sequence
+import numpy as onp
 import jax
 from jax.interpreters import xla
 from jax._src.api_util import flatten_axes
 import jax.numpy as jnp
+
+
+def tree_dot(tree1: Any, tree2: Any) -> Union[float, jax.Array]:
+    """Compute the dot product of two pytrees of arrays with the same pytree
+    structure."""
+    leaves1, treedef1 = jax.tree_util.tree_flatten(tree1)
+    leaves2, treedef2 = jax.tree_util.tree_flatten(tree2)
+    if treedef1 != treedef2:
+        raise ValueError("trees must have the same structure")
+    assert len(leaves1) == len(leaves2)
+    dots = []
+    for leaf1, leaf2 in zip(leaves1, leaves2):
+        dots.append(
+            jnp.dot(
+                jnp.reshape(leaf1, -1),
+                jnp.conj(leaf2).reshape(-1),
+                precision=jax.lax.Precision.HIGHEST,  # pyright: ignore
+            )
+        )
+    if len(dots) == 0:
+        return jnp.array(0.)
+    else:
+        return functools.reduce(jnp.add, dots)
 
 
 def tree_take(tree: Any, i: Union[int, jax.typing.ArrayLike], axis: int = 0, mode: str = None,
@@ -13,6 +38,22 @@ def tree_take(tree: Any, i: Union[int, jax.typing.ArrayLike], axis: int = 0, mod
                                                      unique_indices=unique_indices,
                                                      indices_are_sorted=indices_are_sorted,
                                                      fill_value=fill_value), tree)
+
+
+def tree_dynamic_slice(tree: Any, start_indices: Union[int, jax.typing.ArrayLike], slice_sizes: Sequence[int] = None) -> Any:
+    slice_sizes = slice_sizes if slice_sizes is not None else [1] * len(start_indices)
+
+    # Slice the input state
+    num_dims = len(slice_sizes)
+    tree_slice_sizes = jax.tree_map(lambda _x: slice_sizes + list(_x.shape[num_dims:]), tree)
+
+    # Convert start_indices
+    start_indices = jnp.array([start_indices]) if isinstance(start_indices, int) or start_indices.shape == () else start_indices
+    tree_start_indices = jax.tree_map(lambda _x: jnp.concatenate([start_indices, onp.zeros_like(_x.shape[num_dims:]).astype(int)]), tree)
+
+    # Slice the tree
+    res = jax.tree_map(lambda x, start, size: jax.lax.dynamic_slice(x, start, size)[0, 0], tree, tree_start_indices, tree_slice_sizes)
+    return res
 
 
 def tree_extend(tree_template, tree, is_leaf=None):
@@ -73,9 +114,6 @@ def promote_to_no_weak_type(_x):
     _y = jnp.array(_x)
     _z = _y.astype(jnp.promote_types(_y.dtype, _y.dtype))
     return _z
-
-
-import functools
 
 
 def no_weaktype(identifier: str = None):

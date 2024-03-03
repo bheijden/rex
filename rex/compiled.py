@@ -236,92 +236,92 @@ def old_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, root_slot: str, gene
     return _run_S
 
 
-def new_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, root_slot: str, generations: List[List[str]], skip: List[str] = None):
-    # Determine which slots to skip
-    skip_slots = [n for n, data in S.nodes(data=True) if data["kind"] in skip] if skip is not None else []
-
-    # Define update function
-    root = S.nodes[root_slot]["kind"]
-    node_data = get_node_data(S)
-    update_input_fns = {name: make_update_inputs(name, data["inputs"]) for name, data in node_data.items()}
-
-    def _run_node(kind: str, graph_state: CompiledGraphState, timings_node: Dict):
-        # Update inputs
-        ss = update_input_fns[kind](graph_state, timings_node)
-
-        # Run node step
-        _new_ss, output = nodes[kind].step(ss)
-
-        # Increment sequence number
-        _new_seq_ss = _new_ss.replace(seq=_new_ss.seq + 1)
-
-        # Update output buffer
-        _new_output = update_output(graph_state.buffer[kind], output, timings_node["seq"])
-
-        # Update buffer
-        # todo: Somehow, updating buffer inside this function compiles much slower than updating it outside (for large number of nodes)...
-        # new_buffer = graph_state.buffer.replace(outputs=graph_state.buffer.outputs.copy({kind: _new_output}))
-        graph_state = graph_state.replace_buffer({kind: _new_output})
-        new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy({kind: _new_seq_ss}))
-        return new_graph_state
-
-    node_step_fns = {kind: functools.partial(_run_node, kind) for kind in nodes.keys()}
-
-    def _run_generation(graph_state: CompiledGraphState, timings_gen: Dict):
-        for slot_kind, timings_node in timings_gen.items():
-            # Skip slots todo: not tested yet
-            if slot_kind in skip_slots:
-                continue
-            # todo: Buffer size may not be big enough, when updating graph_state during generational loop.
-            #       Specifically, get_buffer_sizes_from_timings must be adapted to account for this.
-            #       Or, alternatively, we can construct S such that it has a single node per generation (i.e. linear graph).
-            #       This is currently not yet enforced.
-            kind = S.nodes[slot_kind]["kind"]
-            pred = timings_gen[slot_kind]["run"]
-
-            # Add dummy inputs to old step_state (else jax complains about structural mismatch)
-            if graph_state.nodes[kind].inputs is None:
-                raise DeprecationWarning("Inputs should not be None, but pre-filled via graph.init")
-                # graph_state = graph_state.replace(
-                #     nodes=graph_state.nodes.copy({kind: update_input_fns[kind](graph_state, timings_node)})
-                # )
-
-            # Run node step
-            # todo: apply jax.checkpoint to no_op?
-            no_op = lambda *args: graph_state
-            graph_state = jax.lax.cond(pred, node_step_fns[kind], no_op, graph_state, timings_node)
-        return graph_state
-
-    def _run_S(graph_state: CompiledGraphState) -> CompiledGraphState:
-        # Get eps & step  (used to index timings)
-        graph_state = graph_state.replace_step(step=graph_state.step)  # Make sure step is clipped to max_step size
-        step = graph_state.step
-
-        # Determine slice sizes (depends on window size)
-        # [1:] because first dimension is step.
-        timings = graph_state.timings_eps
-        slice_sizes = jax.tree_map(lambda _tb: list(_tb.shape[1:]), timings)
-
-        # Slice timings
-        timings_mcs = jax.tree_map(
-            lambda _tb, _size: jax.lax.dynamic_slice(_tb, [step] + [0 * s for s in _size], [1] + _size)[0], timings, slice_sizes
-        )
-
-        # Run generations
-        # NOTE! len(generations)+1 = len(timings_mcs) --> last generation is the root.
-        for gen, timings_gen in zip(generations[:-1], timings_mcs):
-            assert all([node in gen for node in timings_gen.keys()]), f"Missing nodes in timings: {gen}"
-            graph_state = _run_generation(graph_state, timings_gen)
-
-        # Run root input update
-        new_ss_root = update_input_fns[root](graph_state, timings_mcs[-1][root_slot])
-        graph_state = graph_state.replace(nodes=graph_state.nodes.copy({root: new_ss_root}))
-
-        # Increment step (new step may exceed max_step) --> clipping is done at the start of run_S.
-        graph_state = graph_state.replace(step=graph_state.step + 1)
-        return graph_state
-
-    return _run_S
+# def new_make_run_S(nodes: Dict[str, "Node"], S: nx.DiGraph, root_slot: str, generations: List[List[str]], skip: List[str] = None):
+#     # Determine which slots to skip
+#     skip_slots = [n for n, data in S.nodes(data=True) if data["kind"] in skip] if skip is not None else []
+#
+#     # Define update function
+#     root = S.nodes[root_slot]["kind"]
+#     node_data = get_node_data(S)
+#     update_input_fns = {name: make_update_inputs(name, data["inputs"]) for name, data in node_data.items()}
+#
+#     def _run_node(kind: str, graph_state: CompiledGraphState, timings_node: Dict):
+#         # Update inputs
+#         ss = update_input_fns[kind](graph_state, timings_node)
+#
+#         # Run node step
+#         _new_ss, output = nodes[kind].step(ss)
+#
+#         # Increment sequence number
+#         _new_seq_ss = _new_ss.replace(seq=_new_ss.seq + 1)
+#
+#         # Update output buffer
+#         _new_output = update_output(graph_state.buffer[kind], output, timings_node["seq"])
+#
+#         # Update buffer
+#         # todo: Somehow, updating buffer inside this function compiles much slower than updating it outside (for large number of nodes)...
+#         # new_buffer = graph_state.buffer.replace(outputs=graph_state.buffer.outputs.copy({kind: _new_output}))
+#         graph_state = graph_state.replace_buffer({kind: _new_output})
+#         new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy({kind: _new_seq_ss}))
+#         return new_graph_state
+#
+#     node_step_fns = {kind: functools.partial(_run_node, kind) for kind in nodes.keys()}
+#
+#     def _run_generation(graph_state: CompiledGraphState, timings_gen: Dict):
+#         for slot_kind, timings_node in timings_gen.items():
+#             # Skip slots todo: not tested yet
+#             if slot_kind in skip_slots:
+#                 continue
+#             # todo: Buffer size may not be big enough, when updating graph_state during generational loop.
+#             #       Specifically, get_buffer_sizes_from_timings must be adapted to account for this.
+#             #       Or, alternatively, we can construct S such that it has a single node per generation (i.e. linear graph).
+#             #       This is currently not yet enforced.
+#             kind = S.nodes[slot_kind]["kind"]
+#             pred = timings_gen[slot_kind]["run"]
+#
+#             # Add dummy inputs to old step_state (else jax complains about structural mismatch)
+#             if graph_state.nodes[kind].inputs is None:
+#                 raise DeprecationWarning("Inputs should not be None, but pre-filled via graph.init")
+#                 # graph_state = graph_state.replace(
+#                 #     nodes=graph_state.nodes.copy({kind: update_input_fns[kind](graph_state, timings_node)})
+#                 # )
+#
+#             # Run node step
+#             # todo: apply jax.checkpoint to no_op?
+#             no_op = lambda *args: graph_state
+#             graph_state = jax.lax.cond(pred, node_step_fns[kind], no_op, graph_state, timings_node)
+#         return graph_state
+#
+#     def _run_S(graph_state: CompiledGraphState) -> CompiledGraphState:
+#         # Get eps & step  (used to index timings)
+#         graph_state = graph_state.replace_step(step=graph_state.step)  # Make sure step is clipped to max_step size
+#         step = graph_state.step
+#
+#         # Determine slice sizes (depends on window size)
+#         # [1:] because first dimension is step.
+#         timings = graph_state.timings_eps
+#         slice_sizes = jax.tree_map(lambda _tb: list(_tb.shape[1:]), timings)
+#
+#         # Slice timings
+#         timings_mcs = jax.tree_map(
+#             lambda _tb, _size: jax.lax.dynamic_slice(_tb, [step] + [0 * s for s in _size], [1] + _size)[0], timings, slice_sizes
+#         )
+#
+#         # Run generations
+#         # NOTE! len(generations)+1 = len(timings_mcs) --> last generation is the root.
+#         for gen, timings_gen in zip(generations[:-1], timings_mcs):
+#             assert all([node in gen for node in timings_gen.keys()]), f"Missing nodes in timings: {gen}"
+#             graph_state = _run_generation(graph_state, timings_gen)
+#
+#         # Run root input update
+#         new_ss_root = update_input_fns[root](graph_state, timings_mcs[-1][root_slot])
+#         graph_state = graph_state.replace(nodes=graph_state.nodes.copy({root: new_ss_root}))
+#
+#         # Increment step (new step may exceed max_step) --> clipping is done at the start of run_S.
+#         graph_state = graph_state.replace(step=graph_state.step + 1)
+#         return graph_state
+#
+#     return _run_S
 
 
 make_run_S = old_make_run_S
@@ -376,9 +376,6 @@ class CompiledGraph(BaseGraph):
         new_cgs = new_cgs.replace_eps(eps=new_gs.eps)  # (Clips eps to valid value & updates timings_eps)
 
         return new_cgs
-        # Promote all to no weak type (avoids recompilation)
-        # new_cgs = jax.tree_util.tree_map(lambda x: promote_to_no_weak_type(x), new_cgs)
-        # return new_cgs
 
     def run_until_root(self, graph_state: CompiledGraphState) -> CompiledGraphState:
         # Run supergraph (except for root)
@@ -439,3 +436,24 @@ class CompiledGraph(BaseGraph):
         ), f"max_steps ({max_steps}) must be smaller than the max number of compiled steps in the graph ({max_steps_graph})"
         return max_starting_steps
 
+    def rollout(self, graph_state: CompiledGraphState, starting_step: Union[int, jax.Array] = 0, eps: Union[int, jax.Array] = 0, max_steps: int = None, carry_only: bool = False) -> CompiledGraphState:
+        """This function runs the graph for max_steps, starting from starting_step.
+        If carry_only is True, then only the final graph state is returned.
+        Otherwise, the graph state at each step is returned.
+
+        Note: the eps and step in graph_state are updated to the new eps and step.
+        """
+        # graph_state = self.init(starting_step=starting_step, starting_eps=eps, randomize_eps=False)
+        graph_state = graph_state.replace_eps(eps=eps)
+        graph_state = graph_state.replace_step(step=starting_step)
+        if max_steps is None:
+            max_steps = self.max_steps(graph_state)
+
+        # Run graph for max_steps
+        if carry_only:
+            final_graph_state = jax.lax.fori_loop(0, max_steps, lambda i, gs: self.run(gs), graph_state)
+            return final_graph_state
+        else:
+            # Use scan (USES WALRUS OPERATOR)
+            final_graph_state, graph_states = jax.lax.scan(lambda gs, _: ((new_gs := self.run(gs)), new_gs), graph_state, jnp.arange(max_steps))
+            return graph_states

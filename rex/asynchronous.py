@@ -18,7 +18,7 @@ from rex.proto import log_pb2
 class _Synchronizer:
     def __init__(self, root: Node):
         self._root = root
-        self._root._step = self._step
+        self._root.async_step = self._step
         self._must_reset: bool
         self._f_act: Future
         self._f_obs: Future

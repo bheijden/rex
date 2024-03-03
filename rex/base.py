@@ -10,7 +10,7 @@ import rex.jax_utils as rjax
 import numpy as onp
 
 
-Tree = TypeVar("Tree")
+PyTree = Any
 Output = TypeVar("Output")
 State = TypeVar("State")
 Params = TypeVar("Params")
@@ -81,6 +81,9 @@ class Delay:
                              # discrete=self.discrete,
                              active=self.active)
 
+    def static_equal(self, other: "Delay") -> bool:
+        return self.min == other.min and self.max == other.max and self.active == other.active
+
     # def activation(self, delays: jax.typing.ArrayLike) -> jax.Array:
     #     """Activation function.
     #     :param delays: Array of delays (monotonically decreasing)
@@ -95,7 +98,7 @@ class Delay:
     #     # activation = self.method(self.value, jnp.flip(delays))
     #     # return jnp.flip(activation)
     #
-    # def interpolate(self, delays: jax.typing.ArrayLike, x: Tree, discrete: bool = None) -> Tree:
+    # def interpolate(self, delays: jax.typing.ArrayLike, x: PyTree, discrete: bool = None) -> PyTree:
     #     """Interpolate tree of values. The interpolation method is defined by the method attribute.
     #
     #     Note: - The shape of the input x must be (window, *x.shape)
@@ -104,7 +107,7 @@ class Delay:
     #           - discrete (true/false) defines if the interpolation is discrete or continuous
     #
     #     :param delays: Array of delays (monotonically decreasing)
-    #     :param x: Tree of values to interpolate
+    #     :param x: PyTree of values to interpolate
     #     :param discrete: Defines if discrete or continuous interpolation (overrides self.discrete)
     #     """
     #     if not self.active:
@@ -137,8 +140,9 @@ class InputState:
     rate: float = struct.field(pytree_node=False, default=None)  # Rate of output
 
     # @jax.jit
-    def apply_delay(self, ts_step: float) -> "InputState":
+    def apply_delay(self, ts_step: float, delay: Delay = None) -> "InputState":
         """Apply the delay to the input state."""
+        assert delay is None or (self.delay_sysid is not None and self.delay_sysid.static_equal(delay)), "The static parameters of the InputState and provided `delay` must be be equal."
         if self.delay_sysid is None or not self.delay_sysid.active:
             return self  # NOOP
         assert self.rate is not None, "Output rate must be defined to apply delay."
@@ -147,7 +151,8 @@ class InputState:
             return self  # NOOP
         cum_window = self.seq.shape[0]
         window = cum_window - window_delayed
-        ts_recv = self.ts_sent + self.delay_sysid.value
+        d = delay.value if delay is not None else self.delay_sysid.value
+        ts_recv = self.ts_sent + d
         idx_max = jnp.argwhere(ts_recv > ts_step, size=1, fill_value=cum_window)[0, 0]
         idx_min = idx_max - window
 
@@ -224,7 +229,7 @@ class GraphState:
 @struct.dataclass
 class CompiledGraphState(GraphState):
     step: Union[int, ArrayLike] = struct.field(pytree_node=True, default_factory=lambda: onp.int32(0))
-    timings: Timings = struct.field(pytree_node=True, default_factory=lambda: None)
+    timings: Timings = struct.field(pytree_node=False, default_factory=lambda: None)
     # The timings for a single episode (i.e. GraphState.timings[eps]).
     timings_eps: Timings = struct.field(pytree_node=True, default_factory=lambda: None)
     # A ring buffer that holds the outputs for every node's output channel.

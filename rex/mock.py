@@ -117,8 +117,8 @@ class Mock:
         # Initialize pbar
         pbar = tqdm.tqdm(total=ts_end, desc=f"Augmenting", disable=not progress_bar)
 
-        import rex.utils as rutils
-        rutils.set_log_level(const.WARN)
+        # import rex.utils as rutils
+        # rutils.set_log_level(const.WARN)
 
         # todo: deadlock #1
         # graph.start(gs)  # this results in stopping (because it is scheduled after?)
@@ -146,7 +146,13 @@ class Mock:
             # Determine how many nodes have passed the ts_end since the last update
             num_passed = sum([ts_steps[name] >= ts_end for name in ts_steps])
             mean_ts_steps = sum([ts_steps[name] for name in ts_steps]) / len(ts_steps)
-            pbar.update(mean_ts_steps - pbar.n)
+
+            # clipped_mean_ts_steps = min(mean_ts_steps, ts_end)
+            if mean_ts_steps > ts_end:
+                delta = 0.
+            else:
+                delta = mean_ts_steps - pbar.n
+            pbar.update(delta)
 
             pbar.set_postfix_str(msg)
             pbar.refresh()
