@@ -60,7 +60,7 @@ class BaseGraph:
 
         if randomize_eps:
             rng, rng_eps = jax.random.split(rng, num=2)
-            starting_eps = jax.random.choice(rng, self.max_eps(), shape=())
+            starting_eps = jax.random.choice(rng_eps, self.max_eps(), shape=())
 
         # Determine init order. If name not in order, add it to the end
         order = tuple() if order is None else order

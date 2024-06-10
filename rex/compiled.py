@@ -7,8 +7,7 @@ from jax.typing import ArrayLike
 import jax.numpy as jnp
 import numpy as onp
 import rex.jax_utils as rjax
-
-from rex.jax_utils import promote_to_no_weak_type
+import supergraph
 from rex.node import Node
 from rex.graph import BaseGraph
 from rex.base import InputState, StepState, StepStates, CompiledGraphState, GraphState, Output, Timings, GraphBuffer
@@ -337,10 +336,12 @@ class CompiledGraph(BaseGraph):
         #     deprecation_warning("default_timings is None. This means that the graph will not be able to run without a buffer.", stacklevel=2)
 
         # Get generations
-        self._generations = list(nx.topological_generations(S))
+        self._generations = supergraph.topological_generations(S)
         self._root_slot = [n for n, data in S.nodes(data=True) if data["kind"] == self.root.name][0]
         self._root_gen_idx = [i for i, gen in enumerate(self._generations) if self._root_slot in gen][0]
         self._root_kind = S.nodes[self._root_slot]["kind"]
+        assert self._root_gen_idx == len(self._generations) - 1, f"Root {self._root_slot} must be in the last generation."
+        assert len(self._generations[self._root_gen_idx]) == 1, f"Root {self._root_slot} must be the only node in the last generation."
         self._node_data = get_node_data(S)
 
         # Make chunk runner
@@ -401,7 +402,9 @@ class CompiledGraph(BaseGraph):
 
             # Update graph state
             new_graph_state = graph_state.replace_step(step=graph_state.step)  # Make sure step is clipped to max_step size
-            timing = rjax.tree_take(graph_state.timings_eps[self._root_gen_idx][root_slot], i=new_graph_state.step)
+            # The step counter was already incremented in run_until_root, but root of the previous step was not run yet.
+            # Hence, we need to grab the timings of the previous step (i.e. graph_state.step-1).
+            timing = rjax.tree_take(graph_state.timings_eps[self._root_gen_idx][root_slot], i=new_graph_state.step-1)
             new_graph_state = update_state(graph_state, timing, new_ss, new_output)
             return new_graph_state
 

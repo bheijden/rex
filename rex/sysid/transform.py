@@ -84,7 +84,6 @@ class Denormalize(Transform):
     def init(cls, min_params: Params, max_params: Params):
         offset = jax.tree_util.tree_map(lambda _min, _max: (_min + _max) / 2., min_params, max_params)
         scale = jax.tree_util.tree_map(lambda _min, _max: (_max - _min) / 2, min_params, max_params)
-        # assert that the scale is not zero
         zero_filter = jax.tree_util.tree_map(lambda _scale: _scale == 0., scale)
         if jax.tree_util.tree_reduce(jnp.logical_or, zero_filter):
             raise ValueError("The scale cannot be zero. Hint: Check if there are leafs with 'True' in the following zero_filter: "

@@ -330,7 +330,7 @@ def get_network_record(
 def _get_timings_template(S: nx.DiGraph, num_root_steps: int) -> Timings:
     # Get supergraph timings template
     timings = []
-    generations = list(nx.topological_generations(S))
+    generations = list(supergraph.topological_generations(S))
     for gen in generations:
         t_gen = dict()
         timings.append(t_gen)
@@ -388,59 +388,6 @@ def get_timings(S: nx.DiGraph, G: nx.DiGraph, G_monomorphism: Dict[str, Tuple[in
             t_slot["inputs"][input_name]["seq"][i_step][idx:] = seqs
             t_slot["inputs"][input_name]["ts_sent"][i_step][idx:] = ts_sent
             t_slot["inputs"][input_name]["ts_recv"][i_step][idx:] = ts_recv
-
-    # # todo: {TEST} convert to old format
-    # monomorphisms = {i: {} for i in range(num_root_steps)}
-    # for n_step, (i_step, n_mcs) in G_monomorphism.items():
-    #     monomorphisms[i_step][n_mcs] = n_step
-    # # Get supergraph timings
-    # timings_test = timings
-    # timings = _get_timings_template(S, num_root_steps)
-    # for i_step, (root_test, mcs) in enumerate(monomorphisms.items()):
-    #     # Add root node to mapping (root is always the only node in the last generation)
-    #     assert f"s{root}_0" in S, "Root node not found in S."
-    #     # Update timings of step nodes
-    #     for n_MCS, n_step in mcs.items():
-    #         gen = S.nodes[n_MCS]["generation"]
-    #         t_slot = timings[gen][n_MCS]
-    #         ndata = G.nodes[n_step]
-    #         t_slot["run"][i_step] = True
-    #         t_slot["seq"][i_step] = ndata["seq"]
-    #         t_slot["ts_step"][i_step] = ndata["ts_step"]
-    #
-    #         # Sort input timings
-    #         outputs = {k: [] for k, v in ndata["inputs"].items()}
-    #         inputs = {v["input_name"]: outputs[k] for k, v in ndata["inputs"].items()}
-    #         for u, v, edata in G.in_edges(n_step, data=True):
-    #             u_kind = G.nodes[u]["kind"]
-    #             v_kind = G.nodes[v]["kind"]
-    #             # if u_kind == v_kind or edata["pruned"]:
-    #             if edata["stateful"] or edata["pruned"]:
-    #                 continue
-    #             outputs[u_kind].append(edata)
-    #
-    #         # Update input timings
-    #         for input_name, input_edata in inputs.items():
-    #             # Sort inputs by sequence number
-    #             input_edata.sort(reverse=False, key=lambda x: x["seq"])
-    #             seqs = [data["seq"] for data in input_edata]
-    #             ts_sent = [data["ts_sent"] for data in input_edata]
-    #             ts_recv = [data["ts_recv"] for data in input_edata]
-    #             # TODO: VERIFY FOR WINDOW > 1 THAT IDX IS CORRECT
-    #             idx = t_slot["inputs"][input_name]["seq"][i_step].shape[0] - len(seqs)
-    #             t_slot["inputs"][input_name]["seq"][i_step][idx:] = seqs
-    #             t_slot["inputs"][input_name]["ts_sent"][i_step][idx:] = ts_sent
-    #             t_slot["inputs"][input_name]["ts_recv"][i_step][idx:] = ts_recv
-    # for t1, t2 in zip(timings, timings_test):
-    #     for (s1, ts1), (s2, ts2) in zip(t1.items(), t2.items()):
-    #         assert all(ts1["run"] == ts2["run"]), f"Run mismatch in step {s1}."
-    #         assert all(ts1["seq"] == ts2["seq"]), f"Seq mismatch in step {s1}."
-    #         assert all(ts1["ts_step"] == ts2["ts_step"]), f"ts_step mismatch in step {s1}."
-    #         for (i1, ti1), (i2, ti2) in zip(ts1["inputs"].items(), ts2["inputs"].items()):
-    #             assert (ti1["seq"] == ti2["seq"]).all(), f"Seq mismatch in step {s1}, input {i1}."
-    #             assert (ti1["ts_sent"] == ti2["ts_sent"]).all(), f"ts_sent mismatch in step {s1}, input {i1}."
-    #             assert (ti1["ts_recv"] == ti2["ts_recv"]).all(), f"ts_recv mismatch in step {s1}, input {i1}."
-
     return timings
 
 
@@ -559,7 +506,7 @@ def get_chronological_timings(S: nx.DiGraph, timings: Timings, eps: int) -> Node
 
 
 def get_masked_timings(S: nx.DiGraph, timings: Timings) -> NodeTimings:
-    # generations = list(nx.topological_generations(S))
+    # generations = list(supergraph.topological_generations(S))
 
     # Get node names
     node_kinds = set([data["kind"] for n, data in S.nodes(data=True)])
@@ -701,7 +648,7 @@ def get_graph_buffer(
 
 
 def get_seqs_mapping(S: nx.DiGraph, timings: Timings, buffer: GraphBuffer) -> Tuple[SeqsMapping, SeqsMapping]:
-    # generations = list(nx.topological_generations(S))
+    # generations = list(supergraph.topological_generations(S))
 
     def _get_buffer_size(b):
         leaves = jax.tree_util.tree_leaves(b)

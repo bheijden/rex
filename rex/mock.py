@@ -110,59 +110,9 @@ class Mock:
         # Connect mock nodes
         [node.connect_from_info(sim_connections[name], mock_nodes) for name, node in mock_nodes.items() if name in sim_connections]
 
-        # Create mock graph
-        root = max(mock_nodes.values(), key=lambda n: n.rate)  # Highest rate, so that we can exist as soon as possible
-        graph = AsyncGraph(mock_nodes, root, clock=const.SIMULATED, real_time_factor=const.FAST_AS_POSSIBLE)
-
-        # Initialize pbar
-        pbar = tqdm.tqdm(total=ts_end, desc=f"Augmenting", disable=not progress_bar)
-
-        # import rex.utils as rutils
-        # rutils.set_log_level(const.WARN)
-
-        # todo: deadlock #1
-        # graph.start(gs)  # this results in stopping (because it is scheduled after?)
-        # gs, _ = graph.reset(gs)
-        # gs, _ = graph.step(gs)
-
-        # todo: deadlock #2
-        # graph.start(gs)
-        # gs = graph.run(gs)
-
-        # Initialize mock graph
-        gs = graph.init(starting_eps=eps)
-        # graph.start(gs)
-        gs, _ = graph.reset(gs)
-        while True:
-            gs, _ = graph.step(gs)
-            # gs = graph.run(gs)
-
-            # Break if all nodes have passed the ts_end
-            ts_steps = {name: ss.ts for name, ss in gs.nodes.items()}
-            seqs = {name: ss.seq for name, ss in gs.nodes.items()}
-            ts_seqs = {name: f"{ts_steps[name]:.2f} sec, {seqs[name]+1} nodes" for name in ts_steps}
-            msg = "|".join([f"{name}: {ts_seqs[name]}" for name in ts_seqs])
-
-            # Determine how many nodes have passed the ts_end since the last update
-            num_passed = sum([ts_steps[name] >= ts_end for name in ts_steps])
-            mean_ts_steps = sum([ts_steps[name] for name in ts_steps]) / len(ts_steps)
-
-            # clipped_mean_ts_steps = min(mean_ts_steps, ts_end)
-            if mean_ts_steps > ts_end:
-                delta = 0.
-            else:
-                delta = mean_ts_steps - pbar.n
-            pbar.update(delta)
-
-            pbar.set_postfix_str(msg)
-            pbar.refresh()
-            if num_passed == len(mock_nodes):
-                graph.stop()
-                pbar.close()
-                break
-
-        # Prepare augmented record (sim + real)
-        aug_node_records = {name: node.record() for name, node in mock_nodes.items()}
+        # Mock run
+        record = mock_run(mock_nodes, ts_end, rng, progress_bar=progress_bar)
+        aug_node_records = {node_record.info.name: node_record for node_record in record.node}
 
         # Add records of the original record
         for name, node_record in node_records.items():
@@ -246,6 +196,70 @@ class Mock:
         [augmented_record.node.append(node_record) for node_record in aug_node_records.values()]
         return augmented_record
 
+
+def mock_run(nodes: Dict[str, "Node"], ts_end, rng: jax.Array = None, progress_bar: bool = False) -> log_pb2.EpisodeRecord:
+    # Create mock nodes
+    mock_nodes = {name: MockNode.subclass_from_info(node.info) for name, node in nodes.items()}
+
+    # Connect mock nodes
+    [node.connect_from_info(nodes[name].info.inputs, mock_nodes) for name, node in mock_nodes.items()]
+
+    # Create mock graph
+    root = max(mock_nodes.values(), key=lambda n: n.rate)  # Highest rate, so that we can exit as soon as possible
+    graph = AsyncGraph(mock_nodes, root, clock=const.SIMULATED, real_time_factor=const.FAST_AS_POSSIBLE)
+
+    # Initialize pbar
+    pbar = tqdm.tqdm(total=ts_end, desc=f"Mock run", disable=not progress_bar)
+
+    # import rex.utils as rutils
+    # rutils.set_log_level(const.WARN)
+
+    # todo: deadlock #1
+    # graph.start(gs)  # this results in stopping (because it is scheduled after?)
+    # gs, _ = graph.reset(gs)
+    # gs, _ = graph.step(gs)
+
+    # todo: deadlock #2
+    # graph.start(gs)
+    # gs = graph.run(gs)
+
+    # Initialize mock graph
+    gs = graph.init(rng, starting_eps=0)
+    # graph.start(gs)
+    gs, _ = graph.reset(gs)
+    while True:
+        gs, _ = graph.step(gs)
+        # gs = graph.run(gs)
+
+        # Break if all nodes have passed the ts_end
+        ts_steps = {name: ss.ts for name, ss in gs.nodes.items()}
+        seqs = {name: ss.seq for name, ss in gs.nodes.items()}
+        ts_seqs = {name: f"{ts_steps[name]:.2f} sec, {seqs[name] + 1} nodes" for name in ts_steps}
+        msg = "|".join([f"{name}: {ts_seqs[name]}" for name in ts_seqs])
+
+        # Determine how many nodes have passed the ts_end since the last update
+        num_passed = sum([ts_steps[name] >= ts_end for name in ts_steps])
+        mean_ts_steps = sum([ts_steps[name] for name in ts_steps]) / len(ts_steps)
+
+        # clipped_mean_ts_steps = min(mean_ts_steps, ts_end)
+        if mean_ts_steps > ts_end:
+            delta = 0.
+        else:
+            delta = mean_ts_steps - pbar.n
+        pbar.update(float(delta))
+
+        pbar.set_postfix_str(msg)
+        pbar.refresh()
+        if num_passed == len(mock_nodes):
+            graph.stop()
+            pbar.close()
+            break
+
+    # Prepare augmented record (sim + real)
+    node_records = {name: node.record() for name, node in mock_nodes.items()}
+    record = log_pb2.EpisodeRecord()
+    [record.node.append(node_record) for node_record in node_records.values()]
+    return record
 
 
 

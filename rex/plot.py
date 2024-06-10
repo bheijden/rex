@@ -480,7 +480,7 @@ def plot_computation_graph(
     node_linewidth=1.5,
     arrowsize=10,
     arrowstyle="->",
-    connectionstyle="arc3",
+    connectionstyle="arc3,rad=0.1",
     draw_nodelabels=True,
     draw_pruned=True,
 ):
