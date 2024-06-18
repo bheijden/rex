@@ -202,11 +202,12 @@ class BaseNode:
                      If not specified, the step state of the node itself is returned (if it exists).
         :return: The step state of the node if it exists, else None.
         """
+        raise NotImplementedError("Refactor to use graph_state.attribute.get(self.name, ...)")
         name = name if isinstance(name, str) else self.name
         if graph_state is None:
             return None
         else:
-            return graph_state.nodes.get(name, None)
+            return graph_state.step_state.get(name, None)
 
     def init_params(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> base.Params:
         """Init params of the node.

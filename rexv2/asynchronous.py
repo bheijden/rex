@@ -220,7 +220,7 @@ class _AsyncNodeWrapper:
         [i.warmup(graph_state, device=device) for i in self.inputs.values()]
 
         # Warmup random number generators
-        _ = [r for r in rnd.split(graph_state.nodes[self.node.name].rng, num=len(self.node.inputs))]
+        _ = [r for r in rnd.split(graph_state.rng[self.node.name], num=len(self.node.inputs))]
 
         # Wait for the results to be ready
         samples.block_until_ready()  # Only to trigger jit compilation
@@ -268,7 +268,7 @@ class _AsyncNodeWrapper:
         self._phase = self.node.phase
         self._record = None
         self._record_steps = None
-        self._step_state = graph_state.nodes[self.node.name]
+        self._step_state = graph_state.step_state[self.node.name]
 
         # Log
         self._discarded = 0  # Number of discarded records after reaching self.max_records
@@ -753,7 +753,7 @@ class _AsyncConnectionWrapper:
     def warmup(self, graph_state: base.GraphState, device):
         # Warmup input update
         self._jit_update_input_state = jax.jit(update_input_state, device=device)
-        i = graph_state.nodes[self.connection.input_node.name].inputs[self.connection.input_name]
+        i = graph_state.inputs[self.connection.input_node.name][self.connection.input_name]
         new_i = self._jit_update_input_state(i, 0, 0., 0., i[0].data)
 
         # Warms-up jitted functions in the output (i.e. pre-compiles)
@@ -1186,29 +1186,20 @@ class AsyncGraph:
     def init(
         self,
         rng: jax.typing.ArrayLike = None,
-        step_states: Dict[str, base.StepState] = None,
+        params: Dict[str, base.Params] = None,
         order: Tuple[str, ...] = None,
     ):
         """
         Initializes the graph state with optional parameters for RNG and step states.
 
-        Nodes are initialized in a specified order, with the option to override step states.
-        Step states may be partially defined, i.e. only contain the params or state,
+        Nodes are initialized in a specified order, with the option to override params.
         Useful for setting up the graph state before running the graph with .run, .rollout, or .reset.
 
         :param rng: Random number generator seed or state.
-        :param step_states: Predefined step states for nodes.
+        :param params: Predefined params for (a subset of) the nodes.
         :param order: The order in which nodes are initialized.
         :return: The initialized graph state.
         """
-        # Determine initial step states
-        step_states = step_states if step_states is not None else {}
-        step_states = step_states.unfreeze() if isinstance(step_states, FrozenDict) else step_states
-        step_states = {k: v for k, v in step_states.items()}  # Copy step states
-
-        if rng is None:
-            rng = jax.random.PRNGKey(0)
-
         # Determine init order. If name not in order, add it to the end
         order = tuple() if order is None else order
         order = list(order)
@@ -1216,52 +1207,41 @@ class AsyncGraph:
             if name not in order:
                 order.append(name)
 
-        # Initialize temporary graph state
-        graph_state = base.GraphState(eps=onp.int32(0), nodes=step_states)
+        # Prepare random number generators
+        if rng is None:
+            rng = jax.random.PRNGKey(0)
+        rng_step, rng_params, rng_state, rng_step, rng_inputs = jax.random.split(rng, num=5)
 
-        # Initialize step states
-        rng, rng_ss = jax.random.split(rng)
-        rngs = jax.random.split(rng_ss, num=len(order * 4)).reshape((len(order), 4, 2))
-        rngs_inputs = {}
-        for rngs_ss, name in zip(rngs, order):
-            # Unpack rngs
-            rng_params, rng_state, rng_step, rng_inputs = rngs_ss
-            node = self.nodes[name]
-            # Grab preset params and state if available
-            preset_params = step_states[name].params if name in step_states else None
-            preset_state = step_states[name].state if name in step_states else None
-            # Params first, because the state may depend on them
-            params = node.init_params(rng_params, graph_state) if preset_params is None else preset_params
-            step_states[node.name] = base.StepState(
-                rng=rng_step, params=params, state=None, inputs=None, eps=onp.int32(0), seq=onp.int32(0), ts=onp.float32(0.0)
-            )
-            # Then, get the state (which may depend on the params)
-            state = node.init_state(rng_state, graph_state) if preset_state is None else preset_state
-            # Inputs are updated once all nodes have been initialized with their params and state
-            step_states[name] = base.StepState(
-                rng=rng_step, params=params, state=state, inputs=None, eps=onp.int32(0), seq=onp.int32(0), ts=onp.float32(0.0)
-            )
-            rngs_inputs[name] = rng_inputs
+        # Determine preset params
+        params = params if params is not None else {}
+        params = params.unfreeze() if isinstance(params, FrozenDict) else params
+        params = {k: v for k, v in params.items()}  # Copy params
+
+        # Initialize graph state
+        rngs_step = FrozenDict({k: _rng for k, _rng in zip(order, jax.random.split(rng_step, num=len(order)))})
+        seq = FrozenDict({k: onp.int32(0) for k in order})
+        ts = FrozenDict({k: onp.float32(0.0) for k in order})
+        state = {}
+        inputs = {}
+        graph_state = base.GraphState(eps=onp.int32(0), rng=rngs_step, seq=seq, ts=ts, params=params, state=state, inputs=inputs)
+
+        # Initialize params
+        rngs = jax.random.split(rng_params, num=len(order))
+        for rng, name in zip(rngs, order):
+            params[name] = params.get(name, self.nodes[name].init_params(rng, graph_state))
+
+        # Initialize state
+        rngs = jax.random.split(rng_state, num=len(order))
+        for rng, name in zip(rngs, order):
+            state[name] = self.nodes[name].init_state(rng, graph_state)
 
         # Initialize inputs
-        for name, rng_inputs in rngs_inputs.items():
-            # if name in self._skip:
-            #     continue
-            node = self.nodes[name]
-            step_states[name] = step_states[name].replace(inputs=node.init_inputs(rng_inputs, graph_state))
-        # NOTE: used to be eps=jp.as_int32(starting_eps) --> why?
+        rngs = jax.random.split(rng_inputs, num=len(order))
+        for rng, name in zip(rngs, order):
+            inputs[name] = self.nodes[name].init_inputs(rng, graph_state)
 
-        # New base graph state, without timing and buffer
-        new_gs = base.GraphState(eps=onp.int32(0), nodes=FrozenDict(step_states))
-
-        # Get buffer & episode timings (i.e. timings[eps])
-        # timings = self._timings
-        # buffer = timings.get_output_buffer(self.nodes, self._buffer_sizes, self._extra_padding, graph_state, rng=rng)
-
-        # Create new graph state with timings and buffer
-        # new_cgs = base.GraphState(step=None, eps=None, nodes=new_gs.nodes, timings_eps=None, buffer=buffer)
-        # new_cgs = new_cgs.replace_step(timings, step=starting_step)  # (Clips step to valid value)
-        # new_cgs = new_cgs.replace_eps(timings, eps=new_gs.eps)  # (Clips eps to valid value & updates timings_eps)
+        # Replace params, state, and inputs in graph state with immutable versions
+        new_gs = graph_state.replace(params=FrozenDict(params), state=FrozenDict(state), inputs=FrozenDict(inputs))
         return new_gs
 
     def start(self, graph_state: base.GraphState, timeout: float = None) -> base.GraphState:
@@ -1272,7 +1252,7 @@ class AsyncGraph:
         self._synchronizer.reset()
 
         # Prepare inputs
-        no_inputs = {k: v.inputs is not None for k, v in graph_state.nodes.items()}
+        no_inputs = {k: _inputs is not None for k, _inputs in graph_state.inputs.items()}
         assert all(no_inputs.values()), "No inputs provided to all entries in graph_state. Use graph.init()."
 
         # Reset async backend of every node
@@ -1314,9 +1294,9 @@ class AsyncGraph:
         next_step_state = self._synchronizer.observation.popleft().result()
         # print(f"[GET] run_until_root: seq={next_step_state.seq}, ts={next_step_state.ts:.2f}")
         self._initial_step = False
-        nodes = {name: node._step_state for name, node in self._async_nodes.items()}
-        nodes[self.supervisor.name] = next_step_state
-        next_graph_state = base.GraphState(nodes=FrozenDict(nodes))
+        step_states = {name: node._step_state for name, node in self._async_nodes.items()}
+        step_states[self.supervisor.name] = next_step_state
+        next_graph_state = base.GraphState(eps=next_step_state.eps).replace_step_states(step_states=step_states)
         return next_graph_state
 
     def run_supervisor(
@@ -1334,7 +1314,7 @@ class AsyncGraph:
 
         # Get next step state and output from root node
         if step_state is None and output is None:  # Run root node
-            ss = self.supervisor.get_step_state(graph_state)
+            ss = graph_state.step_state[self.supervisor.name]
             new_ss, new_output = self.supervisor.step(ss)
         else:  # Override step_state and output
             new_ss, new_output = step_state, output
@@ -1347,9 +1327,9 @@ class AsyncGraph:
         self._synchronizer.action[-1].set_result((new_ss, new_output))
 
         # Get graph_state
-        nodes = {name: node._step_state for name, node in self._async_nodes.items()}
-        nodes[self.supervisor.name] = next_step_state
-        next_graph_state = base.GraphState(nodes=FrozenDict(nodes))
+        step_states = {name: node._step_state for name, node in self._async_nodes.items()}
+        step_states[self.supervisor.name] = next_step_state
+        next_graph_state = base.GraphState(eps=next_step_state.eps).replace_step_states(step_states=step_states)
         return next_graph_state
 
     def run(self, graph_state: base.GraphState, timeout: float = None) -> base.GraphState:
@@ -1389,7 +1369,7 @@ class AsyncGraph:
         graph_state = self.start(graph_state, timeout=timeout)
         # Runs supergraph (except for supervisor)
         next_graph_state = self.run_until_supervisor(graph_state)
-        next_step_state = self.supervisor.get_step_state(next_graph_state)  # Return supervisor node's step state
+        next_step_state = next_graph_state.step_state[self.supervisor.name]  # Return supervisor node's step state
         return next_graph_state, next_step_state
 
     def step(
@@ -1416,7 +1396,7 @@ class AsyncGraph:
 
         # Runs supergraph (except for supervisor)
         next_graph_state = self.run_until_supervisor(new_graph_state)
-        next_step_state = self.supervisor.get_step_state(next_graph_state)  # Return supervisor node's step state
+        next_step_state = next_graph_state.step_state[self.supervisor.name]  # Return supervisor node's step state
         return next_graph_state, next_step_state
 
     def get_record(self) -> base.EpisodeRecord:

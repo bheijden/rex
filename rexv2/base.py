@@ -18,10 +18,88 @@ import rexv2.jax_utils as rjax
 if TYPE_CHECKING:
     from rexv2.node import BaseNode
 
+
+@struct.dataclass
+class Base:
+    """Base functionality extending all dataclasses.
+
+    These methods allow for dataclasses to be operated like arrays/matrices.
+    """
+
+    def __add__(self, o: Any) -> Any:
+        try:
+            # If o is a pytree, element-wise addition
+            return jax.tree_util.tree_map(lambda x, y: x + y, self, o)
+        except ValueError:
+            # If o is a scalar, element-wise addition
+            return jax.tree_util.tree_map(lambda x: x + o, self)
+
+    def __sub__(self, o: Any) -> Any:
+        try:
+            # If o is a pytree, element-wise subtraction
+            return jax.tree_util.tree_map(lambda x, y: x - y, self, o)
+        except ValueError:
+            # If o is a scalar, element-wise subtraction
+            return jax.tree_util.tree_map(lambda x: x - o, self)
+
+    def __mul__(self, o: Any) -> Any:
+        try:
+            # If o is a pytree, element-wise multiplication
+            return jax.tree_util.tree_map(lambda x, y: x * y, self, o)
+        except ValueError:
+            # If o is a scalar, element-wise multiplication
+            return jax.tree_util.tree_map(lambda x: x * o, self)
+
+    def __neg__(self) -> Any:
+        return jax.tree_util.tree_map(lambda x: -x, self)
+
+    def __truediv__(self, o: Any) -> Any:
+        try:
+            # If o is a pytree, element-wise division
+            return jax.tree_util.tree_map(lambda x, y: x / y, self, o)
+        except ValueError:
+            # If o is a scalar, element-wise division
+            return jax.tree_util.tree_map(lambda x: x / o, self)
+
+    def __getitem__(self, val):
+        return jax.tree_util.tree_map(lambda x: x[val], self)
+
+    def reshape(self, shape: Sequence[int]) -> Any:
+        return jax.tree_util.tree_map(lambda x: x.reshape(shape), self)
+
+    def select(self, o: Any, cond: jax.Array) -> Any:
+        return jax.tree_util.tree_map(lambda x, y: (x.T * cond + y.T * (1 - cond)).T, self, o)
+
+    def slice(self, beg: int, end: int) -> Any:
+        return jax.tree_util.tree_map(lambda x: x[beg:end], self)
+
+    def take(self, i, axis=0) -> Any:
+        return jax.tree_util.tree_map(lambda x: jnp.take(x, i, axis=axis, mode='wrap'), self)
+
+    def concatenate(self, *others: Any, axis: int = 0) -> Any:
+        return jax.tree_util.tree_map(lambda *x: jnp.concatenate(x, axis=axis), self, *others)
+
+    def index_set(
+            self, idx: Union[jax.Array, Sequence[jax.Array]], o: Any
+    ) -> Any:
+        return jax.tree_util.tree_map(lambda x, y: x.at[idx].set(y), self, o)
+
+    def index_sum(
+            self, idx: Union[jax.Array, Sequence[jax.Array]], o: Any
+    ) -> Any:
+        return jax.tree_util.tree_map(lambda x, y: x.at[idx].add(y), self, o)
+
+
+@struct.dataclass
+class Empty(Base):
+    """Empty class."""
+    pass
+
+
 PyTree = Any
-Output = TypeVar("Output")
-State = TypeVar("State")
-Params = TypeVar("Params")
+Output = Base
+State = Base
+Params = Base
 GraphBuffer = FrozenDict[str, Output]
 
 
@@ -445,6 +523,8 @@ class TrainableDist(DelayDistribution):
 
     @classmethod
     def create(cls, alpha: Union[float, jax.typing.ArrayLike], min: Union[float, jax.typing.ArrayLike], max: Union[float, jax.typing.ArrayLike]) -> "TrainableDist":
+        min = float(min)
+        max = float(max)
         assert 0.0 <= alpha <= 1.0, f"alpha should be between [0, 1], but got {alpha}."
         assert min < max, f"min should be less than max, but got min={min} and max={max}."
         assert 0.0 <= min, f"min should be greater than or equal to 0, but got {min}."
@@ -582,6 +662,62 @@ class StepState:
     ts: Union[float, ArrayLike] = struct.field(pytree_node=True, default_factory=lambda: onp.float32(0.0))
 
 
+class _NoVal:
+    pass
+
+
+@struct.dataclass
+class _StepStateDict:
+    graph_state: "GraphState"
+
+    def __getitem__(self, item) -> StepState:
+        rng = self.graph_state.rng.get(item, None) if self.graph_state.rng is not None else None
+        seq = self.graph_state.seq.get(item, None) if self.graph_state.seq is not None else None
+        ts = self.graph_state.ts.get(item, None) if self.graph_state.ts is not None else None
+        params = self.graph_state.params.get(item, None) if self.graph_state.params is not None else None
+        state = self.graph_state.state.get(item, None) if self.graph_state.state is not None else None
+        inputs = self.graph_state.inputs.get(item, None) if self.graph_state.inputs is not None else None
+        return StepState(rng=rng, seq=seq, ts=ts, params=params, state=state, inputs=inputs)
+
+    def __len__(self):
+        # get max len of all fields
+        return max(
+            len(self.graph_state.rng),
+            len(self.graph_state.seq),
+            len(self.graph_state.ts),
+            len(self.graph_state.params),
+            len(self.graph_state.state),
+            len(self.graph_state.inputs),
+        )
+
+    def __iter__(self):
+        return iter(self.keys())
+
+    def keys(self):
+        # Return union of all keys
+        return set(
+            list(self.graph_state.rng.keys())
+            + list(self.graph_state.seq.keys())
+            + list(self.graph_state.ts.keys())
+            + list(self.graph_state.params.keys())
+            + list(self.graph_state.state.keys())
+            + list(self.graph_state.inputs.keys())
+        )
+
+    def items(self):
+        return [(k, self[k]) for k in self.keys()]
+
+    def values(self):
+        return [self[k] for k in self.keys()]
+
+    def get(self, key, default=_NoVal):
+        if key in self.keys():
+            return self[key]
+        if default is _NoVal:
+            raise KeyError(key)
+        return default
+
+
 @struct.dataclass
 class GraphState:
     """Graph state definition.
@@ -590,7 +726,12 @@ class GraphState:
 
     :param step: The current step number. Automatically increases by 1 every step.
     :param eps: The current episode number. To update the episode, use GraphState.replace_eps.
-    :param nodes: The step states of all nodes in the graph. To update the step state of a node, use GraphState.replace_nodes.
+    :param rng: The random number generators for each node in the graph.
+    :param seq: The current step number for each node in the graph.
+    :param ts: The start time of the step for each node in the graph.
+    :param params: The parameters for each node in the graph.
+    :param state: The state for each node in the graph.
+    :param inputs: The inputs for each node in the graph.
     :param timings_eps: The timings data structure that describes the execution and partitioning of the graph.
     :param buffer: The output buffer of the graph. It holds the outputs of nodes during the execution. Input buffers are
                    automatically filled with the outputs of previously executed step calls of other nodes.
@@ -598,23 +739,34 @@ class GraphState:
     # The number of partitions (excl. supervisor) have run in the current episode.
     step: Union[int, ArrayLike] = struct.field(pytree_node=True, default_factory=lambda: onp.int32(0))
     eps: Union[int, ArrayLike] = struct.field(pytree_node=True, default_factory=lambda: onp.int32(0))
-    nodes: FrozenDict[str, StepState] = struct.field(pytree_node=True, default_factory=lambda: None)
+    # Step state components for each node in the graph.
+    # nodes: FrozenDict[str, StepState] = struct.field(pytree_node=True, default_factory=lambda: None)
+    rng: FrozenDict[str, jax.Array] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
+    seq: FrozenDict[str, Union[int, ArrayLike]] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
+    ts: FrozenDict[str, Union[float, ArrayLike]] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
+    params: FrozenDict[str, Params] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
+    state: FrozenDict[str, State] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
+    inputs: FrozenDict[str, FrozenDict[str, InputState]] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
     # timings: Timings = struct.field(pytree_node=False, default_factory=lambda: None)
     # The timings for a single episode (i.e. GraphState.timings[eps]).
     timings_eps: Timings = struct.field(pytree_node=True, default_factory=lambda: None)
     # A ring buffer that holds the outputs for every node's output channel.
     buffer: FrozenDict[str, Output] = struct.field(pytree_node=True, default_factory=lambda: None)
-    # Some auxillary data that can be used to store additional information (e.g. wrappers
+    # Some auxiliary data that can be used to store additional information (e.g. wrappers
     aux: FrozenDict[str, Any] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
 
-    def replace_buffer(self, outputs: Union[Dict[str, Output], FrozenDict[str, Output]]):
+    @property
+    def step_state(self) -> _StepStateDict:
+        return _StepStateDict(self)
+
+    def replace_buffer(self, outputs: Union[Dict[str, Output], FrozenDict[str, Output]]) -> "GraphState":
         """Replace the buffer with new outputs.
 
         Generally not used by the user, but by the graph itself.
         """
         return self.replace(buffer=self.buffer.copy(outputs))
 
-    def replace_eps(self, timings: Timings, eps: Union[int, ArrayLike]):
+    def replace_eps(self, timings: Timings, eps: Union[int, ArrayLike]) -> "GraphState":
         """Replace the current episode number and corresponding timings corresponding to the episode.
 
         :param timings: The timings data structure that contains all timings for all episodes. Can be retrieved from the graph
@@ -625,11 +777,10 @@ class GraphState:
         # Next(iter()) is a bit hacky, but it simply takes a node and counts the number of eps.
         max_eps = next(iter(timings.slots.values())).run.shape[-2]
         eps = jnp.clip(eps, onp.int32(0), max_eps - 1)
-        nodes = FrozenDict({n: ss.replace(eps=eps) for n, ss in self.nodes.items()})
         timings_eps = rjax.tree_take(timings, eps)
-        return self.replace(eps=eps, nodes=nodes, timings_eps=timings_eps)
+        return self.replace(eps=eps, timings_eps=timings_eps)
 
-    def replace_step(self, timings: Timings, step: Union[int, ArrayLike]):
+    def replace_step(self, timings: Timings, step: Union[int, ArrayLike]) -> "GraphState":
         """Replace the current step number.
 
         :param timings: The timings data structure that contains all timings for all episodes. Can be retrieved from the graph
@@ -648,9 +799,29 @@ class GraphState:
         :param nodes: The new step states per node (can be an incomplete set).
         :return: A new GraphState with the updated step states.
         """
+        raise NotImplementedError("GraphState.replace_nodes refactor to step_state")
         return self.replace(nodes=self.nodes.copy(nodes))
 
-    def replace_aux(self, aux: Union[Dict[str, Any], FrozenDict[str, Any]]):
+    def replace_step_states(self, step_states: Union[Dict[str, StepState], FrozenDict[str, StepState]]) -> "GraphState":
+        rng, seq, ts, params, state, inputs = {}, {}, {}, {}, {}, {}
+        for n, ss in step_states.items():
+            eps = ss.eps
+            rng[n] = ss.rng
+            seq[n] = ss.seq
+            ts[n] = ss.ts
+            params[n] = ss.params
+            state[n] = ss.state
+            inputs[n] = ss.inputs
+        return self.replace(
+            rng=self.rng.copy(rng),
+            seq=self.seq.copy(seq),
+            ts=self.ts.copy(ts),
+            params=self.params.copy(params),
+            state=self.state.copy(state),
+            inputs=self.inputs.copy(inputs),
+        )
+
+    def replace_aux(self, aux: Union[Dict[str, Any], FrozenDict[str, Any]]) -> "GraphState":
         """Replace the auxillary data of the graph.
 
         :param aux: The new auxillary data.
@@ -664,6 +835,7 @@ class GraphState:
         :param node_name: The name of the node.
         :return: The step state of the node if it exists, else None.
         """
+        raise NotImplementedError("GraphState.try_get_node refactor to step_state")
         return self.nodes.get(node_name, None)
 
     def try_get_aux(self, aux_name: str) -> Union[Any, None]:
@@ -675,84 +847,7 @@ class GraphState:
         return self.aux.get(aux_name, None)
 
 
-StepStates = Union[Dict[str, StepState], FrozenDict[str, StepState]]
-
-
-@struct.dataclass
-class Base:
-    """Base functionality extending all dataclasses.
-
-    These methods allow for dataclasses to be operated like arrays/matrices.
-    """
-
-    def __add__(self, o: Any) -> Any:
-        try:
-            # If o is a pytree, element-wise addition
-            return jax.tree_util.tree_map(lambda x, y: x + y, self, o)
-        except ValueError:
-            # If o is a scalar, element-wise addition
-            return jax.tree_util.tree_map(lambda x: x + o, self)
-
-    def __sub__(self, o: Any) -> Any:
-        try:
-            # If o is a pytree, element-wise subtraction
-            return jax.tree_util.tree_map(lambda x, y: x - y, self, o)
-        except ValueError:
-            # If o is a scalar, element-wise subtraction
-            return jax.tree_util.tree_map(lambda x: x - o, self)
-
-    def __mul__(self, o: Any) -> Any:
-        try:
-            # If o is a pytree, element-wise multiplication
-            return jax.tree_util.tree_map(lambda x, y: x * y, self, o)
-        except ValueError:
-            # If o is a scalar, element-wise multiplication
-            return jax.tree_util.tree_map(lambda x: x * o, self)
-
-    def __neg__(self) -> Any:
-        return jax.tree_util.tree_map(lambda x: -x, self)
-
-    def __truediv__(self, o: Any) -> Any:
-        try:
-            # If o is a pytree, element-wise division
-            return jax.tree_util.tree_map(lambda x, y: x / y, self, o)
-        except ValueError:
-            # If o is a scalar, element-wise division
-            return jax.tree_util.tree_map(lambda x: x / o, self)
-
-    def __getitem__(self, val):
-        return jax.tree_util.tree_map(lambda x: x[val], self)
-
-    def reshape(self, shape: Sequence[int]) -> Any:
-        return jax.tree_util.tree_map(lambda x: x.reshape(shape), self)
-
-    def select(self, o: Any, cond: jax.Array) -> Any:
-        return jax.tree_util.tree_map(lambda x, y: (x.T * cond + y.T * (1 - cond)).T, self, o)
-
-    def slice(self, beg: int, end: int) -> Any:
-        return jax.tree_util.tree_map(lambda x: x[beg:end], self)
-
-    def take(self, i, axis=0) -> Any:
-        return jax.tree_util.tree_map(lambda x: jnp.take(x, i, axis=axis, mode='wrap'), self)
-
-    def concatenate(self, *others: Any, axis: int = 0) -> Any:
-        return jax.tree_util.tree_map(lambda *x: jnp.concatenate(x, axis=axis), self, *others)
-
-    def index_set(
-            self, idx: Union[jax.Array, Sequence[jax.Array]], o: Any
-    ) -> Any:
-        return jax.tree_util.tree_map(lambda x, y: x.at[idx].set(y), self, o)
-
-    def index_sum(
-            self, idx: Union[jax.Array, Sequence[jax.Array]], o: Any
-    ) -> Any:
-        return jax.tree_util.tree_map(lambda x, y: x.at[idx].add(y), self, o)
-
-
-@struct.dataclass
-class Empty(Base):
-    """Empty class."""
-    pass
+# StepStates = Union[Dict[str, StepState], FrozenDict[str, StepState]]
 
 
 # LOGGING

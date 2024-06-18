@@ -38,10 +38,12 @@ if __name__ == "__main__":
     #   [DONE] How to increase window of step_state.inputs when simulating delays?
     #   [DONE] Apply trainable window to step_state.inputs in partition_runner.py
     #   [DONE] Use inputs.delay_dist in AsyncGraph instead of Connection.delay_dist?
-    #   - Split step_states in graph_state into params, states, inputs, seq, rng, ts, etc...
-    #   - graph.init(params: Dict[str, Params]) instead of graph.init(step_states: Dict[str, StepState])
+    #   [DONE] Split step_states in graph_state into params, states, inputs, seq, rng, ts, etc...
+    #   [DONE] graph.init(params: Dict[str, Params]) instead of graph.init(step_states: Dict[str, StepState])
+    #   - Replace delay_dist in node.init_inputs.
     #   - Add Pendulum (ode, real)
     #   - Check weaktypes and recompilation & how to compile step function --> leads to more latency (maybe not if jit compiled)?
+    #       - Check new graph-state format (especially in AsyncGraph updates of step_states)
     #   - Add Crazyflie (ode, real)
     #   - flax.serialization.to_bytes does not save static fields. Use pickle instead?
     #   [DONE] Delay identification
@@ -100,16 +102,19 @@ if __name__ == "__main__":
     # Set record settings
     world.set_record_settings(params=True, rng=True, inputs=True, state=True, output=True)
 
+    # Get predefined params
+    params = world.init_params()
+
     # Test graph API
     episodes = []
-    gs = graph.init()
+    gs = graph.init(params={"world": params})
     for j in range(2):
         if j == 0:  # Run API
-            for _ in range(20 + j):
+            for _ in range(10 + j):
                 gs = graph.run(gs)
         else:  # Reset/Step API
             gs, _ = graph.reset(gs)
-            for _ in range(20 + j):
+            for _ in range(10 + j):
                 gs, _ = graph.step(gs)
         graph.stop()
 
@@ -152,6 +157,103 @@ if __name__ == "__main__":
 
     # Compile the graph
     graph = rexv2.graph.Graph(nodes, agent, graphs_aug, supergraph=Supergraph.MCS, progress_bar=True)
+    # graph.init = jax.jit(graph.init, static_argnames=("order",))  # Compile the init function
+    graph.reset = jax.jit(graph.reset)  # Compile the reset function
+    graph.step = jax.jit(graph.step)  # Compile the step function
+    graph.run = jax.jit(graph.run)  # Compile the run function
+
+    # Test the graph
+    gs = graph.init(jax.random.PRNGKey(0), randomize_eps=True, order=("world",))
+    gs, ss = graph.reset(gs)  # Reset the graph state, returns the initial observation (in ss)
+    rollout = [gs]
+    pbar = tqdm.tqdm(range(graph.max_steps))
+    for _ in pbar:  # Simulate for a number of steps
+        # Access the last sensor message of the input buffer
+        # -1 is the most recent message, -2 the second most recent, etc. up until the window size
+        sensor_msg = ss.inputs["sensor"][-1].data  # .data grabs the pytree message object
+
+        # Devise an action, prepare the output message, and update the step_state.
+        rng_next, rng_action = jax.random.split(ss.rng, num=2)
+        action = jax.random.uniform(rng_action, shape=(1,), minval=-2.0, maxval=2.0)
+        output = pendulum.nodes.ActuatorOutput(action=action)  # Define output
+        next_ss = ss.replace(rng=rng_next)  # Update the step state
+
+        # Print the current time, sensor reading, and action
+        pbar.set_postfix_str(
+            f"step: {ss.seq}, ts_start: {ss.ts:.2f}, th: {sensor_msg.th:.2f}, thdot: {sensor_msg.thdot:.2f}, Action: {action[0]:.2f}")
+
+        # Step the graph (i.e., executes the next time step by sending the output message to the actuator node)
+        gs, ss = graph.step(gs, step_state=next_ss, output=output)  # Step the graph
+        rollout.append(gs)
+    pbar.close()
+
+    # However, now we will repeatedly call the run() method, which will call the step() method of the agent node.
+    # In our case, the agent node is a random agent, so it will also generate random actions.
+    rollout = [gs]
+    pbar = tqdm.tqdm(range(graph.max_steps))
+    for _ in pbar:
+        gs = graph.run(gs)  # Run the graph (incl. the agent's step() method)
+        rollout.append(gs)
+        # We can access the agent's state directly (this is the state *after* the step() method was called)
+        ss = gs.step_state["agent"]
+        # Print the current time, sensor reading, and action
+        pbar.set_postfix_str(f"step: {ss.seq}, ts_start: {ss.ts:.2f}")
+    pbar.close()
+
+    # @title Vectorized rollouts
+    # We may also perform many rollouts in parallel by using jax.vmap
+    num_rollouts = 500
+    rngs = jax.random.split(jax.random.PRNGKey(2), num=num_rollouts)
+
+    # Vectorized graph initialization
+    graph_init = functools.partial(graph.init, randomize_eps=True, order=("world",))
+    graph_init_jv = jax.jit(jax.vmap(graph_init, in_axes=0))
+
+    # Vectorized graph rollout with .rollout() convenience function
+    graph_rollout_jv = jax.jit(jax.vmap(graph.rollout, in_axes=0))
+
+    # Check if we have a GPU
+    try:
+        gpu = jax.devices("gpu")
+    except RuntimeError:
+        print("Warning: No GPU found, falling back to CPU. Speedups will be less pronounced.")
+        print("Hint: if you are using Google Colab, try to change the runtime to GPU: "
+              "Runtime -> Change runtime type -> Hardware accelerator -> GPU.")
+
+    # During the first call, the two functions are compiled
+    from supergraph.evaluate import timer
+    with timer("Jit-compilation[graph.init]"):
+        gs = graph_init_jv(rngs)
+    with timer("Jit-compilation[graph.rollout]"):
+        rollout = graph_rollout_jv(gs, eps=gs.eps)
+
+    # Subsequent calls are much faster
+    # @markdown  Note that the speedups require a GPU. On a CPU, the speedups for the vectorized rollout are less pronounced.
+    t = timer(f"Vectorized rollout of {num_rollouts} rollouts", repeat=10)
+    with t:
+        for _ in range(10):
+            gs = graph_init_jv(rngs)
+            rollout = graph_rollout_jv(gs, eps=gs.eps)
+    fps = (graph.max_steps * num_rollouts * t.repeat) / t.duration
+    print(f"\nSimulation speed: {fps:.0f} steps/second (depends on hardware)\n")
+
+    # Visualize rollouts
+    num_viz = min(100, num_rollouts)
+    fig, axs = plt.subplots(1, 3, figsize=(12, 3))
+    axs[0].plot(rollout.ts["agent"][:num_viz, :].T, rollout.inputs["agent"]["sensor"].data.th[:num_viz, :, -1].T)
+    axs[0].set_title("Angle")
+    axs[0].set_xlabel("Time [s]")
+    axs[0].set_ylabel("Angle [rad]")
+    axs[1].plot(rollout.ts["agent"][:num_viz, :].T,
+                rollout.inputs["agent"]["sensor"].data.thdot[:num_viz, :, -1].T)
+    axs[1].set_title("Angular velocity")
+    axs[1].set_xlabel("Time [s]")
+    axs[1].set_ylabel("Angular velocity [rad/s]")
+    axs[2].plot(rollout.ts["actuator"][:num_viz, :].T,
+                rollout.inputs["actuator"]["agent"].data.action[:num_viz, :, -1, 0].T)
+    axs[2].set_title("Action")
+    axs[2].set_xlabel("Time [s]")
+    axs[2].set_ylabel("Action")
 
     # Visualize the graph
     Gs = graph.Gs

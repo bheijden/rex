@@ -50,18 +50,18 @@ def update_output(buffer: GraphBuffer, output: Output, seq: int32) -> Output:
 def make_update_state(name: str):
     def _update_state(graph_state: GraphState, timing: SlotVertex, step_state: StepState, output: Any) -> GraphState:
         # Define node's step state update
-        new_nodes = dict()
+        new_step_states = dict()
         new_outputs = dict()
 
         # Increment sequence number
         new_ss = step_state.replace(seq=step_state.seq + 1)
 
         # Add node's step state update
-        new_nodes[name] = new_ss
+        new_step_states[name] = new_ss
         new_outputs[name] = update_output(graph_state.buffer[name], output, timing.seq)
 
         graph_state = graph_state.replace_buffer(new_outputs)
-        new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes))
+        new_graph_state = graph_state.replace_step_states(new_step_states)
         return new_graph_state
 
     return _update_state
@@ -69,7 +69,7 @@ def make_update_state(name: str):
 
 def make_update_inputs(node: "BaseNode"):
     def _update_inputs(graph_state: GraphState, timings_node: SlotVertex) -> StepState:
-        ss = graph_state.nodes[node.name]
+        ss = graph_state.step_state[node.name]
         ts_start = timings_node.ts_start
         eps = graph_state.eps
         seq = timings_node.seq
@@ -137,7 +137,7 @@ def make_run_partition_excl_supervisor(
     node_step_fns = {kind: functools.partial(_run_node, kind) for kind in nodes.keys()}
 
     def _run_generation(graph_state: GraphState, timings_gen: Dict[str, SlotVertex]):
-        new_nodes = dict()
+        new_step_states = dict()
         new_outputs = dict()
         for slot_kind, timings_node in timings_gen.items():
             # Skip slots
@@ -145,13 +145,13 @@ def make_run_partition_excl_supervisor(
                 continue
 
             if INTERMEDIATE_UPDATE:
-                new_nodes = dict()
+                new_step_states = dict()
                 new_outputs = dict()
             kind = timings.slots[slot_kind].kind  # Node kind to run
             pred = timings_gen[slot_kind].run  # Predicate for running node step
 
             # Prepare old states
-            _old_ss = graph_state.nodes[kind]
+            _old_ss = graph_state.step_state[kind]
             _old_output = graph_state.buffer[kind]
 
             if _old_ss.inputs is None:
@@ -168,21 +168,21 @@ def make_run_partition_excl_supervisor(
                 raise e
 
             # Store new state
-            new_nodes[kind] = new_ss
+            new_step_states[kind] = new_ss
             new_outputs[kind] = new_output
 
             # Update buffer
             if INTERMEDIATE_UPDATE:
                 graph_state = graph_state.replace_buffer(new_outputs)
                 # new_buffer = graph_state.buffer.replace(outputs=graph_state.buffer.outputs.copy(new_outputs))
-                graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes))
+                graph_state = graph_state.replace_step_states(new_step_states)
 
         if INTERMEDIATE_UPDATE:
             new_graph_state = graph_state
         else:
             graph_state = graph_state.replace_buffer(new_outputs)
             # new_buffer = graph_state.buffer.replace(outputs=graph_state.buffer.outputs.copy(new_outputs))
-            new_graph_state = graph_state.replace(nodes=graph_state.nodes.copy(new_nodes))
+            new_graph_state = graph_state.replace_step_states(new_step_states)
         return new_graph_state, new_graph_state
 
     def _run_S(graph_state: GraphState) -> GraphState:
@@ -226,7 +226,7 @@ def make_run_partition_excl_supervisor(
 
         # Run supervisor input update
         new_ss_supervisor = update_input_fns[supervisor](graph_state, timings_mcs[supervisor_gen_idx][supervisor_slot])
-        graph_state = graph_state.replace(nodes=graph_state.nodes.copy({supervisor: new_ss_supervisor}))
+        graph_state = graph_state.replace_step_states({supervisor: new_ss_supervisor})
 
         # Increment step (new step may exceed max_step) --> clipping is done at the start of run_S.
         graph_state = graph_state.replace(step=graph_state.step + 1)

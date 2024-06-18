@@ -198,7 +198,7 @@ class Graph:
     def init(
         self,
         rng: jax.typing.ArrayLike = None,
-        step_states: Dict[str, base.StepState] = None,
+        params: Dict[str, base.StepState] = None,
         starting_step: Union[int, jax.typing.ArrayLike] = 0,
         starting_eps: jax.typing.ArrayLike = 0,
         randomize_eps: bool = False,
@@ -207,30 +207,17 @@ class Graph:
         """
         Initializes the graph state with optional parameters for RNG and step states.
 
-        Nodes are initialized in a specified order, with the option to override step states.
-        Step states may be partially defined, i.e. only contain the params or state,
+        Nodes are initialized in a specified order, with the option to override params.
         Useful for setting up the graph state before running the graph with .run, .rollout, or .reset.
 
         :param rng: Random number generator seed or state.
-        :param step_states: Predefined step states for nodes.
+        :param params: Predefined params for (a subset of) the nodes.
         :param starting_step: The simulation's starting step.
         :param starting_eps: The starting episode.
         :param randomize_eps: If True, randomly selects the starting episode.
         :param order: The order in which nodes are initialized.
         :return: The initialized graph state.
         """
-        # Determine initial step states
-        step_states = step_states if step_states is not None else {}
-        step_states = step_states.unfreeze() if isinstance(step_states, FrozenDict) else step_states
-        step_states = {k: v for k, v in step_states.items()}  # Copy step states
-
-        if rng is None:
-            rng = jax.random.PRNGKey(0)
-
-        if randomize_eps:
-            rng, rng_eps = jax.random.split(rng, num=2)
-            starting_eps = jax.random.choice(rng_eps, self.max_eps, shape=())
-
         # Determine init order. If name not in order, add it to the end
         order = tuple() if order is None else order
         order = list(order)
@@ -238,50 +225,52 @@ class Graph:
             if name not in order:
                 order.append(name)
 
-        # Initialize temporary graph state
-        graph_state = base.GraphState(eps=jnp.int32(starting_eps), nodes=step_states)
+        # Prepare random number generators
+        if rng is None:
+            rng = jax.random.PRNGKey(0)
+        rng_eps, rng_step, rng_params, rng_state, rng_step, rng_inputs = jax.random.split(rng, num=6)
 
-        # Initialize step states
-        rng, rng_ss = jax.random.split(rng)
-        rngs = jax.random.split(rng_ss, num=len(order * 4)).reshape((len(order), 4, 2))
-        rngs_inputs = {}
-        for rngs_ss, name in zip(rngs, order):
-            # Unpack rngs
-            rng_params, rng_state, rng_step, rng_inputs = rngs_ss
-            node = self.nodes[name]
-            # Grab preset params and state if available
-            preset_params = step_states[name].params if name in step_states else None
-            preset_state = step_states[name].state if name in step_states else None
-            # Params first, because the state may depend on them
-            params = node.init_params(rng_params, graph_state) if preset_params is None else preset_params
-            step_states[node.name] = base.StepState(
-                rng=rng_step, params=params, state=None, inputs=None, eps=starting_eps, seq=onp.int32(0), ts=onp.float32(0.0)
-            )
-            # Then, get the state (which may depend on the params)
-            state = node.init_state(rng_state, graph_state) if preset_state is None else preset_state
-            # Inputs are updated once all nodes have been initialized with their params and state
-            step_states[name] = base.StepState(
-                rng=rng_step, params=params, state=state, inputs=None, eps=starting_eps, seq=onp.int32(0), ts=onp.float32(0.0)
-            )
-            rngs_inputs[name] = rng_inputs
+        if randomize_eps:
+            starting_eps = jax.random.choice(rng_eps, self.max_eps, shape=())
+
+        # Determine preset params
+        params = params if params is not None else {}
+        params = params.unfreeze() if isinstance(params, FrozenDict) else params
+        params = {k: v for k, v in params.items()}  # Copy params
+
+        # Initialize graph state
+        rngs_step = FrozenDict({k: _rng for k, _rng in zip(order, jax.random.split(rng_step, num=len(order)))})
+        seq = FrozenDict({k: onp.int32(0) for k in order})
+        ts = FrozenDict({k: onp.float32(0.0) for k in order})
+        state = {}
+        inputs = {}
+        graph_state = base.GraphState(eps=jnp.int32(starting_eps), step=jnp.int32(starting_step),
+                                      rng=rngs_step, seq=seq, ts=ts, params=params, state=state, inputs=inputs)
+
+        # Initialize params
+        rngs = jax.random.split(rng_params, num=len(order))
+        for rng, name in zip(rngs, order):
+            params[name] = params.get(name, self.nodes[name].init_params(rng, graph_state))
+
+        # Initialize state
+        rngs = jax.random.split(rng_state, num=len(order))
+        for rng, name in zip(rngs, order):
+            state[name] = self.nodes[name].init_state(rng, graph_state)
 
         # Initialize inputs
-        for name, rng_inputs in rngs_inputs.items():
-            if name in self._skip:
-                continue
-            node = self.nodes[name]
-            step_states[name] = step_states[name].replace(inputs=node.init_inputs(rng_inputs, graph_state))
-        # NOTE: used to be eps=jp.as_int32(starting_eps) --> why?
+        rngs = jax.random.split(rng_inputs, num=len(order))
+        for rng, name in zip(rngs, order):
+            inputs[name] = self.nodes[name].init_inputs(rng, graph_state)
 
-        # New base graph state, without timing and buffer
-        new_gs = base.GraphState(eps=starting_eps, nodes=FrozenDict(step_states))
+        # Replace params, state, and inputs in graph state with immutable versions
+        new_gs = graph_state.replace(params=FrozenDict(params), state=FrozenDict(state), inputs=FrozenDict(inputs))
 
         # Get buffer & episode timings (i.e. timings[eps])
         timings = self._timings
         buffer = timings.get_output_buffer(self.nodes, self._buffer_sizes, self._extra_padding, graph_state, rng=rng)
 
         # Create new graph state with timings and buffer
-        new_cgs = base.GraphState(step=None, eps=None, nodes=new_gs.nodes, timings_eps=None, buffer=buffer)
+        new_cgs = new_gs.replace(buffer=buffer)
         new_cgs = new_cgs.replace_step(timings, step=starting_step)  # (Clips step to valid value)
         new_cgs = new_cgs.replace_eps(timings, eps=new_gs.eps)  # (Clips eps to valid value & updates timings_eps)
         return new_cgs
@@ -314,8 +303,7 @@ class Graph:
         def _run_supervisor_step() -> base.GraphState:
             # Get next step state and output from supervisor node
             if step_state is None and output is None:  # Run supervisor node
-                # ss = graph_state.nodes[supervisor_kind]
-                ss = supervisor.get_step_state(graph_state)
+                ss = graph_state.step_state[self.supervisor.name]
                 new_ss, new_output = supervisor.step(ss)
             else:  # Override step_state and output
                 new_ss, new_output = step_state, output
@@ -367,7 +355,7 @@ class Graph:
         """
         # Runs supergraph (except for supervisor)
         next_graph_state = self.run_until_supervisor(graph_state)
-        next_step_state = self.supervisor.get_step_state(next_graph_state)  # Return supervisor node's step state
+        next_step_state = next_graph_state.step_state[self.supervisor.name]  # Return supervisor node's step state
         return next_graph_state, next_step_state
 
     def step(
@@ -394,7 +382,7 @@ class Graph:
 
         # Runs supergraph (except for supervisor)
         next_graph_state = self.run_until_supervisor(new_graph_state)
-        next_step_state = self.supervisor.get_step_state(next_graph_state)  # Return supervisor node's step state
+        next_step_state = next_graph_state.step_state[self.supervisor.name]  # Return supervisor node's step state
         return next_graph_state, next_step_state
 
     def rollout(

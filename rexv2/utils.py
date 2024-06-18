@@ -186,9 +186,11 @@ def to_timings(
     # Convert graphs to numpy
     graphs = jax.tree_util.tree_map(lambda val: onp.array(val), graphs)
 
-    # Determine number of
+    # Determine number of episodes
     num_episodes = graphs.vertices[supervisor].seq.shape[0]
-    num_partitions = graphs.vertices[supervisor].seq.shape[-1]
+    # The smallest number of partitions across all episodes is the number of partitions
+    num_partitions = onp.where(graphs.vertices[supervisor].seq.min(axis=-2) >= 0, 1, 0).sum()
+    # num_partitions = graphs.vertices[supervisor].seq.shape[-1]
 
     # Prepare template for timings (that we fill in later with data according to Gs_monomorphism and graphs)
     slots = dict()
@@ -223,6 +225,8 @@ def to_timings(
         G = Gs[eps_idx]
         for n2, (partition_idx, s2) in G_monomorphism.items():
             # print(f"eps_idx={eps_idx} | partition_idx={partition_idx} | s2={s2}")
+            if not partition_idx < num_partitions:  # Skip if partition index is out of bounds
+                continue
             data = G.nodes[n2]
             seq = int(data["seq"])
             fill_idx[s2]["slots"].append((eps_idx, partition_idx))

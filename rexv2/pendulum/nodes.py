@@ -23,7 +23,7 @@ from rexv2.node import BaseNode
 
 
 @struct.dataclass
-class OdeParams:
+class OdeParams(base.Base):
     """Pendulum state definition"""
 
     max_speed: Union[float, jax.typing.ArrayLike]
@@ -37,7 +37,7 @@ class OdeParams:
 
 
 @struct.dataclass
-class OdeState:
+class OdeState(base.Base):
     """Pendulum state definition"""
 
     th: Union[float, jax.typing.ArrayLike]
@@ -45,7 +45,7 @@ class OdeState:
 
 
 @struct.dataclass
-class BraxParams:
+class BraxParams(base.Base):
     """Pendulum param definition"""
 
     max_speed: Union[float, jax.typing.ArrayLike]
@@ -54,14 +54,14 @@ class BraxParams:
 
 
 @struct.dataclass
-class BraxState:
+class BraxState(base.Base):
     """Pendulum state definition"""
 
     pipeline_state: gen_pipeline.State
 
 
 @struct.dataclass
-class WorldOutput:
+class WorldOutput(base.Base):
     """World output definition"""
 
     th: Union[float, jax.typing.ArrayLike]
@@ -69,13 +69,13 @@ class WorldOutput:
 
 
 @struct.dataclass
-class SensorOutput:
+class SensorOutput(base.Base):
     th: Union[float, jax.typing.ArrayLike]
     thdot: Union[float, jax.typing.ArrayLike]
 
 
 @struct.dataclass
-class ActuatorOutput:
+class ActuatorOutput(base.Base):
     """Pendulum actuator output"""
 
     action: jax.typing.ArrayLike  # Torque to apply to the pendulum
@@ -111,9 +111,9 @@ class OdeWorld(BaseNode):
 
     def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> WorldOutput:
         """Default output of the node."""
+        graph_state = graph_state or GraphState()
         # Grab output from state
-        ss_world = self.get_step_state(graph_state)
-        world_state = ss_world.state if ss_world else self.init_state(rng, graph_state)
+        world_state = graph_state.state.get(self.name, self.init_state(rng, graph_state))
         return WorldOutput(th=world_state.th, thdot=world_state.thdot)
 
     def step(self, step_state: StepState) -> Tuple[StepState, WorldOutput]:
@@ -194,14 +194,14 @@ class BraxWorld(BaseNode):
         """Default state of the node."""
         if rng is None:
             rng = jax.random.PRNGKey(0)
+        graph_state = graph_state or GraphState()
 
         # Sample initial state
         init_th = jax.random.uniform(rng, shape=(), minval=-onp.pi, maxval=onp.pi)
         init_thdot = jax.random.uniform(rng, shape=(), minval=-2.0, maxval=2.0)
 
         # Set the initial state of the disk pendulum
-        step_state = self.get_step_state(graph_state)
-        params = step_state.params if step_state else self.init_params(rng, graph_state)
+        params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
         qpos = params.sys.init_q.at[0].set(init_th)
         qvel = jnp.array([init_thdot])
         pipeline_state = gen_pipeline.init(params.sys, qpos, qvel)
@@ -209,9 +209,9 @@ class BraxWorld(BaseNode):
 
     def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> WorldOutput:
         """Default output of the node."""
+        graph_state = graph_state or GraphState()
         # Grab output from state
-        ss_world = self.get_step_state(graph_state)
-        state = ss_world.state if ss_world else self.init_state(rng, graph_state)
+        state = graph_state.state.get(self.name, self.init_state(rng, graph_state))
         return WorldOutput(th=state.pipeline_state.q[0], thdot=state.pipeline_state.qd[0])
 
     def step(self, step_state: StepState) -> Tuple[StepState, WorldOutput]:
@@ -378,11 +378,11 @@ def render(rollout: Union[List[GraphState], GraphState]):
         rollout = jax.tree_util.tree_map(lambda *x: jnp.stack(x), *rollout)
 
     # Extract rollout data
-    th_rollout = rollout.nodes["agent"].inputs["sensor"][:, -1].data.th
-    thdot_rollout = rollout.nodes["agent"].inputs["sensor"][:, -1].data.thdot
+    th_rollout = rollout.inputs["agent"]["sensor"][:, -1].data.th
+    thdot_rollout = rollout.inputs["agent"]["sensor"][:, -1].data.thdot
 
     # Determine fps
-    dt = rollout.nodes["agent"].ts[-1] / rollout.nodes["agent"].ts.shape[-1]
+    dt = rollout.ts["agent"][-1] / rollout.ts["agent"].shape[-1]
 
     # Initialize system
     sys = mjcf.loads(DISK_PENDULUM_XML)
@@ -473,7 +473,7 @@ class Environment(rl.Environment):
 
 
 @struct.dataclass
-class GymnaxPendulum:
+class GymnaxPendulum(base.Base):
     max_speed: float = 8.0
     max_torque: float = 2.0
     dt: float = 0.05
@@ -488,7 +488,7 @@ class DiskPendulum(OdeParams):
 
 
 @struct.dataclass
-class TestState:
+class TestState(base.Base):
     theta: jnp.ndarray
     theta_dot: jnp.ndarray
     last_u: jnp.ndarray  # Only needed for rendering
