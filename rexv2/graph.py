@@ -8,11 +8,12 @@ from flax import struct
 from flax.core import FrozenDict
 from typing import Any, Tuple, List, TypeVar, Dict, Union, Callable
 
-import supergraph
+import supergraph as sg
 from rexv2.partition_runner import make_run_partition_excl_supervisor, make_update_state
 from rexv2 import base
 from rexv2.node import BaseNode
 from rexv2 import utils
+from rexv2.constants import Supergraph
 import rexv2.jax_utils as rjax
 from supergraph.evaluate import timer
 
@@ -24,7 +25,7 @@ class Graph:
         supervisor: BaseNode,
         graphs_raw: base.Graph,
         skip: List[str] = None,
-        supergraph_mode: str = "MCS",
+        supergraph: Supergraph = Supergraph.MCS,
         S_init: nx.DiGraph = None,
         backtrack: int = 20,
         debug: bool = False,
@@ -50,7 +51,7 @@ class Graph:
         :param supervisor: Supervisor node.
         :param graphs_raw: Raw computation graphs. Must be acyclic.
         :param skip: List of nodes to skip during graph execution.
-        :param supergraph_mode: Supergraph mode. Options are "MCS", "topological", and "generational".
+        :param supergraph: Supergraph mode. Options are MCS, TOPOLOGICAL, and GENERATIONAL.
         :param S_init: Initial supergraph.
         :param backtrack: Backtrack parameter for MCS supergraph mode.
         :param debug: Debug mode. Validates the partitioning and supergraph and times various compilation steps.
@@ -66,6 +67,8 @@ class Graph:
         self._skip = skip if isinstance(skip, list) else [skip] if isinstance(skip, str) else []
 
         # Apply window to graphs
+        v = next(iter(graphs_raw.vertices.values()))
+        assert len(v.seq.shape) == 2, "Invalid shape. Expected 2 dimensions (episode, step)."
         self._graphs_raw = graphs_raw
         with timer("apply_window", verbose=debug):
             self._windowed_graphs = utils.apply_window(nodes, graphs_raw)  # Apply window to graphs
@@ -80,9 +83,9 @@ class Graph:
                 self._Gs.append(G)
 
         # Grow supergraph
-        self.supergraph_mode = supergraph_mode
-        if supergraph_mode == "MCS":
-            S, S_init_to_S, Gs_monomorphism = supergraph.grow_supergraph(
+        self.supergraph = supergraph
+        if supergraph is Supergraph.MCS:
+            S, S_init_to_S, Gs_monomorphism = sg.grow_supergraph(
                 self._Gs,
                 supervisor.name,
                 S_init=S_init,
@@ -92,20 +95,20 @@ class Graph:
                 progress_bar=progress_bar,
                 validate=debug,
             )
-        elif supergraph_mode == "topological":
+        elif supergraph is Supergraph.TOPOLOGICAL:
             from supergraph.evaluate import baselines_S
 
             S, _ = baselines_S(self._Gs, supervisor.name)
             S_init_to_S = {n: n for n in S.nodes()}
-            Gs_monomorphism = supergraph.evaluate_supergraph(self._Gs, S, progress_bar=progress_bar)
-        elif supergraph_mode == "generational":
+            Gs_monomorphism = sg.evaluate_supergraph(self._Gs, S, progress_bar=progress_bar)
+        elif supergraph is Supergraph.GENERATIONAL:
             from supergraph.evaluate import baselines_S
 
             _, S = baselines_S(self._Gs, supervisor.name)
             S_init_to_S = {n: n for n in S.nodes()}
-            Gs_monomorphism = supergraph.evaluate_supergraph(self._Gs, S, progress_bar=progress_bar)
+            Gs_monomorphism = sg.evaluate_supergraph(self._Gs, S, progress_bar=progress_bar)
         else:
-            raise ValueError(f"Unknown supergraph mode '{supergraph_mode}'.")
+            raise ValueError(f"Unknown supergraph mode '{supergraph}'.")
         self._S = S
         self._S_init_to_S = S_init_to_S
         self._Gs_monomorphism = Gs_monomorphism

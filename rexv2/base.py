@@ -7,8 +7,13 @@ import numpy as onp
 from numpy import ma as ma
 from flax import struct
 from flax.core import FrozenDict
+from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
 
+tfd = tfp.distributions
+
+import rexv2.constants as constants
 import rexv2.jax_utils as rjax
+
 
 if TYPE_CHECKING:
     from rexv2.node import BaseNode
@@ -371,6 +376,99 @@ class Timings:
 
 
 @struct.dataclass
+class DelayDistribution:
+    rng: jax.Array
+
+    def reset(self, rng: jax.Array) -> "DelayDistribution":
+        return self.replace(rng=rng)
+
+    @staticmethod
+    def sample_pure(delay_dist: "DelayDistribution", shape: Union[int, Tuple] = None) -> Tuple["DelayDistribution", jax.Array]:
+        return delay_dist.sample(shape)
+
+    def sample(self, shape: Union[int, Tuple] = None) -> Tuple["DelayDistribution", jax.Array]:
+        raise NotImplementedError("DelayDistribution.sample is not implemented.")
+
+    @staticmethod
+    def quantile_pure(delay_dist: "DelayDistribution", q: float) -> float:
+        return delay_dist.quantile(q)
+
+    def quantile(self, q: float) -> float:
+        raise NotImplementedError("DelayDistribution.quantile is not implemented.")
+
+    def window(self, rate_out) -> int:
+        return 0
+
+
+@struct.dataclass
+class StaticDist(DelayDistribution):
+    dist: tfd.Distribution = struct.field(pytree_node=False)
+
+    @classmethod
+    def create(cls, dist: tfd.Distribution) -> "StaticDist":
+        return cls(rng=jax.random.PRNGKey(0), dist=dist)
+
+    def sample(self, shape: Union[int, Tuple] = None) -> Tuple["StaticDist", jax.Array]:
+        if shape is None:
+            shape = ()
+        new_rng, rng_sample = jax.random.split(self.rng, 2)
+        samples = self.dist.sample(sample_shape=shape, seed=rng_sample)
+        samples = jnp.clip(samples, 0.0, None)  # Ensure that the delay is non-negative
+        return self.replace(rng=new_rng), samples
+
+    def quantile(self, q: float) -> float:
+        try:
+            return self.dist.quantile(q)
+        except NotImplementedError as e:
+            if isinstance(self.dist, tfd.MixtureSameFamily):
+                import rexv2.utils as utils  # Avoid circular import
+
+                shape = q.shape if isinstance(q, (jax.Array, onp.ndarray)) else ()
+                qs_component = self.dist.components_distribution.quantile(0.999)
+                qs = utils.mixture_distribution_quantiles(
+                    dist=self.dist,
+                    probs=jnp.array(q).reshape(-1),
+                    N_grid_points=int(1e3),
+                    grid_min=qs_component.min()*0.9,
+                    grid_max=qs_component.max()*1.1,
+                )[0]
+                return qs.reshape(shape)
+            else:
+                raise e
+
+
+@struct.dataclass
+class TrainableDist(DelayDistribution):
+    alpha: Union[float, jax.typing.ArrayLike] = struct.field(default=0.5)  # Value between [0, 1]
+    min: Union[float, jax.typing.ArrayLike] = struct.field(pytree_node=False, default=0.0)  # Minimum expected delay
+    max: Union[float, jax.typing.ArrayLike] = struct.field(pytree_node=False, default=0.0)  # Maximum expected delay
+
+    @classmethod
+    def create(cls, alpha: Union[float, jax.typing.ArrayLike], min: Union[float, jax.typing.ArrayLike], max: Union[float, jax.typing.ArrayLike]) -> "TrainableDist":
+        assert 0.0 <= alpha <= 1.0, f"alpha should be between [0, 1], but got {alpha}."
+        assert min < max, f"min should be less than max, but got min={min} and max={max}."
+        assert 0.0 <= min, f"min should be greater than or equal to 0, but got {min}."
+        return cls(rng=jax.random.PRNGKey(0), alpha=alpha, min=min, max=max)
+
+    def sample(self, shape: Union[int, Tuple] = None) -> Tuple["TrainableDist", jax.Array]:
+        if shape is None:
+            shape = ()
+        # Sample and broadcast to shape size
+        samples = self.min + self.alpha * (self.max - self.min) * jnp.ones(shape)
+        return self, samples
+
+    def quantile(self, q: float) -> float:
+        """Calculate the quantile of the distribution.
+        As the distribution is deterministic, the quantile is trivially calculated as the
+        constant value of the distribution.
+        """
+        return self.min + self.alpha * (self.max - self.min)
+
+    def window(self, rate_out: Union[float, int]) -> int:
+        return int(onp.ceil(rate_out * (self.max - self.min)).astype(int))
+
+
+@struct.dataclass
 class InputState:
     """A ring buffer that holds the inputs for a node's input channel.
 
@@ -387,10 +485,11 @@ class InputState:
     ts_sent: ArrayLike
     ts_recv: ArrayLike
     data: Output  # --> must be a pytree where the shape of every leaf will become (size, *leafs.shape)
+    delay_dist: DelayDistribution
 
     @classmethod
     def from_outputs(
-        cls, seq: ArrayLike, ts_sent: ArrayLike, ts_recv: ArrayLike, outputs: List[Any], is_data: bool = False
+        cls, seq: ArrayLike, ts_sent: ArrayLike, ts_recv: ArrayLike, outputs: List[Any], delay_dist: DelayDistribution, is_data: bool = False
     ) -> "InputState":
         """Create an InputState from a list of messages, timestamps, and sequence numbers.
 
@@ -400,11 +499,12 @@ class InputState:
         :param ts_recv: The timestamps of when the messages were received.
         :param outputs: The messages of the connection (arbitrary pytree structure).
         :param is_data: If True, the outputs are already a stacked pytree structure.
+        :param delay_dist: The delay distribution of the connection.
         :return: An InputState object, that holds the messages in a ring buffer.
         """
 
         data = jax.tree_map(lambda *o: jnp.stack(o, axis=0), *outputs) if not is_data else outputs
-        return cls(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=data)
+        return cls(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=data, delay_dist=delay_dist)
 
     def _shift(self, a: ArrayLike, new: ArrayLike):
         rolled_a = jnp.roll(a, -1, axis=0)
@@ -422,7 +522,7 @@ class InputState:
             new = jax.tree_map(lambda tb, t: self._shift(tb, t), tb, new_t)
         else:
             new = jax.tree_map(lambda _tb, _t: jnp.array(_tb).at[0].set(_t), tb, new_t)
-        return InputState(*new)
+        return InputState(*new, delay_dist=self.delay_dist)
 
     def __getitem__(self, val):
         """Get the value of the ring buffer at a specific index.
@@ -430,7 +530,32 @@ class InputState:
         This is useful for indexing all the values of the ring buffer at a specific index.
         """
         tb = [self.seq, self.ts_sent, self.ts_recv, self.data]
-        return InputState(*jax.tree_map(lambda _tb: _tb[val], tb))
+        return InputState(*jax.tree_map(lambda _tb: _tb[val], tb), delay_dist=self.delay_dist)
+
+    def apply_delay(self, rate_out: float, ts_start: Union[float, jax.typing.ArrayLike]) -> "InputState":
+        """Apply the delay to the input state.
+
+        The delay is determined by the delay distribution of the connection.
+        """
+        # If no window, return the same input state
+        window_delayed = self.delay_dist.window(rate_out)
+        if window_delayed == 0:  # Return the input state if the only possible shift is 0.
+            return self  # NOOP
+        cum_window = self.seq.shape[0]
+        window = cum_window - window_delayed
+        new_delay_dist, d = self.delay_dist.sample()
+        ts_recv = self.ts_sent + d
+        idx_max = jnp.argwhere(ts_recv > ts_start, size=1, fill_value=cum_window)[0, 0]
+        idx_min = idx_max - window
+
+        # Slice the input state
+        tb = [self.seq, self.ts_sent, ts_recv, self.data]
+        slice_sizes = jax.tree_map(lambda _tb: list(_tb.shape[1:]), tb)
+        tb_delayed = jax.tree_map(
+            lambda _tb, _size: jax.lax.dynamic_slice(_tb, [idx_min] + [0 * s for s in _size], [window] + _size), tb,
+            slice_sizes)
+        delayed_input_state = InputState(*tb_delayed, delay_dist=new_delay_dist)
+        return delayed_input_state
 
 
 @struct.dataclass
@@ -628,3 +753,130 @@ class Base:
 class Empty(Base):
     """Empty class."""
     pass
+
+
+# LOGGING
+
+
+@struct.dataclass
+class InputInfo:
+    rate: float
+    window: int
+    blocking: bool
+    skip: bool
+    jitter: constants.Jitter = struct.field(pytree_node=False)
+    phase: float
+    delay_dist: DelayDistribution
+    delay: float
+    name: str = struct.field(pytree_node=False)
+    output: str = struct.field(pytree_node=False)
+
+
+@struct.dataclass
+class NodeInfo:
+    rate: float
+    advance: bool
+    scheduling: constants.Scheduling = struct.field(pytree_node=False)
+    phase: float
+    delay_dist: DelayDistribution
+    delay: float
+    inputs: Dict[str, InputInfo]  # Uses name of output node in graph context, not the input_name
+    name: str = struct.field(pytree_node=False)
+    cls: str = struct.field(pytree_node=False)
+
+
+@struct.dataclass
+class Header:
+    eps: Union[int, jax.typing.ArrayLike]
+    seq: Union[int, jax.typing.ArrayLike]
+    ts: Union[float, jax.typing.ArrayLike]
+
+
+@struct.dataclass
+class MessageRecord:
+    seq_out: Union[int, jax.typing.ArrayLike]  # todo: If never sent, set to -1?
+    seq_in: Union[int, jax.typing.ArrayLike]  # Corresponds to StepRecord.seq. If never received, set to -1.
+    ts_sent: Union[float, jax.typing.ArrayLike]  # used to be sent: Header todo: what if never sent?
+    ts_recv: Union[float, jax.typing.ArrayLike]  # used to be received: Header  todo: what if never sent?
+    delay: Union[float, jax.typing.ArrayLike]
+
+
+@struct.dataclass
+class InputRecord:
+    info: InputInfo
+    rng_dist: jax.Array
+    messages: MessageRecord
+
+
+@struct.dataclass
+class StepRecord:
+    eps: Union[int, jax.typing.ArrayLike]
+    seq: Union[int, jax.typing.ArrayLike]
+    ts_scheduled: Union[float, jax.typing.ArrayLike]
+    ts_max: Union[float, jax.typing.ArrayLike]
+    ts_start: Union[float, jax.typing.ArrayLike]  # used to be ts_step
+    ts_end_prev: Union[float, jax.typing.ArrayLike]  # used to be ts_output_prev
+    ts_end: Union[float, jax.typing.ArrayLike]  # used to be ts_output
+    phase: Union[float, jax.typing.ArrayLike]
+    phase_scheduled: Union[float, jax.typing.ArrayLike]
+    phase_inputs: Union[float, jax.typing.ArrayLike]
+    phase_last: Union[float, jax.typing.ArrayLike]
+    sent: Header
+    delay: Union[float, jax.typing.ArrayLike]
+    phase_overwrite: Union[float, jax.typing.ArrayLike]
+    rng: jax.Array  # Optionally logged
+    inputs: InputState  # Optionally logged (can become very large)
+    state: Base  # Optionally logged | Before the step call
+    output: Base  # Optionally logged | After the step call
+
+
+@struct.dataclass
+class NodeRecord:
+    info: NodeInfo = struct.field(pytree_node=False)
+    clock: constants.Clock = struct.field(pytree_node=False)
+    real_time_factor: float = struct.field(pytree_node=False)
+    ts_start: float
+    rng_dist: jax.Array
+    params: Base
+    inputs: Dict[str, InputRecord]  # Uses name of output node in graph context, not the input_name
+    steps: StepRecord
+
+
+@struct.dataclass
+class EpisodeRecord:
+    nodes: Dict[str, NodeRecord]
+
+    def to_graph(self) -> Graph:
+        vertices = {n: Vertex(seq=v.steps.seq, ts_start=v.steps.ts_start, ts_end=v.steps.ts_end) for n, v in self.nodes.items()}
+        edges = dict()
+        for n2, v2 in self.nodes.items():
+            for n1, i in v2.inputs.items():
+                seq_in = i.messages.seq_in
+                seq_out = i.messages.seq_out
+                ts_recv = i.messages.ts_recv
+                edges[(n1, n2)] = Edge(seq_out=seq_out, seq_in=seq_in, ts_recv=ts_recv)
+        return Graph(vertices=vertices, edges=edges)
+
+
+@struct.dataclass
+class ExperimentRecord:
+    episodes: List[EpisodeRecord]
+
+    def to_graph(self) -> Graph:
+        # Note: Vertex.seq=-1, .ts_start=-1., .ts_end=-1. for padded vertices
+        # Note: Edge.seq_out=-1, .seq_in=-1., .ts_recv=-1. for padded edges or edges that were never received.
+        # Convert to graphs
+        graphs_raw = [e.to_graph() for e in self.episodes]
+
+        def _stack(*_graphs):
+            """Stack the vertices and edges of the graphs."""
+            _max_len = max(len(arr) for arr in _graphs)
+            # Pad with -1
+            _padded = tuple(onp.pad(arr, (0, _max_len - len(arr)), constant_values=-1) for arr in _graphs)
+            return onp.stack(_padded, axis=0)
+
+        graphs = jax.tree_util.tree_map(_stack, *graphs_raw)
+        return graphs
+
+
+

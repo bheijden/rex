@@ -8,7 +8,7 @@ from flax.core import FrozenDict
 from functools import partial
 # from gymnax.environments import environment, spaces
 # from brax import envs
-from brax.envs.wrappers.training import EpisodeWrapper
+# from brax.envs.wrappers.training import EpisodeWrapper
 
 from rexv2.graph import Graph
 from rexv2 import base

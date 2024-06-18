@@ -5,20 +5,17 @@ import jax
 import jax.numpy as jnp
 from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
 
-from rexv2.base import Timestamps, Edge, Vertex, Graph
-
 tfd = tfp.distributions
 
+from rexv2.base import Timestamps, Edge, Vertex, Graph, TrainableDist, StaticDist
+from rexv2 import constants
 from rexv2.node import BaseNode
 
 
 def generate_graphs(
     nodes: Dict[str, BaseNode],
-    computation_delays: Dict[str, tfd.Distribution],
-    communication_delays: Dict[Tuple[str, str], tfd.Distribution],
-    t_final: float,
+    ts_max: float,
     rng: jax.Array = None,
-    phase: Dict[str, tfd.Distribution] = None,
     num_episodes: int = 1,
 ) -> Graph:
     """Generate graphs based on the nodes, computation delays, and communication delays.
@@ -27,47 +24,111 @@ def generate_graphs(
     Moreover, all nodes are assumed to run and communicate asynchronously. In other words, their timestamps are independent.
 
     :param nodes: Dictionary of nodes.
-    :param computation_delays: Dictionary of computation delays.
-    :param communication_delays: Dictionary of communication delays with keys (output_node, input_node).
-    :param t_final: Final time.
+    :param ts_max: Final time.
     :param rng: Random number generator.
-    :param phase: Dictionary of phase shift distributions (start time). Default is 0.
     :param num_episodes: Number of graphs to generate.
-    :return: List of graphs.
+    :return: Graphs for each episode.
     """
     rng = jax.random.PRNGKey(0) if rng is None else rng
-    phase = dict() if phase is None else phase
+    return _generate_graphs(nodes=nodes, ts_max=ts_max, rng=rng, num_episodes=num_episodes)
+
+
+def augment_graphs(graphs: Graph, nodes: Dict[str, BaseNode], rng: jax.Array = None) -> Graph:
+    rng = jax.random.PRNGKey(0) if rng is None else rng
+
+    # Expand dimension if necessary
+    v = next(iter(graphs.vertices.values()))
+    if len(v.seq.shape) == 1:
+        graphs = jax.tree_util.tree_map(lambda x: jnp.expand_dims(x, axis=0), graphs)
+        rm_dim = True
+    elif len(v.seq.shape) == 2:
+        rm_dim = False
+    else:
+        raise ValueError("Invalid shape for v.seq. Cannot have more than 2 dimensions.")
+
+    # Generate graphs
+    graphs_aug = _generate_graphs(nodes=nodes, rng=rng, graphs=graphs)
+
+    # Remove dimension if necessary
+    if rm_dim:
+        graphs_aug = jax.tree_util.tree_map(lambda x: jnp.expand_dims(x, axis=0), graphs_aug)
+    return graphs_aug
+
+
+def _generate_graphs(
+    nodes: Dict[str, BaseNode],
+    rng: jax.Array,
+    num_episodes: int = None,
+    ts_max: float = None,
+    graphs: Graph = None,
+) -> Graph:
+    """Generate graphs based on the nodes, computation delays, and communication delays.
+
+    All nodes are assumed to have a rate and name attribute.
+    Moreover, all nodes are assumed to run and communicate asynchronously. In other words, their timestamps are independent.
+
+    :param nodes: Dictionary of nodes.
+    :param rng: Random number generator.
+    :param num_episodes: Number of graphs to generate.  If None, the number of episodes is determined by the shape of the vertices.
+    :param ts_max: Final time. If None, the final time is determined by the maximum ts_end in the graphs.
+    :param graphs: Graphs to augment. If None, a new graph is generated.
+    :return: A set of graphs.
+    """
+    assert not (ts_max is None) == (graphs is None), "Either ts_max or graphs should be provided."
+    assert not (num_episodes is None) == (graphs is None), "Either num_episodes or graphs should be provided."
+    assert (ts_max is None) == (num_episodes is None), "Both ts_max and num_episodes should be provided."
+
+    # Check if graph is consistent with num_episodes
+    if graphs is None:
+        graphs = Graph(vertices=dict(), edges=dict())
+        assert isinstance(ts_max, float), "ts_max should be provided."
+        ts_max = ts_max * jnp.ones((num_episodes,))
+    else:
+        # Determine num_episodes
+        v = next(iter(graphs.vertices.values()))
+        assert len(v.seq.shape) == 2, "Invalid shape for v.seq. Add episode dimension."
+        num_episodes = v.seq.shape[0]
+
+        # Determine ts_max
+        ts_max = jnp.zeros((num_episodes,))
+        for n, v in graphs.vertices.items():
+            ts_max = jnp.maximum(ts_max, v.ts_end.max(axis=1))
+
+    # Gather delays
+    computation_delays, communication_delays, phase = dict(), dict(), dict()
     connections = dict()
     for n in nodes.values():
-        assert n.name in computation_delays, f"Missing computation delay for {n.name}"
-        phase[n.name] = phase.get(n.name, tfd.Deterministic(loc=0.0))
+        # Convert to tfd.Distribution
+        delay_dist = n.delay_dist
+        if isinstance(delay_dist, TrainableDist):
+            raise NotImplementedError("Cannot have trainable distribution for computation delay.")
+        computation_delays[n.name] = delay_dist
+        # Determine phase distribution
+        phase[n.name] = StaticDist.create(tfd.Deterministic(loc=n.phase))
         for c in n.outputs.values():
-            assert (
-                c.output_node.name,
-                c.input_node.name,
-            ) in communication_delays, f"Missing communication delay for {c.output_node.name} -> {c.input_node.name}"
+            delay_dist = c.delay_dist
+            if isinstance(delay_dist, TrainableDist):
+                delay_dist = StaticDist.create(tfd.Deterministic(loc=delay_dist.min))  # Assume the minimal delay
+            communication_delays[(c.output_node.name, c.input_node.name)] = delay_dist
             connections[(c.output_node.name, c.input_node.name)] = c
     rates = {n: nodes[n].rate for n in nodes}
 
     # Generate all timestamps
-    def step(name: str, carry, i):
+    def step(name: str, __ts_max: float, carry, i):
         ts_prev, rng_prev = carry
         rate = rates[name]
         comp_delay = computation_delays[name]
-        comm_delays = {m: comm for (n, m), comm in communication_delays.items() if n == name}
 
         # Split rng
-        rngs = jax.random.split(rng_prev, num=1 + len(comm_delays) + 1)
-        rng_comp, rng_comm, rng_next = rngs[0], rngs[1:-1], rngs[-1]
+        rng_comp, rng_next = jax.random.split(rng_prev, num=2)
 
         # Compute timestamps
-        seq = i
         ts_start = ts_prev
-        ts_end = ts_start + comp_delay.sample(seed=rng_comp)
+        ts_end = ts_start + comp_delay.replace(rng=rng_comp).sample()[1]
         ts_next = jnp.max(jnp.array([ts_end, ts_prev + 1 / rate]))
-        ts_recvs = {m: ts_end + comm_delays[m].sample(seed=rng) for m, rng in zip(comm_delays, rng_comm)}
-        timestamps = Timestamps(seq=seq, ts_start=ts_start, ts_end=ts_end, ts_recv=ts_recvs)
-        return (ts_next, rng_next), timestamps
+        seq = jnp.where(ts_end > __ts_max, -1, i)
+        vertex = Vertex(seq=seq, ts_start=ts_start, ts_end=ts_end)
+        return (ts_next, rng_next), vertex
 
     def _scan_body_seq(skip: bool, ts_start: jax.Array, seq: int, ts_recv: float):
         def _while_cond(_seq):
@@ -88,40 +149,60 @@ def generate_graphs(
         seq_clipped = jnp.where(is_larger, seq, -1)
         return seq, seq_clipped
 
-    def episode(rng_eps):
+    def episode(rng_eps, _graphs, _ts_max):
         # Split rngs
-        rngs = jax.random.split(rng_eps, num=2 * len(nodes))
-        rngs_phase = rngs[: len(nodes)]
-        rngs_episode = rngs[len(nodes) :]
+        rngs = jax.random.split(rng_eps, num=2 * len(nodes)+len(connections))
+        rngs_phase = rngs[:len(nodes)]
+        rngs_episode = rngs[len(nodes):2*len(nodes)]
+        rngs_comm = rngs[2*len(nodes):]
 
         # Determine start times
-        offsets = {n: phase[n].sample(seed=_rng) for n, _rng in zip(nodes, rngs_phase)}
-        timestamps = dict()
+        offsets = {n: phase[n].replace(rng=_rng).sample()[1] for n, _rng in zip(nodes, rngs_phase)}
+        vertices = {n: v for n, v in _graphs.vertices.items()}
         for n, _rng in zip(nodes, rngs_episode):
-            node_step = functools.partial(step, n)
-            num_steps = ceil(t_final * rates[n]) + 1
-            _, timestamps[n] = jax.lax.scan(node_step, (offsets[n], _rng), jnp.arange(0, num_steps), length=num_steps)
+            if n in vertices:
+                continue
+            # Check if node settings are supported
+            if nodes[n].advance is True:
+                raise NotImplementedError("node.advance=True is not supported yet.")
+            if nodes[n].scheduling is constants.Scheduling.PHASE:
+                raise NotImplementedError("node.scheduling=PHASE is not supported yet.")
+            # Generate timestamps
+            node_step = functools.partial(step, n, _ts_max)
+            ts_max_all = float(ts_max.max())  # Maxmimum ts across all episodes (needed to match static shapes).
+            num_steps = ceil(ts_max_all * rates[n]) + 1
+            _, vertices[n] = jax.lax.scan(node_step, (offsets[n], _rng), jnp.arange(0, num_steps), length=num_steps)
 
         # For every ts_recv, find the largest input_node.seq such that input_node.ts_start <= ts_recv (or < if connection.skip==True)
-        edges = dict()
-        for (output_name, input_name), c in connections.items():
-            ts_recv = timestamps[output_name].ts_recv[input_name]
-            ts_start = timestamps[input_name].ts_start
+        edges = {(n1, n2): e for (n1, n2), e in _graphs.edges.items()}
+        for ((output_name, input_name), c), _rng in zip(connections.items(), rngs_comm):
+            assert output_name in vertices, f"Node {output_name} not found in vertices."
+            assert input_name in vertices, f"Node {input_name} not found in vertices."
+            if (output_name, input_name) in edges:
+                continue  # Skip if edge already exists
+            # Check if connection settings are supported
+            if c.blocking is True:
+                raise NotImplementedError("connection.blocking=True is not supported yet.")
+            if c.blocking is True and isinstance(c.delay_dist, TrainableDist):
+                raise NotImplementedError("connection.blocking=True and connection.delay_dist is TrainableDist is not supported yet.")
+            if c.jitter is constants.Jitter.BUFFER:
+                raise NotImplementedError("connection.jitter=BUFFER is not supported yet.")
+            seq_out = vertices[output_name].seq
+            ts_end = vertices[output_name].ts_end
+            ts_recv = ts_end + communication_delays[(output_name, input_name)].replace(rng=_rng).sample(shape=ts_end.shape)[1]
+            ts_start = vertices[input_name].ts_start
             scan_body_seq = functools.partial(_scan_body_seq, c.skip, ts_start)
             last_seq, seqs_clipped = jax.lax.scan(scan_body_seq, 0, ts_recv)
-            seq_out = timestamps[output_name].seq
-            edges[(output_name, input_name)] = Edge(seq_out=seq_out, seq_in=seqs_clipped, ts_recv=ts_recv)
 
-        # Create vertices
-        vertices = dict()
-        for name_node in nodes:
-            seq = timestamps[name_node].seq
-            ts_start = timestamps[name_node].ts_start
-            ts_end = timestamps[name_node].ts_end
-            vertices[name_node] = Vertex(seq=seq, ts_start=ts_start, ts_end=ts_end)
+            # Overwrite seq_out and seq_in if ts_end is larger than ts_max
+            seq_out = jnp.where(ts_end > _ts_max, -1, seq_out)
+            seq_in = jnp.where(ts_end > _ts_max, -1, seqs_clipped)
+            seq_in = jnp.where(seqs_clipped > vertices[input_name].seq.max(), -1, seq_in)
+            edges[(output_name, input_name)] = Edge(seq_out=seq_out, seq_in=seq_in, ts_recv=ts_recv)
+
         graph = Graph(vertices=vertices, edges=edges)
         return graph
 
     # Test
-    graph = jax.vmap(episode)(jax.random.split(rng, num_episodes))
+    graph = jax.vmap(episode)(jax.random.split(rng, num_episodes), graphs, ts_max)
     return graph

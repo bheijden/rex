@@ -67,38 +67,35 @@ def make_update_state(name: str):
     return _update_state
 
 
-def make_update_inputs(name: str, inputs_data: Dict[str, Dict[str, str]]):
+def make_update_inputs(node: "BaseNode"):
     def _update_inputs(graph_state: GraphState, timings_node: SlotVertex) -> StepState:
-        ss = graph_state.nodes[name]
+        ss = graph_state.nodes[node.name]
         ts_start = timings_node.ts_start
         eps = graph_state.eps
         seq = timings_node.seq
         new_inputs = dict()
-        for node_name, input_name in inputs_data.items():
-            t = timings_node.windows[node_name]
-            buffer = graph_state.buffer[node_name]
+        for input_name, c in node.inputs.items():
+            t = timings_node.windows[c.output_node.name]
+            buffer = graph_state.buffer[c.output_node.name]
             size = get_buffer_size(buffer)
             mod_seq = t.seq % size
             inputs = rjax.tree_take(buffer, mod_seq)
-            _new = InputState.from_outputs(t.seq, t.ts_sent, t.ts_recv, inputs, is_data=True)
-            new_inputs[input_name] = _new
+            prev_delay_dist = ss.inputs[input_name].delay_dist  # This is important, as it substitutes the delay_dist with the previous one.
+            _inputs_undelayed = InputState.from_outputs(t.seq, t.ts_sent, t.ts_recv, inputs, delay_dist=prev_delay_dist, is_data=True)
+            _inputs = _inputs_undelayed.apply_delay(c.output_node.rate, ts_start)
+            new_inputs[input_name] = _inputs
         return ss.replace(eps=eps, seq=seq, ts=ts_start, inputs=FrozenDict(new_inputs))
 
     return _update_inputs
 
 
-# def make_run_partition_excl_supervisor(nodes: Dict[str, "BaseNode"], S: nx.DiGraph, supervisor_slot: str, generations: List[List[str]], skip: List[str] = None):
 def make_run_partition_excl_supervisor(
     nodes: Dict[str, "BaseNode"], timings: Timings, S: nx.DiGraph, supervisor_slot: str, skip: List[str] = None
 ):
     INTERMEDIATE_UPDATE = False
 
-    # Determine input_name mapping
-    input_name_mapping = {n: {} for n in nodes.keys()}
-    for n, mapping in input_name_mapping.items():
-        for input_name, c in nodes[n].inputs.items():
-            mapping[c.output_node.name] = input_name
-    update_input_fns = {name: make_update_inputs(name, mapping) for name, mapping in input_name_mapping.items()}
+    # Define input function
+    update_input_fns = {name: make_update_inputs(n) for name, n in nodes.items()}
 
     # Define update function
     supervisor = timings.slots[supervisor_slot].kind
@@ -157,10 +154,8 @@ def make_run_partition_excl_supervisor(
             _old_ss = graph_state.nodes[kind]
             _old_output = graph_state.buffer[kind]
 
-            # Add dummy inputs to old step_state (else jax complains about structural mismatch)
             if _old_ss.inputs is None:
                 raise DeprecationWarning("Inputs should not be None, but pre-filled via graph.init")
-                # _old_ss = update_input_fns[kind](graph_state, timings_node)
 
             # Run node step
             no_op = lambda *args: (_old_ss, _old_output)

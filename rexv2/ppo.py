@@ -9,7 +9,6 @@ from flax.linen.initializers import constant, orthogonal
 from flax import struct
 from typing import Sequence, NamedTuple, Any
 from flax.training.train_state import TrainState
-import distrax
 from rexv2.rl import Environment, LogWrapper, AutoResetWrapper, VecEnv, NormalizeVecObservation, NormalizeVecReward, Box, SquashAction
 from rexv2.actor_critic import Actor, Critic, ActorCritic
 

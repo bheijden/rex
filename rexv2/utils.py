@@ -1,4 +1,4 @@
-from typing import Any, Tuple, List, TypeVar, Dict, Union, Callable
+from typing import Any, Tuple, List, TypeVar, Dict, Union, Callable, TYPE_CHECKING
 import functools
 import networkx as nx
 import jax
@@ -8,11 +8,51 @@ from flax import struct
 
 import supergraph
 from supergraph import open_colors as oc
-from rexv2.base import Graph, WindowedGraph, Window, Vertex, Edge, WindowedVertex, Timings, SlotVertex
-from rexv2.node import BaseNode
+from rexv2.base import Graph, WindowedGraph, Window, Vertex, Edge, WindowedVertex, Timings, SlotVertex, TrainableDist
+from rexv2.constants import LogLevel, Jitter
+
+from threading import current_thread
+from os import getpid
+from termcolor import colored
+
+if TYPE_CHECKING:
+    from rexv2.node import BaseNode
 
 
-def apply_window(nodes: Dict[str, BaseNode], graphs: Graph) -> WindowedGraph:
+# Global log levels
+LOG_LEVEL = LogLevel.WARN
+NODE_LOG_LEVEL = {}
+NODE_COLOR = {}
+NODE_LOGGING_ENABLED = True
+
+
+def log(
+    name: str,
+    color: str,
+    log_level: int,
+    id: str,
+    msg=None,
+):
+    if log_level >= LOG_LEVEL:
+        # Add process ID, thread ID, name (somewhat expensive)
+        log_msg = f"[{str(getpid())[:5].ljust(5)}][{current_thread().name.ljust(25)}][{str(name).ljust(20)}][{str(id).ljust(20)}]"
+        if msg is not None:
+            log_msg += f" {msg}"
+        print(colored(log_msg, color))
+
+
+def set_log_level(log_level: int, node: "BaseNode" = None, color: str = None):
+    if node is not None:
+        NODE_LOG_LEVEL[node] = log_level
+        if color is not None:
+            NODE_COLOR[node] = color
+    else:
+        global LOG_LEVEL
+        LOG_LEVEL = log_level
+        assert color is None, "Cannot set color without node"
+
+
+def apply_window(nodes: Dict[str, "BaseNode"], graphs: Graph) -> WindowedGraph:
     """Apply the window to the edges."""
 
     @struct.dataclass
@@ -33,8 +73,15 @@ def apply_window(nodes: Dict[str, BaseNode], graphs: Graph) -> WindowedGraph:
         windows = dict()
 
         for (n1, n2), e in graph.edges.items():
-            # Initialize window
-            win = nodes[n1].outputs[n2].window
+            c = nodes[n1].outputs[n2]  # Connection
+            if isinstance(c.delay_dist, TrainableDist):
+                if c.blocking is True:
+                    raise NotImplementedError("Cannot have trainable distribution for blocking connection.")
+                if c.jitter is Jitter.BUFFER:
+                    raise NotImplementedError("Cannot have trainable distribution for jitter buffer.")
+
+            # Initialize window (window + window caused by trainable delay)
+            win = c.window + c.delay_dist.window(nodes[n1].rate)
             seq = jnp.array([-1] * win, dtype=onp.int32)
             ts_sent = jnp.array([0.0] * win, dtype=onp.float32)
             ts_recv = jnp.array([0.0] * win, dtype=onp.float32)
@@ -86,7 +133,7 @@ def apply_window(nodes: Dict[str, BaseNode], graphs: Graph) -> WindowedGraph:
         return windowed_graphs
 
 
-def to_networkx_graph(graph: Graph, nodes: Dict[str, BaseNode] = None, validate: bool = False) -> nx.DiGraph:
+def to_networkx_graph(graph: Graph, nodes: Dict[str, "BaseNode"] = None, validate: bool = False) -> nx.DiGraph:
     graph = jax.tree_util.tree_map(lambda x: onp.array(x), graph)
     order = {n: nodes[n].order for n in nodes} if nodes is not None else {n: None for n in enumerate(graph.vertices.keys())}
     max_val = max(filter(None, order.values()))
@@ -106,11 +153,13 @@ def to_networkx_graph(graph: Graph, nodes: Dict[str, BaseNode] = None, validate:
     for n, v in graph.vertices.items():
         static_data = dict(kind=n, facecolor=fcolors[n], edgecolor=ecolors[n], order=order[n])
         for seq, ts_start, ts_end in zip(v.seq, v.ts_start, v.ts_end):
+            if seq == -1:
+                continue
             vname = f"{n}_{seq}"
             position = (ts_start, order[n])
             G.add_node(vname, seq=seq, ts=ts_start, ts_start=ts_start, ts_end=ts_end, position=position, **static_data)
 
-            if seq > 0:
+            if seq > 0:  # Adds stateful edges between consecutive vertices of the same kind
                 uname = f"{n}_{seq-1}"
                 G.add_edge(uname, vname)
 
@@ -122,6 +171,8 @@ def to_networkx_graph(graph: Graph, nodes: Dict[str, BaseNode] = None, validate:
             u = f"{n1}_{seq_out}"
             v = f"{n2}_{seq_in}"
             if validate:
+                # if v == "world_60":
+                #     print(f"Adding edge {u} -> {v}")
                 assert u in G.nodes, f"Node {u} not found in graph"
                 assert v in G.nodes, f"Node {v} not found in graph"
             G.add_edge(u, v, ts_recv=ts_recv)
@@ -221,3 +272,50 @@ def check_generations_uniformity(generations: List[Dict[str, SlotVertex]]):
                 return False
 
     return True
+
+
+def promote_to_no_weak_type(_x):
+    # Applies jnp.promote_types to itself to promote to no weak type
+    # https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.promote_types.html#jax.numpy.promote_types
+    _y = jnp.array(_x)
+    _z = _y.astype(jnp.promote_types(_y.dtype, _y.dtype))
+    return _z
+
+
+def no_weaktype(identifier: str = None):
+    def _no_weaktype(fn):
+        def no_weaktype_wrapper(*args, **kwargs):
+            res = fn(*args, **kwargs)
+            return jax.tree_util.tree_map(lambda x: promote_to_no_weak_type(x), res)
+
+        no_weaktype_wrapper = functools.wraps(fn)(no_weaktype_wrapper)
+        if identifier is not None:
+            # functools.update_wrapper(no_weaktype_wrapper, fn)
+            no_weaktype_wrapper.__name__ = identifier
+        return no_weaktype_wrapper
+    return _no_weaktype
+
+
+def mixture_distribution_quantiles(dist, probs, N_grid_points: int = int(1e3), grid_min: float = None, grid_max: float = None):
+    """More info: https://github.com/tensorflow/probability/issues/659"""
+    base_grid = onp.linspace(grid_min, grid_max, num=int(N_grid_points))
+    shape = (dist.batch_shape, 1) if len(dist.batch_shape) else [1]
+    full_grid = onp.transpose(onp.tile(base_grid, shape))
+    cdf_grid = dist.cdf(full_grid)  # this is fully parallelized and even uses GPU
+    grid_check = (cdf_grid.min(axis=0).max() <= min(probs)) & (max(probs) <= cdf_grid.max(axis=0).min())
+    if not grid_check:
+        print(f"Grid min: {grid_min}, max: {grid_max} | CDF min: {cdf_grid.min(axis=0).max()}, max: {cdf_grid.max(axis=0).min()} | Probs min: {min(probs)}, max: {max(probs)}")
+        raise RuntimeError("Grid does not span full CDF range needed for interpolation!")
+
+    probs_row_grid = onp.transpose(onp.tile(onp.array(probs), (cdf_grid.shape[0], 1)))
+
+    def get_quantiles_for_one_observation(cdf_grid_one_obs):
+        return base_grid[onp.argmax(onp.greater(cdf_grid_one_obs, probs_row_grid), axis=1)]
+
+    # TODO: this is the main performance bottleneck. uses only one CPU core
+    quantiles_grid = onp.apply_along_axis(
+        func1d=get_quantiles_for_one_observation,
+        axis=0,
+        arr=cdf_grid,
+    )
+    return quantiles_grid
