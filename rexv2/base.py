@@ -1,4 +1,4 @@
-from typing import Any, Tuple, List, TypeVar, Dict, Union, TYPE_CHECKING, Sequence
+from typing import Any, Tuple, List, TypeVar, Dict, Union, TYPE_CHECKING, Sequence, Callable
 import functools
 import jax
 from jax import numpy as jnp
@@ -7,9 +7,8 @@ import numpy as onp
 from numpy import ma as ma
 from flax import struct
 from flax.core import FrozenDict
-from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
-
-tfd = tfp.distributions
+import equinox as eqx
+import distrax
 
 import rexv2.constants as constants
 import rexv2.jax_utils as rjax
@@ -24,6 +23,8 @@ class Base:
     """Base functionality extending all dataclasses.
 
     These methods allow for dataclasses to be operated like arrays/matrices.
+
+    *Note*: Credits to the authors of the brax library for this implementation.
     """
 
     def __add__(self, o: Any) -> Any:
@@ -97,9 +98,9 @@ class Empty(Base):
 
 
 PyTree = Any
-Output = Base
-State = Base
-Params = Base
+Output = Union[PyTree, Base]
+State = Union[PyTree, Base]
+Params = Union[PyTree, Base]
 GraphBuffer = FrozenDict[str, Output]
 
 
@@ -455,10 +456,9 @@ class Timings:
 
 @struct.dataclass
 class DelayDistribution:
-    rng: jax.Array
 
     def reset(self, rng: jax.Array) -> "DelayDistribution":
-        return self.replace(rng=rng)
+        raise NotImplementedError("DelayDistribution.reset is not implemented.")
 
     @staticmethod
     def sample_pure(delay_dist: "DelayDistribution", shape: Union[int, Tuple] = None) -> Tuple["DelayDistribution", jax.Array]:
@@ -474,16 +474,36 @@ class DelayDistribution:
     def quantile(self, q: float) -> float:
         raise NotImplementedError("DelayDistribution.quantile is not implemented.")
 
+    @staticmethod
+    def mean_pure(delay_dist: "DelayDistribution") -> float:
+        return delay_dist.mean()
+
+    def mean(self) -> float:
+        raise NotImplementedError("DelayDistribution.mean is not implemented.")
+
+    @staticmethod
+    def pdf_pure(delay_dist: "DelayDistribution", x: float) -> float:
+        return delay_dist.pdf(x)
+
+    def pdf(self, x: float) -> float:
+        raise NotImplementedError("DelayDistribution.pdf is not implemented.")
+
     def window(self, rate_out) -> int:
         return 0
 
+    def equivalent(self, other: "DelayDistribution") -> bool:
+        return True
 
 @struct.dataclass
 class StaticDist(DelayDistribution):
-    dist: tfd.Distribution = struct.field(pytree_node=False)
+    rng: jax.Array
+    dist: distrax.Distribution = struct.field(pytree_node=False)
+
+    def reset(self, rng: jax.Array) -> "StaticDist":
+        return self.replace(rng=rng)
 
     @classmethod
-    def create(cls, dist: tfd.Distribution) -> "StaticDist":
+    def create(cls, dist: distrax.Distribution) -> "StaticDist":
         return cls(rng=jax.random.PRNGKey(0), dist=dist)
 
     def sample(self, shape: Union[int, Tuple] = None) -> Tuple["StaticDist", jax.Array]:
@@ -494,25 +514,57 @@ class StaticDist(DelayDistribution):
         samples = jnp.clip(samples, 0.0, None)  # Ensure that the delay is non-negative
         return self.replace(rng=new_rng), samples
 
-    def quantile(self, q: float) -> float:
-        try:
-            return self.dist.quantile(q)
-        except NotImplementedError as e:
-            if isinstance(self.dist, tfd.MixtureSameFamily):
-                import rexv2.utils as utils  # Avoid circular import
+    def quantile(self, q: float) -> Union[float, jax.typing.ArrayLike]:
+        shape = q.shape if isinstance(q, (jax.Array, onp.ndarray)) else ()
+        if isinstance(self.dist, distrax.Deterministic):
+            res = onp.ones(shape) * self.dist.mean()
+            return res
+        elif isinstance(self.dist, distrax.Normal):
+            # raise NotImplementedError("Quantile not tested for Normal distribution.")
+            return jax.scipy.special.ndtri(q) * self.dist.scale + self.dist.loc
+        elif isinstance(self.dist, distrax.MixtureSameFamily):
+            import rexv2.utils as utils  # Avoid circular import
 
-                shape = q.shape if isinstance(q, (jax.Array, onp.ndarray)) else ()
-                qs_component = self.dist.components_distribution.quantile(0.999)
-                qs = utils.mixture_distribution_quantiles(
-                    dist=self.dist,
-                    probs=jnp.array(q).reshape(-1),
-                    N_grid_points=int(1e3),
-                    grid_min=qs_component.min()*0.9,
-                    grid_max=qs_component.max()*1.1,
-                )[0]
-                return qs.reshape(shape)
-            else:
-                raise e
+            cdist = self.dist.components_distribution
+            qs_component_max = jax.scipy.special.ndtri(0.999) * cdist.scale + cdist.loc
+            qs_component_min = jax.scipy.special.ndtri(0.001) * cdist.scale + cdist.loc
+            qs = utils.mixture_distribution_quantiles(
+                dist=self.dist,
+                probs=jnp.array(q).reshape(-1),
+                N_grid_points=int(1e3),
+                grid_min=float(qs_component_min.min()) * 0.9,
+                grid_max=float(qs_component_max.max()) * 1.1,
+            )[0]
+            return qs.reshape(shape)
+        else:
+            # from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
+            #
+            # tfd = tfp.distributions
+            #
+            # if isinstance(self.dist, tfd.MixtureSameFamily):
+            #     import rexv2.utils as utils  # Avoid circular import
+            #     shape = q.shape if isinstance(q, (jax.Array, onp.ndarray)) else ()
+            #     qs_component_max = self.dist.components_distribution.quantile(0.999).min()
+            #     qs_component_min = self.dist.components_distribution.quantile(0.001).max()
+            #
+            #     qs = utils.mixture_distribution_quantiles(
+            #         dist=self.dist,
+            #         probs=jnp.array(q).reshape(-1),
+            #         N_grid_points=int(1e3),
+            #         grid_min=float(qs_component_min)*0.9,
+            #         grid_max=float(qs_component_max)*1.1,
+            #     )[0]
+            #     return qs.reshape(shape)
+            raise NotImplementedError(f"Quantile not implemented for distribution {self.dist}.")
+
+    def mean(self) -> float:
+        try:
+            return self.dist.mean()
+        except NotImplementedError as e:
+            raise e
+
+    def pdf(self, x: float) -> float:
+        return self.dist.prob(x)
 
 
 @struct.dataclass
@@ -521,6 +573,10 @@ class TrainableDist(DelayDistribution):
     min: Union[float, jax.typing.ArrayLike] = struct.field(pytree_node=False, default=0.0)  # Minimum expected delay
     max: Union[float, jax.typing.ArrayLike] = struct.field(pytree_node=False, default=0.0)  # Maximum expected delay
 
+    def reset(self, rng: jax.Array) -> "TrainableDist":
+        # Not using the rng for now
+        return self
+
     @classmethod
     def create(cls, alpha: Union[float, jax.typing.ArrayLike], min: Union[float, jax.typing.ArrayLike], max: Union[float, jax.typing.ArrayLike]) -> "TrainableDist":
         min = float(min)
@@ -528,7 +584,7 @@ class TrainableDist(DelayDistribution):
         assert 0.0 <= alpha <= 1.0, f"alpha should be between [0, 1], but got {alpha}."
         assert min < max, f"min should be less than max, but got min={min} and max={max}."
         assert 0.0 <= min, f"min should be greater than or equal to 0, but got {min}."
-        return cls(rng=jax.random.PRNGKey(0), alpha=alpha, min=min, max=max)
+        return cls(alpha=alpha, min=min, max=max)
 
     def sample(self, shape: Union[int, Tuple] = None) -> Tuple["TrainableDist", jax.Array]:
         if shape is None:
@@ -544,9 +600,25 @@ class TrainableDist(DelayDistribution):
         """
         return self.min + self.alpha * (self.max - self.min)
 
+    def mean(self) -> Union[float, jax.typing.ArrayLike]:
+        return self.min + self.alpha * (self.max - self.min)
+
+    def pdf(self, x: float) -> Union[jax.Array, float]:
+        mean = self.mean()
+        return jnp.where(mean == x, 1.0, 0.0)
+
     def window(self, rate_out: Union[float, int]) -> int:
         return int(onp.ceil(rate_out * (self.max - self.min)).astype(int))
 
+    def equivalent(self, other: "DelayDistribution") -> bool:
+        """Check if two delay distributions are equivalent"""
+        if not isinstance(other, TrainableDist):
+            return False  # Not the same distribution
+        if self.max != other.max:
+            return False  # Different max delay --> affects the window size & computation graph at compile time
+        if self.min != other.min:
+            return False  # Different min delay --> affects the window size & computation graph at compile time
+        return True
 
 @struct.dataclass
 class InputState:
@@ -805,7 +877,6 @@ class GraphState:
     def replace_step_states(self, step_states: Union[Dict[str, StepState], FrozenDict[str, StepState]]) -> "GraphState":
         rng, seq, ts, params, state, inputs = {}, {}, {}, {}, {}, {}
         for n, ss in step_states.items():
-            eps = ss.eps
             rng[n] = ss.rng
             seq[n] = ss.seq
             ts[n] = ss.ts
@@ -878,6 +949,8 @@ class NodeInfo:
     inputs: Dict[str, InputInfo]  # Uses name of output node in graph context, not the input_name
     name: str = struct.field(pytree_node=False)
     cls: str = struct.field(pytree_node=False)
+    color: str = struct.field(pytree_node=False)
+    order: int = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -899,7 +972,7 @@ class MessageRecord:
 @struct.dataclass
 class InputRecord:
     info: InputInfo
-    rng_dist: jax.Array
+    # rng_dist: jax.Array
     messages: MessageRecord
 
 
@@ -931,7 +1004,7 @@ class NodeRecord:
     clock: constants.Clock = struct.field(pytree_node=False)
     real_time_factor: float = struct.field(pytree_node=False)
     ts_start: float
-    rng_dist: jax.Array
+    # rng_dist: jax.Array
     params: Base
     inputs: Dict[str, InputRecord]  # Uses name of output node in graph context, not the input_name
     steps: StepRecord
@@ -973,5 +1046,162 @@ class ExperimentRecord:
         graphs = jax.tree_util.tree_map(_stack, *graphs_raw)
         return graphs
 
+    def stack(self, method: str = "padded") -> EpisodeRecord:
+        if method == "padded":
+            return self._padded_stack(fill_value=-1)  # Currently fixed to -1, as this is expected in "episode.to_graph"
+        elif method == "truncated":
+            return self._truncated_stack()
+        else:
+            raise NotImplementedError(f"Method {method} not implemented.")
+
+    def _padded_stack(self, fill_value) -> EpisodeRecord:
+
+        def _pad(*x):
+            try:
+                res = onp.array(x)
+            except ValueError:
+                _max_len = max(len(arr) for arr in x)
+                zero_pad_widths = [(0, 0)] * (x[0].ndim - 1)
+                # Pad with -1
+                _padded = list(onp.pad(arr, [(0, _max_len - len(arr))] + zero_pad_widths, constant_values=fill_value) for arr in x)
+                res = onp.array(_padded)
+            return res
+
+        stacked = jax.tree_util.tree_map(_pad, *self.episodes)
+        return stacked
+
+    def _truncated_stack(self) -> EpisodeRecord:
+        raise NotImplementedError("Truncated stacking is not yet implemented.")
 
 
+# System identification
+Filter = Dict[str, Params]
+
+
+@struct.dataclass
+class Transform:
+    @classmethod
+    def init(cls, *args, **kwargs):
+        raise NotImplementedError
+
+    def apply(self, params: Dict[str, Params]) -> Dict[str, Params]:
+        raise NotImplementedError
+
+    def inv(self, params: Dict[str, Params]) -> Dict[str, Params]:
+        raise NotImplementedError
+
+
+LossArgs = Tuple[Transform]
+Loss = Callable[[Params, LossArgs, jax.Array], Union[float, jax.Array]]
+
+
+@struct.dataclass
+class Identity(Transform):
+    @classmethod
+    def init(cls):
+        return cls()
+
+    def apply(self, params: Params) -> Params:
+        return params
+
+    def inv(self, params: Params) -> Params:
+        return params
+
+
+@struct.dataclass
+class Chain(Transform):
+    transforms: Sequence[Transform]
+
+    @classmethod
+    def init(cls, *transforms):
+        return cls(transforms=transforms)
+
+    def apply(self, params: Params) -> Params:
+        _intermediate = params
+        for t in self.transforms:
+            _intermediate = t.apply(_intermediate)
+        return _intermediate
+
+    def inv(self, params: Params) -> Params:
+        _intermediate = params
+        for t in self.transforms[::-1]:
+            _intermediate = t.inv(_intermediate)
+        return _intermediate
+
+
+@struct.dataclass
+class Extend(Transform):
+    base_params: Params
+    mask: Params
+
+    @classmethod
+    def init(cls, base_params: Params, opt_params: Params = None):
+        mask = jax.tree_util.tree_map(lambda ex_x: ex_x is not None, opt_params)
+        ret = cls(base_params=base_params, mask=mask)
+        _ = ret.apply(opt_params)  # Test structure
+        return ret
+
+    def extend(self, params: Params) -> Params:
+        params_extended_pytree = rjax.tree_extend(self.base_params, params)
+        params_extended = jax.tree_util.tree_map(lambda base_x, ex_x: base_x if ex_x is None else ex_x,
+                                                 self.base_params, params_extended_pytree)
+        return params_extended
+
+    def filter(self, params_extended: Params) -> Params:
+        mask_ex = rjax.tree_extend(self.base_params, self.mask)
+        filtered_ex = eqx.filter(params_extended, mask_ex)
+        filtered_ex_flat, _ = jax.tree_util.tree_flatten(filtered_ex)
+        _, mask_filt_treedef = jax.tree_util.tree_flatten(self.mask)
+        filtered = jax.tree_util.tree_unflatten(mask_filt_treedef, filtered_ex_flat)
+        return filtered
+
+    def apply(self, params: Params) -> Params:
+        return self.extend(params)
+
+    def inv(self, params: Params) -> Params:
+        return self.filter(params)
+
+
+@struct.dataclass
+class Denormalize(Transform):
+    scale: Params
+    offset: Params
+
+    @classmethod
+    def init(cls, min_params: Params, max_params: Params):
+        offset = jax.tree_util.tree_map(lambda _min, _max: (_min + _max) / 2., min_params, max_params)
+        scale = jax.tree_util.tree_map(lambda _min, _max: (_max - _min) / 2, min_params, max_params)
+        zero_filter = jax.tree_util.tree_map(lambda _scale: _scale == 0., scale)
+        if onp.array(jax.tree_util.tree_reduce(jnp.logical_or, zero_filter)).all():
+            raise ValueError("The scale cannot be zero. Hint: Check if there are leafs with 'True' in the following zero_filter: "
+                             f"{zero_filter}")
+        return cls(scale=scale, offset=offset)
+
+    def normalize(self, params: Params) -> Params:
+        params_norm = jax.tree_util.tree_map(lambda _params, _offset, _scale: (_params - _offset) / _scale, params,
+                                             self.offset, self.scale)
+        return params_norm
+
+    def denormalize(self, params: Params) -> Params:
+        params_unnorm = jax.tree_util.tree_map(lambda _params, _offset, _scale: _params * _scale + _offset, params,
+                                               self.offset, self.scale)
+        return params_unnorm
+
+    def apply(self, params: Params) -> Params:
+        return self.denormalize(params)
+
+    def inv(self, params: Params) -> Params:
+        return self.normalize(params)
+
+
+@struct.dataclass
+class ExpTransform(Transform):
+    @classmethod
+    def init(cls):
+        return cls()
+
+    def apply(self, params: Params) -> Params:
+        return jax.tree_util.tree_map(lambda x: jnp.exp(x), params)
+
+    def inv(self, params: Params) -> Params:
+        return jax.tree_util.tree_map(lambda x: jnp.log(x), params)

@@ -3,9 +3,9 @@ from math import ceil
 import functools
 import jax
 import jax.numpy as jnp
-from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
-
-tfd = tfp.distributions
+import distrax
+# from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
+# tfd = tfp.distributions
 
 from rexv2.base import Timestamps, Edge, Vertex, Graph, TrainableDist, StaticDist
 from rexv2 import constants
@@ -98,17 +98,17 @@ def _generate_graphs(
     computation_delays, communication_delays, phase = dict(), dict(), dict()
     connections = dict()
     for n in nodes.values():
-        # Convert to tfd.Distribution
+        # Convert to distrax.Distribution
         delay_dist = n.delay_dist
         if isinstance(delay_dist, TrainableDist):
             raise NotImplementedError("Cannot have trainable distribution for computation delay.")
         computation_delays[n.name] = delay_dist
         # Determine phase distribution
-        phase[n.name] = StaticDist.create(tfd.Deterministic(loc=n.phase))
+        phase[n.name] = StaticDist.create(distrax.Deterministic(loc=n.phase))
         for c in n.outputs.values():
             delay_dist = c.delay_dist
             if isinstance(delay_dist, TrainableDist):
-                delay_dist = StaticDist.create(tfd.Deterministic(loc=delay_dist.min))  # Assume the minimal delay
+                delay_dist = StaticDist.create(distrax.Deterministic(loc=delay_dist.min))  # Assume the minimal delay
             communication_delays[(c.output_node.name, c.input_node.name)] = delay_dist
             connections[(c.output_node.name, c.input_node.name)] = c
     rates = {n: nodes[n].rate for n in nodes}

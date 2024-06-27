@@ -111,11 +111,7 @@ class _AsyncNodeWrapper:
             input_node.inputs[c.input_name] = connection
 
     def log(self, id: Union[str, Async], value: Optional[Any] = None, log_level: Optional[int] = None):
-        if not utils.NODE_LOGGING_ENABLED:
-            return
-        log_level = self.node.log_level if log_level is None else log_level
-        color = self.node.log_color
-        utils.log(f"{self.node.name}", color, min(log_level, self.node.log_level), id, value)
+        self.node.log(id=id, value=value, log_level=log_level)
 
     def _submit(self, fn, *args, stopping: bool = False, **kwargs):
         with self._lock:
@@ -139,9 +135,11 @@ class _AsyncNodeWrapper:
         assert isinstance(self._ts_start, Future)
         self._ts_start.set_result(ts_start)
         self._ts_start = ts_start
+        # Set _async_now for the wrapped node
+        self.node._async_now = self.now
 
-    def now(self) -> Tuple[float, float]:
-        """Get the passed time since according to the simulated and wall clock"""
+    def now(self) -> float:
+        """Get the passed time since start of episode according to the simulated and wall clock"""
         # Determine starting timestamp
         ts_start = self._ts_start
         ts_start = ts_start.result() if isinstance(ts_start, Future) else ts_start
@@ -150,7 +148,7 @@ class _AsyncNodeWrapper:
         wc = time.time()
         wc_passed = wc - ts_start
         sc = wc_passed if self._real_time_factor == 0 else wc_passed * self._real_time_factor
-        return sc, wc_passed
+        return sc
 
     def throttle(self, ts: float):
         if self._real_time_factor > 0:
@@ -182,7 +180,8 @@ class _AsyncNodeWrapper:
 
         # Add the steps to the record
         if self._record.steps is None:
-            steps = jax.tree_map(lambda *x: onp.array(x), *self._record_steps)
+            to_array = lambda *x: onp.array(x[:-1]) if (len(x) > 0 and x[-1] is None) else onp.array(x)
+            steps = jax.tree_map(to_array, *self._record_steps)
             self._record = self._record.replace(steps=steps)
 
         # Add the inputs to the record
@@ -344,6 +343,9 @@ class _AsyncNodeWrapper:
             #     self._record_step_states.append(self._step_state)
             self._step_state = None  # Reset step_state
 
+            # Unset _async_now for the wrapped node
+            self.node._async_now = None
+
             # Set running state
             self._state = Async.STOPPED
             self.log(self._state, log_level=LogLevel.DEBUG)
@@ -373,7 +375,7 @@ class _AsyncNodeWrapper:
             clock=self._clock,
             real_time_factor=self._real_time_factor,
             ts_start=start,
-            rng_dist=self._dist_state.rng,
+            # rng_dist=self._dist_state.rng,
             params=self._step_state.params if self.record_setting["params"] else None,
             inputs=None,  # added at the end
             steps=None,  # added at the end
@@ -591,12 +593,12 @@ class _AsyncNodeWrapper:
             if self._clock in [Clock.SIMULATED]:
                 assert delay_sc is not None
                 ts_end_sc = ts_start_sc + delay_sc
-                # _, ts_end_wc = self.now()
+                # _ = self.now()
                 phase_overwrite = 0.0
                 ts_start_sc = ts_start_sc
             else:
                 assert delay_sc is None
-                ts_end_sc, _ = self.now()
+                ts_end_sc = self.now()
                 # ts_step_sc (i.e. step_state.ts) may be overwritten in the step function (i.e. to adjust to later time when sensor data was taken).
                 # Therefore, we use the potentially overwritten step_state.ts to calculate the delay.
                 new_start_ts_sc = ts_start_sc if ts_start_sc_promoted == new_ts_start_sc_promoted else float(new_ts_start_sc_promoted)
@@ -607,7 +609,7 @@ class _AsyncNodeWrapper:
                     raise ValueError(msg)
                 delay_sc = ts_end_sc - new_start_ts_sc
                 if delay_sc <= 0:
-                    msg = ("Did you overwrite `step_state.ts` in the step function? Make sure it does not exceed the current time (i.e. `self.now()[0]`)"
+                    msg = ("Did you overwrite `step_state.ts` in the step function? Make sure it does not exceed the current time (i.e. `self.now()`)"
                         "Are the clocks producing the adjusted step_state.ts and the original step_state.ts consistent?")
                     self.log("timestamps", msg, log_level=LogLevel.ERROR)
                     raise ValueError(msg)
@@ -641,6 +643,12 @@ class _AsyncNodeWrapper:
 
             # Add step record
             if len(self._record_steps) < self.max_records:
+                # The supervisor produces a None in-place of the output when we reset, resulting in a None in the output.
+                # To ensure that the record has a consistent shape, we replace the None with a None tree.
+                if len(self._record_steps) > 0 and (self._record_steps[-1].output is None) != (record_step.output is None):
+                    record_step = record_step.replace(
+                        output=jax.tree_util.tree_map(lambda x: None, self._record_steps[0].output)
+                    )  # Should only happen for the last step of the supervisor.
                 self._record_steps.append(record_step)
             elif self._discarded == 0:
                 self.log(
@@ -823,7 +831,7 @@ class _AsyncConnectionWrapper:
         # Store running configuration
         self._record = base.InputRecord(
             info=self.connection.info,
-            rng_dist=self._dist_state.rng,
+            # rng_dist=self._dist_state.rng,
             messages=None,  # added at the end
         )
         self._record_messages = []  # Can be more than max_records if the output is high
@@ -971,7 +979,7 @@ class _AsyncConnectionWrapper:
             self._prev_recv_sc = recv_sc
         else:
             # This only happens when push_ts_input is called by push_input
-            recv_sc, _ = self.input_node.now()
+            recv_sc = self.input_node.now()
 
         # Communication delay
         # IMPORTANT! delay_wc measures communication delay of output_ts instead of message.
@@ -1210,7 +1218,7 @@ class AsyncGraph:
         # Prepare random number generators
         if rng is None:
             rng = jax.random.PRNGKey(0)
-        rng_step, rng_params, rng_state, rng_step, rng_inputs = jax.random.split(rng, num=5)
+        rng_step, rng_params, rng_state, rng_inputs = jax.random.split(rng, num=4)
 
         # Determine preset params
         params = params if params is not None else {}
@@ -1243,6 +1251,16 @@ class AsyncGraph:
         # Replace params, state, and inputs in graph state with immutable versions
         new_gs = graph_state.replace(params=FrozenDict(params), state=FrozenDict(state), inputs=FrozenDict(inputs))
         return new_gs
+
+    def warmup(self, graph_state: base.GraphState, device: Union[Dict[str, jax.Device], jax.Device] = None):
+        """Warm-up (i.e. pre-compile) necessary functions in the graph to avoid latency during runtime.
+
+        :param graph_state: The graph state that is expected to be used during runtime.
+        :param device: The device to compile the functions on. If None, the default device is used.
+        """
+        device = device if device is not None else {}
+        device = device if isinstance(device, dict) else {k: device for k in self._async_nodes.keys()}
+        [n.warmup(graph_state, device.get(k, None)) for k, n in self._async_nodes.items()]
 
     def start(self, graph_state: base.GraphState, timeout: float = None) -> base.GraphState:
         # Stop first, if we were previously running.

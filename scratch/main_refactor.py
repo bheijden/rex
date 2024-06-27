@@ -5,8 +5,7 @@ import jax.numpy as jnp
 import numpy as onp
 import matplotlib.pyplot as plt
 import supergraph
-from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
-tfd = tfp.distributions
+import distrax
 
 # Check if we have a GPU
 try:
@@ -21,7 +20,6 @@ import rexv2
 from rexv2 import utils
 from rexv2 import base
 from rexv2.constants import Clock, RealTimeFactor, LogLevel, Scheduling, Jitter, Supergraph
-
 
 if __name__ == "__main__":
     # todo: steps
@@ -40,12 +38,14 @@ if __name__ == "__main__":
     #   [DONE] Use inputs.delay_dist in AsyncGraph instead of Connection.delay_dist?
     #   [DONE] Split step_states in graph_state into params, states, inputs, seq, rng, ts, etc...
     #   [DONE] graph.init(params: Dict[str, Params]) instead of graph.init(step_states: Dict[str, StepState])
-    #   - Replace delay_dist in node.init_inputs.
-    #   - Add Pendulum (ode, real)
+    #   [DONE] Refactor PPO, evo, CEM, rl.py
+    #   [DONE] Replace delay_dist in node.init_inputs.
+    #   [DONE] Add Pendulum (ode, real)
+    #   - Refactor tfd to distrax
     #   - Check weaktypes and recompilation & how to compile step function --> leads to more latency (maybe not if jit compiled)?
-    #       - Check new graph-state format (especially in AsyncGraph updates of step_states)
+    #       - Check new graph_state format (especially in AsyncGraph updates of step_states)
     #   - Add Crazyflie (ode, real)
-    #   - flax.serialization.to_bytes does not save static fields. Use pickle instead?
+    #   [DONE] flax.serialization.to_bytes does not save static fields. Use pickle instead?
     #   [DONE] Delay identification
     #       [DONE] Change delay_dist to base.StaticDelay
     #       [DONE] Add delay_dist to logging
@@ -55,38 +55,34 @@ if __name__ == "__main__":
     #       [DONE] When augmenting a graph, we should augment it with the minimum delay, so as to leave room for enlarging the window when compiling.
     #       [DONE] Everywhere we have a trainable distribution, we need to enlarge the window and apply the delay in compilation
     #       [DONE] In simulation, use trainable delay as a conventional distribution
-    #   [DONE] Make test setup with pendulum
-    #   [DONE] Add __init__ args (delay, delay_sim, advance, scheduling)
-    #   [DONE] Add connect args (delay, delay_sim, jitter, blocking)
-    #   [DONE] Add methods (startup, now) to BaseNode
-    #   [DONE] Define Async Node wrapper & Async Graph
-    #       [DONE] Redefine Input, Output
-    #       [DONE] Record graph, delays, data in new format (no protobuf)
-    #       [DONE] CLIP SAMPLED DELAYS TO >= 0.0!
-    #       [DONE] StateMachine
-    #   [DONE] How to identify delays.
 
     import rexv2.pendulum as pendulum
+
     # `color` and `order` arguments are merely for visualization purposes.
     world = pendulum.nodes.OdeWorld(name="world", rate=100, color="grape", order=0,
-                                    delay=0.99/100, delay_dist=base.StaticDist.create(tfd.Deterministic(loc=1 / 100)))  # Uses a set of ODE's to simulate the pendulum
+                                    delay=0.99 / 100, delay_dist=base.StaticDist.create(
+            distrax.Deterministic(loc=1 / 100)))  # Uses a set of ODE's to simulate the pendulum
     sensor = pendulum.nodes.Sensor(name="sensor", rate=80, color="pink", order=1,
-                                   delay=0.5/80, delay_dist=base.StaticDist.create(tfd.Normal(loc=0.5 / 80, scale=0.1 / 80)))  # Sensor that reads the pendulum's angle and angular velocity
+                                   delay=0.5 / 80, delay_dist=base.StaticDist.create(
+            distrax.Normal(loc=0.5 / 80, scale=0.1 / 80)))  # Sensor that reads the pendulum's angle and angular velocity
     agent = pendulum.nodes.RandomAgent(name="agent", rate=20, color="teal", order=3,
-                                       delay=0.5/20, delay_dist=base.StaticDist.create(tfd.Normal(loc=0.5 / 20, scale=0.05 / 20)))  # Agent that generates random actions
+                                       delay=0.5 / 20, delay_dist=base.StaticDist.create(
+            distrax.Normal(loc=0.5 / 20, scale=0.05 / 20)))  # Agent that generates random actions
     actuator = pendulum.nodes.Actuator(name="actuator", rate=20, color="orange", order=2,
-                                       delay=0.5/20, delay_dist=base.StaticDist.create(tfd.Normal(loc=0.5 / 20, scale=0.05 / 20)))  # Actuator that applies the action to the pendulum
+                                       delay=0.5 / 20, delay_dist=base.StaticDist.create(
+            distrax.Normal(loc=0.5 / 20, scale=0.05 / 20)))  # Actuator that applies the action to the pendulum
     nodes = dict(world=world, sensor=sensor, agent=agent, actuator=actuator)
 
     # Connect nodes
-    world.connect(actuator, window=1, name="actuator", skip=True,  # Skip resolves potential circular dependencies in the artifically generated computation graphs
-                  delay=1/100, delay_dist=base.StaticDist.create(tfd.Deterministic(loc=0.1 / 100)))
+    world.connect(actuator, window=1, name="actuator", skip=True,
+                  # Skip resolves potential circular dependencies in the artificially generated computation graphs
+                  delay=1 / 100, delay_dist=base.StaticDist.create(distrax.Deterministic(loc=0.1 / 100)))
     sensor.connect(world, window=1, name="world",
-                   delay=1/100, delay_dist=base.StaticDist.create(tfd.Deterministic(loc=0.1 / 100)))
+                   delay=1 / 100, delay_dist=base.StaticDist.create(distrax.Deterministic(loc=0.1 / 100)))
     actuator.connect(agent, window=1, name="agent",
-                     delay=1 / 100, delay_dist=base.StaticDist.create(tfd.Deterministic(loc=0.1 / 100)))
+                     delay=1 / 100, delay_dist=base.StaticDist.create(distrax.Deterministic(loc=0.1 / 100)))
     agent.connect(sensor, window=3, name="sensor",
-                  delay=1 / 100, delay_dist=base.StaticDist.create(tfd.Deterministic(loc=0.1 / 100)))
+                  delay=1 / 100, delay_dist=base.StaticDist.create(distrax.Deterministic(loc=0.1 / 100)))
 
     # Set log levels
     utils.set_log_level(LogLevel.WARN)
@@ -97,12 +93,14 @@ if __name__ == "__main__":
 
     # Create the graph
     from rexv2.asynchronous import AsyncGraph
+
     graph = AsyncGraph(nodes, agent, clock=Clock.SIMULATED, real_time_factor=RealTimeFactor.FAST_AS_POSSIBLE)
 
     # Set record settings
     world.set_record_settings(params=True, rng=True, inputs=True, state=True, output=True)
 
     # Get predefined params
+    ss = world.init_step_state()
     params = world.init_params()
 
     # Test graph API
@@ -139,17 +137,19 @@ if __name__ == "__main__":
     graphs_raw = record.to_graph()
 
     # Add dummy sensor
-    sim = pendulum.nodes.Sensor(name="sim", rate=80, color="indigo", order=4, delay=0.5 / 80, delay_dist=base.StaticDist.create(
-            tfd.Normal(loc=0.5 / 80, scale=0.1 / 80)))
-    delay_dist = base.StaticDist.create(tfd.Normal(loc=0.1 / 100, scale=0.05/100))
-    sim.connect(world, window=1, name="world", delay=1/100, delay_dist=delay_dist)
+    sim = pendulum.nodes.Sensor(name="sim", rate=80, color="indigo", order=4, delay=0.5 / 80,
+                                delay_dist=base.StaticDist.create(
+                                    distrax.Normal(loc=0.5 / 80, scale=0.1 / 80)))
+    delay_dist = base.StaticDist.create(distrax.Normal(loc=0.1 / 100, scale=0.05 / 100))
+    sim.connect(world, window=1, name="world", delay=1 / 100, delay_dist=delay_dist)
     min_delay, max_delay = jnp.clip(delay_dist.quantile(0.01), 0., None), delay_dist.quantile(0.99)
     delay_dist = base.TrainableDist.create(alpha=0.5, min=min_delay, max=max_delay)
-    agent.connect(sim, window=1, name="sim", delay=1/100, delay_dist=delay_dist)
+    agent.connect(sim, window=1, name="sim", delay=1 / 100, delay_dist=delay_dist)
     nodes["sim"] = sim
 
     # Augment the graphs with simulation nodes
     from rexv2 import artificial
+
     graphs_aug = artificial.augment_graphs(graphs_raw, nodes)
 
     # Generate the graphs with simulation nodes
@@ -222,6 +222,7 @@ if __name__ == "__main__":
 
     # During the first call, the two functions are compiled
     from supergraph.evaluate import timer
+
     with timer("Jit-compilation[graph.init]"):
         gs = graph_init_jv(rngs)
     with timer("Jit-compilation[graph.rollout]"):
@@ -267,26 +268,28 @@ if __name__ == "__main__":
 
     exit()
     # Define the phase
-    phase = dict(world=tfd.Deterministic(loc=0.),
-                 sensor=tfd.TruncatedNormal(loc=0.5 / sensor.rate, scale=0.5 / sensor.rate, low=0., high=1 / sensor.rate),
-                 agent=tfd.TruncatedNormal(loc=0.5 / agent.rate, scale=0.5 / agent.rate, low=0., high=1 / agent.rate),
-                 actuator=tfd.TruncatedNormal(loc=0.5 / actuator.rate, scale=0.5 / actuator.rate, low=0.,
-                                              high=1 / actuator.rate), )
+    phase = dict(world=distrax.Deterministic(loc=0.),
+                 sensor=distrax.TruncatedNormal(loc=0.5 / sensor.rate, scale=0.5 / sensor.rate, low=0., high=1 / sensor.rate),
+                 agent=distrax.TruncatedNormal(loc=0.5 / agent.rate, scale=0.5 / agent.rate, low=0., high=1 / agent.rate),
+                 actuator=distrax.TruncatedNormal(loc=0.5 / actuator.rate, scale=0.5 / actuator.rate, low=0.,
+                                                  high=1 / actuator.rate), )
 
     # Define the expected computation delay distributions of each node's .step() method
-    computation_delays = dict(world=tfd.Deterministic(loc=1 / world.rate),
-                              sensor=tfd.TruncatedNormal(loc=0.5 / sensor.rate, scale=0.1 / sensor.rate, low=1e-6, high=1e6),
-                              agent=tfd.TruncatedNormal(loc=0.5 / agent.rate, scale=0.05 / agent.rate, low=1e-6, high=1e6),
-                              actuator=tfd.TruncatedNormal(loc=0.5 / actuator.rate, scale=0.05 / actuator.rate, low=1e-6,
-                                                           high=1e6))
+    computation_delays = dict(world=distrax.Deterministic(loc=1 / world.rate),
+                              sensor=distrax.TruncatedNormal(loc=0.5 / sensor.rate, scale=0.1 / sensor.rate, low=1e-6,
+                                                             high=1e6),
+                              agent=distrax.TruncatedNormal(loc=0.5 / agent.rate, scale=0.05 / agent.rate, low=1e-6, high=1e6),
+                              actuator=distrax.TruncatedNormal(loc=0.5 / actuator.rate, scale=0.05 / actuator.rate, low=1e-6,
+                                                               high=1e6))
 
     # Define the expected communication delay distributions of sending messages for each connection
     communication_delays = dict()
     for n in [world, sensor, agent, actuator]:
         for c in n.outputs.values():
-            communication_delays[(c.output_node.name, c.input_node.name)] = tfd.TruncatedNormal(loc=1 / 100,
-                                                                                                scale=0.1 * 1 / 100, low=1e-6,
-                                                                                                high=1e6)
+            communication_delays[(c.output_node.name, c.input_node.name)] = distrax.TruncatedNormal(loc=1 / 100,
+                                                                                                    scale=0.1 * 1 / 100,
+                                                                                                    low=1e-6,
+                                                                                                    high=1e6)
 
     # Artificially generate graphs
     rng = jax.random.PRNGKey(0)
@@ -408,6 +411,7 @@ if __name__ == "__main__":
 
     # During the first call, the two functions are compiled
     from supergraph.evaluate import timer
+
     with timer("Jit-compilation[graph.init]"):
         gs = graph_init_jv(rngs)
     with timer("Jit-compilation[graph.rollout]"):

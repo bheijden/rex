@@ -301,9 +301,7 @@ import matplotlib.animation
 from jax.example_libraries.optimizers import adam
 from jax import grad, jit
 from time import time
-from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
-
-tfd = tfp.distributions
+import distrax
 
 from rexv2 import base, utils
 
@@ -490,7 +488,7 @@ class GMMEstimator:
 
     def get_dist(self, percentile: float = 0.99) -> base.StaticDist:
         if self.is_deterministic:
-            dist = tfd.Deterministic(loc=self.data.mean(dtype="float32"))
+            dist = distrax.Deterministic(loc=self.data.mean(dtype="float32"))
             return base.StaticDist.create(dist)
         assert self.final_state_norm is not None, "Must train model before exporting distribution."
 
@@ -512,6 +510,6 @@ class GMMEstimator:
         w = normalize_weights(w)
 
         # Define non-truncated gmm
-        cdist = tfd.Normal(loc=m, scale=s)
-        dist = tfd.MixtureSameFamily(mixture_distribution=tfd.Categorical(probs=w), components_distribution=cdist)
+        cdist = distrax.Normal(loc=m, scale=s)
+        dist = distrax.MixtureSameFamily(mixture_distribution=distrax.Categorical(probs=w), components_distribution=cdist)
         return base.StaticDist.create(dist)

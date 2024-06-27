@@ -8,7 +8,7 @@ import numpy as onp
 import rexv2.jax_utils as rjax
 from rexv2.utils import check_generations_uniformity
 from rexv2.node import BaseNode
-from rexv2.base import InputState, StepState, GraphState, Output, GraphBuffer, Timings, SlotVertex
+from rexv2.base import InputState, StepState, GraphState, Output, GraphBuffer, Timings, SlotVertex, TrainableDist
 
 
 int32 = Union[jnp.int32, onp.int32]
@@ -82,6 +82,10 @@ def make_update_inputs(node: "BaseNode"):
             inputs = rjax.tree_take(buffer, mod_seq)
             prev_delay_dist = ss.inputs[input_name].delay_dist  # This is important, as it substitutes the delay_dist with the previous one.
             _inputs_undelayed = InputState.from_outputs(t.seq, t.ts_sent, t.ts_recv, inputs, delay_dist=prev_delay_dist, is_data=True)
+            if not c.delay_dist.equivalent(_inputs_undelayed.delay_dist):
+                raise ValueError(f"Delay distributions are not equivalent for input `{input_name}` of node `{node.name}`: "
+                                 f"{c.delay_dist} != {_inputs_undelayed.delay_dist}. \n"
+                                 f"Compare the delay distributions provided to .connect(dela_dist=...) with graph_state.inputs[{node.name}][{c.output_node.name}].delay_dist.")
             _inputs = _inputs_undelayed.apply_delay(c.output_node.rate, ts_start)
             new_inputs[input_name] = _inputs
         return ss.replace(eps=eps, seq=seq, ts=ts_start, inputs=FrozenDict(new_inputs))

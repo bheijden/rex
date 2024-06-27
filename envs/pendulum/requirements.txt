@@ -1,0 +1,11 @@
+# General
+opencv-python==4.6.0.66
+opencv-contrib-python==4.6.0.66  # MAKE SURE opencv-python is uninstalled first.
+# ODE
+...
+# Brax
+...
+# Real
+pyrealsense2==2.55.1.6486
+dcsc_setups
+rospkg==1.5.1

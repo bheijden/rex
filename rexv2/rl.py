@@ -80,9 +80,9 @@ StepReturn = Tuple[EnvState, jax.Array, Union[float, jax.Array], Union[bool, jax
 
 
 class Environment:
-    def __init__(self, graph: Graph, step_states: Dict[str, base.StepState] = None, only_init: bool = False, starting_eps: int = 0, randomize_eps: bool = False, order: Tuple[str, ...] = None):
+    def __init__(self, graph: Graph, params: Dict[str, base.StepState] = None, only_init: bool = False, starting_eps: int = 0, randomize_eps: bool = False, order: Tuple[str, ...] = None):
         self.graph = graph
-        self.step_states = step_states
+        self.params = params
         self.only_init = only_init
         self.starting_eps = starting_eps
         self.randomize_eps = randomize_eps
@@ -100,7 +100,7 @@ class Environment:
 
     def get_step_state(self, graph_state: base.GraphState, name: str = None) -> base.StepState:
         name = name if name is not None else self.graph.supervisor.name
-        return graph_state.try_get_node(name)
+        return graph_state.step_state.get(name, None)
 
     def get_observation(self, graph_state: base.GraphState) -> jax.Array:
         raise NotImplementedError("Subclasses must implement this method.")
@@ -121,10 +121,24 @@ class Environment:
     def get_output(self, graph_state: base.GraphState, action: jax.Array) -> Any:
         raise NotImplementedError("Subclasses must implement this method.")
 
-    def update_step_state(self, graph_state: base.GraphState, action: jax.Array = None) -> Tuple[base.GraphState, base.StepState]:
-        """Override this method if you want to update the step state."""
-        step_state = self.get_step_state(graph_state)
-        return graph_state, step_state
+    def update_graph_state_pre_step(self, graph_state: base.GraphState, action: jax.Array) -> base.GraphState:
+        """Override this method if you want to update the graph state before graph.step(...).
+
+        Note: This method is called before the graph is stepped, so after an action is provided to .step().
+        :param graph_state: The current graph state.
+        :param action: The action taken. Is always provided.
+        """
+        return graph_state
+
+    def update_graph_state_post_step(self, graph_state: base.GraphState, action: jax.Array = None) -> base.GraphState:
+        """Override this method if you want to update the graph state after graph.step(...).
+
+        Note: This method is called after the graph has been stepped (before returning from .step()),
+              or before returning the initial observation from .reset().
+        :param graph_state: The current graph state.
+        :param action: The action taken. Is None when called from .reset().
+        """
+        return graph_state
 
     def init(self, rng: jax.Array = None) -> base.GraphState:
         """
@@ -142,10 +156,10 @@ class Environment:
         """
 
         if self.only_init:
-            gs = self.graph.init(rng, step_states=self.step_states, starting_step=1,  # Avoids running first partition
+            gs = self.graph.init(rng, params=self.params, starting_step=1,  # Avoids running first partition
                                  starting_eps=self.starting_eps, randomize_eps=self.randomize_eps, order=self.order)
         else:
-            gs = self.graph.init(rng, step_states=self.step_states, starting_step=0,
+            gs = self.graph.init(rng, params=self.params, starting_step=0,
                                  starting_eps=self.starting_eps, randomize_eps=self.randomize_eps, order=self.order)
             gs, _ = self.graph.reset(gs)  # Run the first partition (excluding the supervisor)
         return gs
@@ -159,8 +173,12 @@ class Environment:
         :return: Tuple of (graph_state, observation, info)
         """
         gs = self.init(rng)
-        obs = self.get_observation(gs)
-        info = self.get_info(gs)
+        # Post-step update of graph_state
+        gs_post = self.update_graph_state_post_step(gs, action=None)
+        # Get observation
+        obs = self.get_observation(gs_post)
+        # Get info
+        info = self.get_info(gs_post)
         return gs, obs, info
 
     def step(self, graph_state: base.GraphState, action: jax.Array) -> StepReturn:
@@ -174,16 +192,17 @@ class Environment:
         """
         # Convert action to output
         output = self.get_output(graph_state, action)
-        step_state = self.get_step_state(graph_state)
+        # Pre-step update of graph_state
+        gs_pre = self.update_graph_state_pre_step(graph_state, action)
         # Step the graph
-        gs_pre, _ = self.graph.step(graph_state, step_state, output)
+        gs_step, _ = self.graph.step(gs_pre, self.get_step_state(gs_pre), output)
         # Get reward
-        reward = self.get_reward(gs_pre, action)
+        reward = self.get_reward(gs_step, action)
         # Get done flags
-        truncated = self.get_truncated(gs_pre)
-        terminated = self.get_terminated(gs_pre)
-        # Update step_state
-        gs_post, step_state = self.update_step_state(gs_pre, action)
+        truncated = self.get_truncated(gs_step)
+        terminated = self.get_terminated(gs_step)
+        # Post-step update of graph_state
+        gs_post = self.update_graph_state_post_step(gs_step, action)
         # Get info
         info = self.get_info(gs_post, action)
         # Get observation
@@ -236,24 +255,14 @@ class AutoResetWrapper(BaseWrapper):
         if self.fixed_init:
             # Pull out the initial state
             init = gs.aux["init"]
-
-            # Replace rng per node (else the rng will be the same every episode)
-            new_ss = {}
-            for name, ss in init.graph_state.nodes.items():
-                new_ss[name] = ss.replace(rng=gs.nodes[name].rng)
-            init = init.replace(graph_state=init.graph_state.replace(nodes=FrozenDict(new_ss)))
+            init = init.replace(graph_state=init.graph_state.replace(rng=gs.rng))
         else:
-            name = None
-            for n, ss in gs.nodes.items():
-                name = n
-                if self._env.step_states is not None and name in self._env.step_states:
-                    continue
-                else:
-                    break
-            assert name is not None, "No node found in graph state."
-            ss = gs.nodes[name]
-            new_rng, rng_init = jax.random.split(ss.rng)
-            gs = gs.replace_nodes(nodes={name: ss.replace(rng=new_rng)})  # Update the rng
+            # todo: Why can't the node be in self._env.params? What if all params in self._env.params are preset?
+            names = [name for name in list(gs.rng.keys()) if self._env.params is not None and name not in self._env.params]
+            assert len(names) > 0, "No node found in graph state."
+            name = names[0]  # Grab arbitrary node not in preset params
+            new_rng, rng_init = jax.random.split(gs.rng[name])
+            gs = gs.replace(rng=gs.rng.copy({name: new_rng}))
             init_gs, init_obs, init_info = self._env.reset(rng_init)
             init = InitialState(graph_state=init_gs, obs=init_obs, info=init_info)
             # jax.debug.print("x={x}, rng_init={rng_init}", x=init_obs[0], rng_init=rng_init)

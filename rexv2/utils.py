@@ -1,10 +1,13 @@
 from typing import Any, Tuple, List, TypeVar, Dict, Union, Callable, TYPE_CHECKING
 import functools
+
+import distrax
 import networkx as nx
 import jax
 import jax.numpy as jnp
 import numpy as onp
 from flax import struct
+import time
 
 import supergraph
 from supergraph import open_colors as oc
@@ -14,6 +17,7 @@ from rexv2.constants import LogLevel, Jitter
 from threading import current_thread
 from os import getpid
 from termcolor import colored
+import matplotlib.pyplot as plt
 
 if TYPE_CHECKING:
     from rexv2.node import BaseNode
@@ -278,34 +282,22 @@ def check_generations_uniformity(generations: List[Dict[str, SlotVertex]]):
     return True
 
 
-def promote_to_no_weak_type(_x):
-    # Applies jnp.promote_types to itself to promote to no weak type
-    # https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.promote_types.html#jax.numpy.promote_types
-    _y = jnp.array(_x)
-    _z = _y.astype(jnp.promote_types(_y.dtype, _y.dtype))
-    return _z
-
-
-def no_weaktype(identifier: str = None):
-    def _no_weaktype(fn):
-        def no_weaktype_wrapper(*args, **kwargs):
-            res = fn(*args, **kwargs)
-            return jax.tree_util.tree_map(lambda x: promote_to_no_weak_type(x), res)
-
-        no_weaktype_wrapper = functools.wraps(fn)(no_weaktype_wrapper)
-        if identifier is not None:
-            # functools.update_wrapper(no_weaktype_wrapper, fn)
-            no_weaktype_wrapper.__name__ = identifier
-        return no_weaktype_wrapper
-    return _no_weaktype
-
-
 def mixture_distribution_quantiles(dist, probs, N_grid_points: int = int(1e3), grid_min: float = None, grid_max: float = None):
     """More info: https://github.com/tensorflow/probability/issues/659"""
     base_grid = onp.linspace(grid_min, grid_max, num=int(N_grid_points))
     shape = (dist.batch_shape, 1) if len(dist.batch_shape) else [1]
     full_grid = onp.transpose(onp.tile(base_grid, shape))
-    cdf_grid = dist.cdf(full_grid)  # this is fully parallelized and even uses GPU
+    try:
+        cdf_grid = dist.cdf(full_grid)  # this is fully parallelized and even uses GPU
+    except NotImplementedError as e:
+        if isinstance(dist, distrax.MixtureSameFamily):
+            cdist = dist.components_distribution
+            cweights = dist.mixture_distribution.probs
+            cdist_cdfs = cdist.cdf(full_grid[..., None])
+            cdf_grid = onp.sum(cdist_cdfs * cweights[None], axis=-1)
+        else:
+            raise e
+
     grid_check = (cdf_grid.min(axis=0).max() <= min(probs)) & (max(probs) <= cdf_grid.max(axis=0).min())
     if not grid_check:
         print(f"Grid min: {grid_min}, max: {grid_max} | CDF min: {cdf_grid.min(axis=0).max()}, max: {cdf_grid.max(axis=0).min()} | Probs min: {min(probs)}, max: {max(probs)}")
@@ -323,3 +315,41 @@ def mixture_distribution_quantiles(dist, probs, N_grid_points: int = int(1e3), g
         arr=cdf_grid,
     )
     return quantiles_grid
+
+
+class timer:
+    def __init__(self, name: str = None, log_level: int = LogLevel.WARN, repeat: int = 1):
+        self.name = name or "timer"
+        self.repeat = repeat
+        self.log_level = log_level
+        self.duration = None
+        self.msg = "No message."
+
+    def __enter__(self):
+        self.tstart = time.perf_counter()
+
+    def __exit__(self, type, value, traceback):
+        self.duration = time.perf_counter() - self.tstart
+        if self.log_level >= LOG_LEVEL:
+            if self.repeat == 1:
+                self.msg = f"Elapsed: {self.duration:.4f} sec"
+            else:
+                self.msg = f"Elapsed: {self.duration / self.repeat:.4f} sec (x{self.repeat} repeats = {self.duration:.4f} sec)"
+            log(name="tracer", color="white", log_level=self.log_level, id=f"{self.name}", msg=self.msg)
+
+
+def get_subplots(tree, figsize=(10, 10), sharex=False, sharey=False, major="row", is_leaf: Callable[[Any], bool] = None):
+    _, treedef = jax.tree_util.tree_flatten(tree, is_leaf=is_leaf)
+    num = treedef.num_leaves
+    nrows, ncols = onp.ceil(onp.sqrt(num)).astype(int), onp.ceil(onp.sqrt(num)).astype(int)
+    if nrows * (ncols - 1) >= num:
+        if major == "row":
+            ncols -= 1
+        else:
+            nrows -= 1
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize, sharex=sharex, sharey=sharey)
+    tree_axes = jax.tree_util.tree_unflatten(treedef, axes.flatten()[0:num].tolist())
+    if len(axes.flatten()) > num:
+        for ax in axes.flatten()[num:]:
+            ax.remove()
+    return fig, tree_axes

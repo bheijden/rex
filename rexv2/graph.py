@@ -198,7 +198,7 @@ class Graph:
     def init(
         self,
         rng: jax.typing.ArrayLike = None,
-        params: Dict[str, base.StepState] = None,
+        params: Dict[str, base.Params] = None,
         starting_step: Union[int, jax.typing.ArrayLike] = 0,
         starting_eps: jax.typing.ArrayLike = 0,
         randomize_eps: bool = False,
@@ -228,7 +228,7 @@ class Graph:
         # Prepare random number generators
         if rng is None:
             rng = jax.random.PRNGKey(0)
-        rng_eps, rng_step, rng_params, rng_state, rng_step, rng_inputs = jax.random.split(rng, num=6)
+        rng_eps, rng_step, rng_params, rng_state, rng_inputs = jax.random.split(rng, num=5)
 
         if randomize_eps:
             starting_eps = jax.random.choice(rng_eps, self.max_eps, shape=())

@@ -1,4 +1,4 @@
-from typing import Any, Tuple, List, TypeVar, Dict, Union, Callable
+from typing import Any, Tuple, List, TypeVar, Dict, Union, Callable, Optional
 import time
 from concurrent.futures import Future
 import jax
@@ -6,12 +6,11 @@ import jax.numpy as jnp
 import numpy as onp
 from flax.core import FrozenDict
 from rexv2 import base
-from rexv2.constants import Scheduling, Jitter, LogLevel
+from rexv2.constants import Scheduling, Jitter, LogLevel, Async
 from rexv2 import utils
+from rexv2 import jax_utils as jutil
 import supergraph.open_colors as oc
-from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
-
-tfd = tfp.distributions
+import distrax
 
 
 class Connection:
@@ -24,7 +23,7 @@ class Connection:
         self.input_node = input_node
         self.output_node = output_node
         self.blocking = blocking
-        self.delay_dist = delay_dist if delay_dist is not None else base.StaticDist.create(tfd.Normal(loc=0., scale=0.))
+        self.delay_dist = delay_dist if delay_dist is not None else base.StaticDist.create(distrax.Normal(loc=0., scale=0.))
         self.delay = delay if delay is not None else float(self.delay_dist.quantile(0.99))
         assert self.delay >= 0, "Delay should be non-negative."
         self.window = window
@@ -53,7 +52,7 @@ class Connection:
 
 
 class BaseNode:
-    def __init__(self, name: str, rate: float, delay: float = None, delay_dist: tfd.Distribution = None,
+    def __init__(self, name: str, rate: float, delay: float = None, delay_dist: base.DelayDistribution = None,
                  advance: bool = False, scheduling: Scheduling = Scheduling.FREQUENCY,
                  color: str = None, order: int = None):
         """Base node class. All nodes should inherit from this class.
@@ -71,10 +70,11 @@ class BaseNode:
         """
         self.name = name
         self.rate = rate
-        self.delay_dist = delay_dist if delay_dist is not None else base.StaticDist.create(tfd.Normal(loc=0., scale=0.))
+        self.delay_dist = delay_dist if delay_dist is not None else base.StaticDist.create(distrax.Normal(loc=0., scale=0.))
         if isinstance(self.delay_dist, base.TrainableDist):
             raise NotImplementedError("Cannot have trainable distribution for computation delay.")
         self.delay = delay if delay is not None else float(self.delay_dist.quantile(0.99))  # take 99th percentile of delay
+        assert self.delay >= 0, "Delay should be non-negative."
         self.advance = advance
         self.scheduling = scheduling
         self.color = color
@@ -86,21 +86,55 @@ class BaseNode:
         self.record_setting = dict(params=False, rng=False, inputs=False, state=False, output=False)
         self.max_records = 20000
 
-    # def __init_subclass__(cls, **kwargs):
-    #     super().__init_subclass__(**kwargs)
-    #     identifier = cls.__name__
-    #     if 'init_output' in cls.__dict__:
-    #         cls.init_output = utils.no_weaktype(identifier=f"{identifier}.init_output")(cls.init_output)
-    #     if 'init_params' in cls.__dict__:
-    #         cls.init_params = utils.no_weaktype(identifier=f"{identifier}.init_params")(cls.init_params)
-    #     if 'init_state' in cls.__dict__:
-    #         cls.init_state = utils.no_weaktype(identifier=f"{identifier}.init_state")(cls.init_state)
-    #     if 'init_inputs' in cls.__dict__:
-    #         cls.init_inputs = utils.no_weaktype(identifier=f"{identifier}.init_inputs")(cls.init_inputs)
-    #     if 'init_step_state' in cls.__dict__:
-    #         cls.init_step_state = utils.no_weaktype(identifier=f"{identifier}.init_step_state")(cls.init_step_state)
-    #     if 'step' in cls.__dict__:
-    #         cls.step = utils.no_weaktype(identifier=f"{identifier}.step")(cls.step)
+        # Async
+        self._async_now: Optional[Callable[[], float]] = None
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        identifier = cls.__name__
+        if 'init_output' in cls.__dict__:
+            cls.init_output = jutil.no_weaktype(identifier=f"{identifier}.init_output")(cls.init_output)
+        if 'init_params' in cls.__dict__:
+            cls.init_params = jutil.no_weaktype(identifier=f"{identifier}.init_params")(cls.init_params)
+        if 'init_state' in cls.__dict__:
+            cls.init_state = jutil.no_weaktype(identifier=f"{identifier}.init_state")(cls.init_state)
+        if 'init_inputs' in cls.__dict__:
+            cls.init_inputs = jutil.no_weaktype(identifier=f"{identifier}.init_inputs")(cls.init_inputs)
+        if 'init_step_state' in cls.__dict__:
+            cls.init_step_state = jutil.no_weaktype(identifier=f"{identifier}.init_step_state")(cls.init_step_state)
+        if 'step' in cls.__dict__:
+            cls.step = jutil.no_weaktype(identifier=f"{identifier}.step")(cls.step)
+
+    @classmethod
+    def from_info(cls, info: base.NodeInfo, *args, **kwargs):
+        """Creates a subclass object from a node info object.
+
+        Make sure to call connect_from_info() on the resulting subclass object to connect it to the rest of the graph.
+
+        A subclass object is instantiated instead of the BaseNode. This means that subclass information is preserved,
+        but must also be provided in the *args and **kwargs.
+
+        Moreover, the signature of the subclass must be the same as the BaseNode, except for the additional *args and **kwargs.
+        """
+        return cls(
+            *args,  # Pass additional arguments to the subclass
+            name=info.name, rate=info.rate, delay_dist=info.delay_dist, delay=info.delay, advance=info.advance,
+            scheduling=info.scheduling, color=info.color, order=info.order,
+            **kwargs  # Pass additional keyword arguments to the subclass
+        )
+
+    def connect_from_info(self, infos: [str, base.InputInfo], nodes: Dict[str, "BaseNode"]):
+        """Connects the node to other nodes based on the input infos.
+
+        :param infos: The input infos. It is a dictionary of input names to input infos.
+        :param nodes: The dictionary of node names to node objects.
+        """
+        for input_name, info in infos.items():
+            output_node = nodes[info.output]
+            self.connect(
+                output_node, blocking=info.blocking, delay=info.delay, delay_dist=info.delay_dist,
+                window=info.window, skip=info.skip, jitter=info.jitter, name=input_name
+            )
 
     @property
     def info(self) -> base.NodeInfo:
@@ -114,6 +148,8 @@ class BaseNode:
             inputs={c.output_node.name: c.info for i, c in self.inputs.items()},  # Use name in context of graph, instead of shadow name
             name=self.name,
             cls=self.__class__.__module__ + "/" + self.__class__.__qualname__,
+            color=self.color,
+            order=self.order,
         )
 
     @property
@@ -157,6 +193,13 @@ class BaseNode:
     def phase_output(self) -> float:
         return self.phase + self.delay
 
+    def log(self, id: Union[str, Async], value: Any = None, log_level: int = None):
+        if not utils.NODE_LOGGING_ENABLED:
+            return
+        log_level = self.log_level if log_level is None else log_level
+        color = self.log_color
+        utils.log(f"{self.name}", color, min(log_level, self.log_level), id, value)
+
     def set_record_settings(self, params: bool = None, rng: bool = None, inputs: bool = None, state: bool = None, output: bool = None):
         self.record_setting["params"] = params if params is not None else self.record_setting["params"]
         self.record_setting["rng"] = rng if rng is not None else self.record_setting["rng"]
@@ -164,15 +207,18 @@ class BaseNode:
         self.record_setting["state"] = state if state is not None else self.record_setting["state"]
         self.record_setting["output"] = output if output is not None else self.record_setting["output"]
 
-    def now(self) -> Tuple[float, float]:
-        """Get the passed time since according to the simulated and wall clock
+    def now(self) -> float:
+        """Get the passed time since start of episode according to the simulated and wall clock.
 
-        Only available when running asynchronously.
+        Only returns > 0 timestamps if running asynchronously.
         """
-        raise RuntimeError("now() only available when running asynchronously")
+        if self._async_now is not None:
+            return self._async_now()
+        else:
+            return 0.  # Return 0 if not running asynchronously
 
     def connect(self, output_node: "BaseNode", blocking: bool = False,
-                delay: float = None, delay_dist: tfd.Distribution = None,
+                delay: float = None, delay_dist: base.DelayDistribution = None,
                 window: int = 1, skip: bool = False, jitter: Jitter = Jitter.LATEST,
                 name: str = None):
         """Connects the node to another node.
@@ -288,10 +334,13 @@ class BaseNode:
         It contains the params, state, inputs[some_name], eps, seq, and ts.
 
         Note that this function is **NOT** called in graph.init(...). It mostly serves as a helper function to get a
-        representative step state of the node. This is useful for debugging and testing the node in isolation.
+        representative step state for the node. This is useful for debugging, testing, and pre-compiling the .step method in isolation.
 
-        Moreover, the order of how init_params, init_state, and init_inputs are called in this function is similar to
+        The order of how init_params, init_state, and init_inputs are called in this function is similar to
         how they are called in the Graph.init(...) function.
+
+        Note that this may fail when this node's initialization depends on the params, state, or inputs of other nodes.
+        In such cases, the user can provide a graph_state with the necessary information to get the default step state.
 
         In some cases, the default step state may depend on the step states of other nodes. In such cases, the graph state
         must be provided to get the default step state.
@@ -299,43 +348,29 @@ class BaseNode:
         :param graph_state: The graph state that may be used to get the default step state.
         :return: The default step state of the node.
         """
-        # Get default rng
+        # Prepare random number generators
         if rng is None:
             rng = jax.random.PRNGKey(0)
-        rng_params, rng_state, rng_step, rng_inputs = jax.random.split(rng, num=4)
+        rng_step, rng_params, rng_state, rng_inputs = jax.random.split(rng, num=4)
 
-        # Get default graph state
-        graph_state = graph_state if graph_state is not None else base.GraphState(eps=onp.int32(0), nodes=FrozenDict({}))
+        # Gather pre-set graph state
+        graph_state = graph_state or base.GraphState()
+        rng = graph_state.rng.unfreeze() if isinstance(graph_state.rng, FrozenDict) else graph_state.rng
+        seq = graph_state.seq.unfreeze() if isinstance(graph_state.seq, FrozenDict) else graph_state.seq
+        ts = graph_state.ts.unfreeze() if isinstance(graph_state.ts, FrozenDict) else graph_state.ts
+        params = graph_state.params.unfreeze() if isinstance(graph_state.params, FrozenDict) else graph_state.params
+        state = graph_state.state.unfreeze() if isinstance(graph_state.state, FrozenDict) else graph_state.state
+        inputs = graph_state.inputs.unfreeze() if isinstance(graph_state.inputs, FrozenDict) else graph_state.inputs
+        graph_state = graph_state.replace(rng=rng, seq=seq, ts=ts, params=params, state=state, inputs=inputs)
 
-        # Get step states
-        step_states = graph_state.nodes
-        step_states = step_states.unfreeze() if isinstance(step_states, FrozenDict) else step_states
-        graph_state = graph_state.replace(nodes=step_states)
-
-        # Grab preset params and state if available
-        preset_eps = graph_state.eps
-        preset_seq = graph_state.nodes[self.name].seq if self.name in graph_state.nodes else onp.int32(0)
-        preset_ts = graph_state.nodes[self.name].ts if self.name in graph_state.nodes else onp.float32(0.0)
-        preset_params = graph_state.nodes[self.name].params if self.name in graph_state.nodes else None
-        preset_state = graph_state.nodes[self.name].state if self.name in graph_state.nodes else None
-        preset_inputs = graph_state.nodes[self.name].inputs if self.name in graph_state.nodes else None
-        # Params first, because the state may depend on them
-        params = self.init_params(rng_params, graph_state) if preset_params is None else preset_params
-        step_states[self.name] = base.StepState(
-            rng=rng_step, params=params, state=None, inputs=None, eps=preset_eps, seq=preset_seq, ts=preset_ts
-        )
-        # Then, get the state (which may depend on the params)
-        state = self.init_state(rng_state, graph_state) if preset_state is None else preset_state
-        step_states[self.name] = base.StepState(
-            rng=rng_step, params=params, state=state, inputs=None, eps=preset_eps, seq=preset_seq, ts=preset_ts
-        )
-        # Finally, get the inputs
-        inputs = self.init_inputs(rng_inputs, graph_state) if preset_inputs is None else preset_inputs
-        # Prepare step state
-        step_state = base.StepState(
-            rng=rng_step, params=params, state=state, inputs=inputs, eps=preset_eps, seq=preset_seq, ts=preset_ts
-        )
-        return step_state
+        # Get default step state
+        rng[self.name] = graph_state.rng.get(self.name, rng_step)
+        seq[self.name] = graph_state.seq.get(self.name, onp.int32(0))
+        ts[self.name] = graph_state.ts.get(self.name, onp.float32(0.0))
+        params[self.name] = graph_state.params.get(self.name, self.init_params(rng_params, graph_state))
+        state[self.name] = graph_state.state.get(self.name, self.init_state(rng_state, graph_state))
+        inputs[self.name] = graph_state.inputs.get(self.name, self.init_inputs(rng_inputs, graph_state))
+        return graph_state.step_state[self.name]
 
     def startup(self, graph_state: base.GraphState, timeout: float = None):
         """Starts the node in the state specified by graph_state.

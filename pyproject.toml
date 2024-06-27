@@ -13,18 +13,20 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.9.0"
-supergraph = "^0.0.6"
+supergraph = "^0.0.6"  # todo: Latest version?
 gymnasium = "^0.28.1"
-protobuf = "^3.20"
+protobuf = "^3.20"  # todo: remove?
 jax = "^0.4.1"  # 0.4.29?
+equinox="0.11.4"  # Required for sysid
+# todo: optimistix="0.0.7"(sysid), evosax="0.1.6" (sysid), optax="0.2.2" (ppo)
 flax = "^0.8.4"
-tensorflow-probability = "^0.20.1"
+tensorflow-probability = "^0.20.1"  # todo: replace with distrax?
 distrax = "^0.1.5"
 termcolor = "^2.1.1"
 networkx = "^3.1"
-matplotlib = "^3.6.2"
+matplotlib = "^3.6.2"  # 3.7.1 allows for plotting in pycharm, 3.9.0 does not show plots.
 seaborn = "^0.12.1"
-dill = "^0.3.6"
+dill = "^0.3.6"  # Provides tools for investigating broken pickles, and tools for creating better pickles.
 tqdm = "^4.64.1"
 
 # A list of all of the optional dependencies, some of which are included in the
