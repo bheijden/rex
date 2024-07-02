@@ -87,6 +87,7 @@ class Estimator(BaseNode):
 
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> EstimatorParams:
         """Default params of the root."""
+        # todo: world not always available here.
         ode = UKFOde(
             None,
             max_speed=40.0,
@@ -104,15 +105,15 @@ class Estimator(BaseNode):
                                substeps_predict=4,  # todo: set appropriately
                                # Note: dt_future measures latency from estimator to control application on the world
                                # This means that: dt_future ~= (world.inputs["actuator"].phase - estimator.phase)
-                               dt_future=0.046902187168598175,
-                               std_acc=jnp.sqrt(3.0),
-                               std_th=jnp.sqrt(0.1),
+                               dt_future=0.003,
+                               std_acc=jnp.sqrt(10.0),
+                               std_th=jnp.sqrt(0.2),
                                use_cam=self.use_cam)
 
     def init_state(self, rng: jax.Array = None, graph_state: GraphState = None) -> EstimatorState:
         """Default state of the root."""
         prior = UKFState(mu=jnp.array([jnp.pi, 0.0]),
-                         sigma=jnp.eye(2) * 2.0)
+                         sigma=jnp.eye(2) * 0.01)
         return EstimatorState(ts=0.0, prior=prior)
 
     def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> EstimatorOutput:
@@ -126,14 +127,14 @@ class Estimator(BaseNode):
         _, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
 
         # Prepare actions
-        actions = inputs["controller"].data.action
+        actions = inputs["controller"].data.action[:, 0]
         ts_actions = inputs["controller"].data.state_estimate.ts
 
         # Filter finite difference of the pendulum angle
-        source_name = "detector" if params.use_cam else "sensor"
+        source_name = "camera" if params.use_cam else "sensor"
         source = inputs[source_name][-1].data
         th = source.th[None]
-        trig_th = jnp.concatenate([jnp.cos(th), jnp.sin(th)], axis=1)
+        trig_th = jnp.concatenate([jnp.cos(th), jnp.sin(th)], axis=0)
 
         # Predict to ts_meas
         ts_prev = state.ts

@@ -43,10 +43,10 @@ def load_distribution(file: str) -> DelaySim:
 
 def get_default_distributions() -> DelaySim:
     delays_sim = dict(step={}, inputs={})
-    for n in ["world", "supervisor", "sensor", "camera", "detector", "estimator", "controller", "actuator", "viewer"]:
+    for n in ["world", "supervisor", "sensor", "camera", "estimator", "controller", "actuator", "viewer"]:
         delays_sim["step"][n] = base.StaticDist.create(distrax.Deterministic(0.))
         delays_sim["inputs"][n] = {}
-        for m in ["world", "supervisor", "sensor", "camera", "detector", "estimator", "controller", "actuator", "viewer"]:
+        for m in ["world", "supervisor", "sensor", "camera", "estimator", "controller", "actuator", "viewer"]:
             delays_sim["inputs"][n][m] = base.StaticDist.create(distrax.Deterministic(0.))
     return delays_sim
 
@@ -165,6 +165,88 @@ def make_real_sensoronly_pendulum_system_nodes(delays_sim: DelaySim,
     return nodes
 
 
+def make_pendulum_system_nodes(record: base.EpisodeRecord,
+                               outputs: Dict[str, Any],
+                               world_rate: float = 100.,
+                               include_image: bool = True,
+                               ):
+    """Make a real pendulum system."""
+    # Make pendulum
+    from envs.pendulum.ode import World, Sensor, Actuator
+
+    # Create sensor
+    sensor = Sensor.from_info(record.nodes["sensor"].info, outputs=outputs.get("sensor", None))
+
+    # Initialize main process as Node
+    import rospy
+    rospy.init_node("mops_client", anonymous=True)
+
+    # Make pendulum
+    from envs.pendulum.real import Sensor, Actuator
+
+    # Create sensor
+    sensor = Sensor(name="sensor", color=cscheme["sensor"], order=order.index("sensor"),
+                    rate=rates["sensor"], scheduling=Scheduling.FREQUENCY, advance=False,
+                    delay=delays["step"]["sensor"], delay_dist=delays_sim["step"]["sensor"])
+
+    # Create camera
+    from envs.pendulum.realsense import D435iDetector
+    camera = D435iDetector(name="camera", color=cscheme["camera"], order=order.index("camera"),
+                           include_image=include_image, width=424, height=240, fps=rates["camera"],
+                           rate=rates["camera"], scheduling=Scheduling.PHASE, advance=True,
+                           # This is a polling node (i.e. it runs as fast as possible) --> unable to simulate with clock=SIMULATED
+                           delay=delays["step"]["camera"], delay_dist=delays_sim["step"]["camera"])
+
+    # Create estimator
+    from envs.pendulum.estimator import Estimator
+    estimator = Estimator(name="estimator", color=cscheme["estimator"], order=order.index("estimator"),
+                          use_cam=use_cam,
+                          rate=rates["estimator"], scheduling=Scheduling.FREQUENCY, advance=False,
+                          delay=delays["step"]["estimator"], delay_dist=delays_sim["step"]["estimator"])
+    estimator.connect(sensor, window=1, blocking=False,
+                      delay_dist=delays_sim["inputs"]["estimator"]["sensor"], delay=delays["inputs"]["estimator"]["sensor"])
+    estimator.connect(camera, window=1, blocking=False,
+                      delay_dist=delays_sim["inputs"]["estimator"]["camera"], delay=delays["inputs"]["estimator"]["camera"])
+
+    # Create controller
+    from envs.pendulum.controller import OpenLoopController
+    controller = OpenLoopController(name="controller", color=cscheme["controller"], order=order.index("controller"),
+                                    rate=rates["controller"], scheduling=Scheduling.FREQUENCY, advance=True,
+                                    delay=delays["step"]["controller"], delay_dist=delays_sim["step"]["controller"])
+    controller.connect(estimator, window=1, blocking=True,
+                       delay_dist=delays_sim["inputs"]["controller"]["estimator"],
+                       delay=delays["inputs"]["controller"]["estimator"])
+    estimator.connect(controller, window=3, blocking=True, skip=True,
+                      delay_dist=delays_sim["inputs"]["estimator"]["controller"],
+                      delay=delays["inputs"]["estimator"]["controller"])
+
+    # Create actuator
+    actuator = Actuator(name="actuator", color=cscheme["actuator"], order=order.index("actuator"),
+                        rate=rates["actuator"], scheduling=Scheduling.FREQUENCY, advance=True,
+                        delay=delays["step"]["actuator"], delay_dist=delays_sim["step"]["actuator"])
+    actuator.connect(controller, window=1, blocking=True,
+                     delay_dist=delays_sim["inputs"]["actuator"]["controller"],
+                     delay=delays["inputs"]["actuator"]["controller"])
+
+    # Create supervisor
+    from envs.pendulum.supervisor import Supervisor
+    supervisor = Supervisor(name="supervisor", color=cscheme["supervisor"], order=order.index("supervisor"),
+                            rate=rates["supervisor"], scheduling=Scheduling.FREQUENCY, advance=False,
+                            delay=delays["step"]["supervisor"], delay_dist=delays_sim["step"]["supervisor"])
+    supervisor.connect(estimator, window=1, blocking=False,
+                       delay_dist=delays_sim["inputs"]["supervisor"]["estimator"],
+                       delay=delays["inputs"]["supervisor"]["estimator"])
+
+    nodes = dict(sensor=sensor,
+                 camera=camera,
+                 estimator=estimator,
+                 controller=controller,
+                 actuator=actuator,
+                 supervisor=supervisor
+                 )
+    return nodes
+
+
 if __name__ == "__main__":
     # Make sysid nodes
     jnp.set_printoptions(precision=5, suppress=True)
@@ -176,17 +258,17 @@ if __name__ == "__main__":
     SUPERGRAPH = Supergraph.MCS
     LOG_DIR = "/home/r2ci/rex/scratch/pendulum/logs"
     RECORD_FILE = f"{LOG_DIR}/pendulum_data.pkl"
-    ORDER = ["supervisor", "camera", "detector", "sensor", "estimator", "controller", "actuator", "world"]
-    CSCHEME = {"world": "gray", "sensor": "grape", "camera": "indigo", "detector": "orange",
-               "estimator": "violet", "controller": "lime", "actuator": "green", "supervisor": "indigo"}
-    # RATES = dict(world=100, sensor=30, camera=30, detector=30, estimator=30, controller=30, actuator=30, supervisor=1)
-    RATES = dict(world=100, sensor=60, camera=30, detector=30, estimator=30, controller=30, actuator=60, supervisor=1)
+    ORDER = ["camera", "sensor", "actuator", "controller", "estimator", "supervisor"]
+    CSCHEME = {"world": "gray", "sensor": "grape", "camera": "orange", "estimator": "violet", "controller": "lime",
+               "actuator": "green", "supervisor": "indigo"}
+    RATES = dict(sensor=30, camera=30, estimator=30, controller=30, actuator=30, supervisor=10)
     DELAYS_SIM = load_distribution(f"{LOG_DIR}/dists.pkl")  # get_default_distributions()
-    DELAY_FN = lambda d: d.quantile(0.85)
+    DELAY_FN = lambda d: d.quantile(0.85)  # lambda d: 0.0
     TS_MAX = 5.0
 
     # Evaluate in real-world
     if False:
+        raise NotImplementedError("Real-world evaluation is not yet updated with new graph.")
         # Make real-world nodes
         nodes_real = make_real_sensoronly_pendulum_system_nodes(DELAYS_SIM, DELAY_FN, RATES, cscheme=CSCHEME, order=ORDER)
         # Create real-time graph
@@ -196,7 +278,7 @@ if __name__ == "__main__":
         with open("controller_trained_params.pkl", "rb") as f:
             ctrl_params = pickle.load(f)
         # Get initial graph state
-        gs = graph_real.init(RNG, params={"controller": ctrl_params}, order=("supervisor",))
+        gs = graph_real.init(RNG, params={"controller": ctrl_params}, order=("supervisor", "actuator"))
         # Jit functions
         for name, node in graph_real.nodes.items():
             cpu = next(CPU_DEVICES)
@@ -241,7 +323,7 @@ if __name__ == "__main__":
 
     # Get initial graph state
     with timer(f"warmup[graph_state]", log_level=LogLevel.WARN):
-        gs = graph.init(RNG, params={}, order=("supervisor",))
+        gs = graph.init(RNG, params={}, order=("supervisor", "actuator"))
 
     # Jit functions & warmup
     if False:

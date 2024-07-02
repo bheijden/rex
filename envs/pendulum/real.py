@@ -8,7 +8,7 @@ from flax import struct
 from rexv2 import base, constants
 from rexv2.node import BaseNode
 
-from envs.pendulum.base import ActuatorOutput, SensorOutput, SensorParams
+from envs.pendulum.base import ActuatorOutput, SensorOutput, SensorParams, ActuatorParams
 from envs.pendulum.pid import PID
 
 # Import ROS specific functions
@@ -106,9 +106,19 @@ class Actuator(BaseNode):
         self._downward_reset = downward_reset
         self._controller = PID(u0=0.0, kp=gains[0], kd=gains[1], ki=gains[2], dt=1 / self.rate)
 
+    def init_params(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> ActuatorParams:
+        """Default params of the node."""
+        actuator_delay = base.TrainableDist.create(alpha=0., min=0.0, max=1 / self.rate)
+        return ActuatorParams(actuator_delay=actuator_delay)
+
     def init_output(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> ActuatorOutput:
         """Default output of the node."""
-        return ActuatorOutput(action=jnp.array([0.0], dtype=float))
+        if "estimator" in self.outputs:
+            estimator = self.outputs["estimator"].input_node
+            state_estimate = estimator.init_output(rng, graph_state)
+        else:
+            state_estimate = None
+        return ActuatorOutput(action=jnp.array([0.0], dtype=float), state_estimate=state_estimate)
 
     def step(self, step_state: base.StepState) -> Tuple[base.StepState, ActuatorOutput]:
         """Step the node."""
@@ -121,11 +131,12 @@ class Actuator(BaseNode):
 
         # Prepare output
         controller_output = list(inputs.values())[0][-1].data
+        ts_throttle = controller_output.state_estimate.ts - params.actuator_delay.mean()
         output = ActuatorOutput(action=controller_output.action)
         action = jnp.clip(output.action[0], -3, 3)
 
         # Call ROS service and send action to mops
-        _ = jax.experimental.io_callback(self._apply_action, jnp.array(1.0), action)
+        _ = jax.experimental.io_callback(self._apply_action, jnp.array(1.0), action, ts_throttle)
 
         return new_step_state, output
 
@@ -140,7 +151,7 @@ class Actuator(BaseNode):
     def _wrap_angle(self, angle):
         return angle - 2 * jnp.pi * jnp.floor((angle + jnp.pi) / (2 * jnp.pi))
 
-    def _apply_action(self, action):
+    def _apply_action(self, action, ts_throttle = None):
         """Call ROS service and send action to mops."""
         if not ROS_AVAILABLE:
             return jnp.array(1.0)
@@ -149,6 +160,11 @@ class Actuator(BaseNode):
         req.actuators.voltage0 = action
         req.actuators.voltage1 = 0.0
         req.actuators.timeout = 0.5
+        if ts_throttle is not None:
+            now = self.now()
+            # print(f"now: {now}, ts_throttle: {ts_throttle}")
+            if now < ts_throttle:
+                rospy.sleep(float(ts_throttle - now))
         self.srv_write.call(req)
         return jnp.array(1.0, dtype=onp.float32)
 

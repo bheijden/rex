@@ -11,6 +11,10 @@ from rexv2.jax_utils import tree_dynamic_slice
 
 @struct.dataclass
 class DetectorParams(Base):
+    # bgr
+    width: int = struct.field(pytree_node=False)  # 424
+    height: int = struct.field(pytree_node=False)  # 240
+    # Movement detection parameters
     min_max_threshold: Union[float, jax.typing.ArrayLike]  # 90
     lower_bgr: jax.typing.ArrayLike  # [110, 150, 100]
     upper_bgr: jax.typing.ArrayLike  # [180, 220, 180]
@@ -26,75 +30,20 @@ class DetectorParams(Base):
     # Angle offset after transforming the ellipse to circle to match the (physical) pendulum angle
     theta_offset: Union[float, jax.typing.ArrayLike]  # 0.0
     # Low-pass filter parameters for thdot
+    rate: Union[float, jax.typing.ArrayLike] = struct.field(pytree_node=False)  # Sampling frequency in Hz
     wn: Union[float, jax.typing.ArrayLike]  # Critical frequency in Hz (must be less than half the sampling frequency)
 
-
-@struct.dataclass
-class DetectorState(Base):
-    cummin: jax.typing.ArrayLike  # [num_frames, height, width, 3]
-    cummax: jax.typing.ArrayLike  # [num_frames, height, width, 3]
-    # Low-pass filter state for thdot
-    b: jax.typing.ArrayLike  # Numerator coefficients of the filter
-    a: jax.typing.ArrayLike  # Denominator coefficients of the filter
-    yn_1: Union[float, jax.typing.ArrayLike]  # The filtered angular velocity at time n-1
-    xn_1: Union[float, jax.typing.ArrayLike]  # The finite-difference angular velocity at time n-1
-    thn_1: Union[float, jax.typing.ArrayLike]  # The angle at time n-1
-    tsn_1: Union[float, jax.typing.ArrayLike]  # The timestamp at time n-1
-
-
-@struct.dataclass
-class DetectorOutput(Base):
-    centroid: jax.typing.ArrayLike  # [height, width] (int)
-    median: jax.typing.ArrayLike  # [height, width] (int)
-    th: Union[float, jax.typing.ArrayLike]  # physical pendulum angle (in radians)
-    thdot: Union[float, jax.typing.ArrayLike]  # (low-pass filtered finite-difference) angular velocity (in radians/second)
-    ts: Union[float, jax.typing.ArrayLike]  # ts of the image
-
-
-class Detector(BaseNode):
-    def __init__(self, *args, width=424, height=240, **kwargs):
-        self.width = width
-        self.height = height
-        super().__init__(*args, **kwargs)
-
-    def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> DetectorParams:
-        """Default params of the root."""
-        params = DetectorParams(min_max_threshold=70,
-                                lower_bgr=jnp.array([0, 0, 100]),
-                                upper_bgr=jnp.array([150, 60, 255]),
-                                kernel_size=10,
-                                sigma=10/6,
-                                binarization_threshold=0.5,
-                                # a=65.66,
-                                # b=67.68,
-                                # x0=228.28,
-                                # y0=117.18,
-                                # phi=-0.059,
-                                a=58.5709114074707,
-                                b=70.53766632080078,
-                                x0=211.99990844726562,
-                                y0=119.99968719482422,
-                                phi=1.0113574266433716,
-                                theta_offset=0.7549607157707214,
-                                wn=5,
-                                )
-        return params
-
-    def init_state(self, rng: jax.Array = None, graph_state: GraphState = None) -> DetectorState:
-        """Default state of the root."""
-        graph_state = graph_state or GraphState()
+    def init_state(self) -> "DetectorState":
         cummin = 255*jnp.ones((self.height, self.width, 3))
         cummax = jnp.zeros((self.height, self.width, 3))
-        params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
-        b, a = self.firstorder_lowpass_coef(wn=params.wn, fs=self.rate)
+        b, a = self.firstorder_lowpass_coef(wn=self.wn, fs=self.rate)
         yn_1 = 0.0
         xn_1 = 0.0
         thn_1 = 0.0
         tsn_1 = 0.0 - 1 / self.rate  # to avoid potential division by zero
         return DetectorState(cummin=cummin, cummax=cummax, b=b, a=a, yn_1=yn_1, xn_1=xn_1, thn_1=thn_1, tsn_1=tsn_1)
 
-    def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> DetectorOutput:
-        """Default output of the root."""
+    def init_output(self) -> "DetectorOutput":
         centroid = jnp.array([0, 0]).astype(int)
         median = centroid
         th = 0.0
@@ -102,27 +51,33 @@ class Detector(BaseNode):
         ts = 0.0
         return DetectorOutput(centroid=centroid, median=median, th=th, thdot=thdot, ts=ts)
 
-    def step(self, step_state: StepState) -> Tuple[StepState, DetectorOutput]:
-        """Step the node."""
-        # Unpack StepState
-        _, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
+    def step(self, ts: Union[float, jax.typing.ArrayLike], bgr: jax.typing.ArrayLike, state: "DetectorState") -> Tuple["DetectorState", "DetectorOutput"]:
+        new_state, centroid, median = self.bgr_to_pixel(state, bgr)
+        th = self.pixel_to_th(median)
+        new_state, thdot = self.th_to_thdot(new_state, th, ts)
+        output = DetectorOutput(centroid=centroid, median=median, th=th, thdot=thdot, ts=ts)
+        return new_state, output
 
-        # Get binary mask
-        bgr = inputs["camera"].data.bgr[-1]
-        ts = inputs["camera"].data.ts[-1]
-        mask_mov, cummin, cummax = self._movement_mask(bgr, state.cummin, state.cummax, params.min_max_threshold)
-        mask_col = self._color_mask(bgr, params.lower_bgr, params.upper_bgr)
+    def bgr_to_pixel(self, state: "DetectorState", bgr: jax.typing.ArrayLike) -> Tuple["DetectorState", jax.Array, jax.Array]:
+        mask_mov, cummin, cummax = self._movement_mask(bgr, state.cummin, state.cummax, self.min_max_threshold)
+        mask_col = self._color_mask(bgr, self.lower_bgr, self.upper_bgr)
         mask_comb = jnp.logical_and(mask_mov, mask_col)
-        mask_smooth = self._gaussian_smoothing(mask_comb, params.kernel_size, params.sigma)
-        mask_binarized = jnp.where(mask_smooth > params.binarization_threshold, 1.0, 0.0).astype(bool)
+        mask_smooth = self._gaussian_smoothing(mask_comb, self.kernel_size, self.sigma)
+        mask_binarized = jnp.where(mask_smooth > self.binarization_threshold, 1.0, 0.0).astype(bool)
+
+        # New state
+        new_state = state.replace(cummin=cummin, cummax=cummax)
 
         # Calculate centroid and median
         centroid = self._centroid(mask_binarized)
         median = self._median(mask_binarized)
+        return new_state, centroid, median
 
-        # Calculate theta
-        th = self._point_to_theta(median[1], median[0], params.a, params.b, params.x0, params.y0, params.phi, params.theta_offset)
+    def pixel_to_th(self, pixel: jax.typing.ArrayLike) -> jax.Array:
+        th = self._point_to_theta(pixel[1], pixel[0], self.a, self.b, self.x0, self.y0, self.phi, self.theta_offset)
+        return th
 
+    def th_to_thdot(self, state: "DetectorState", th: jax.typing.ArrayLike, ts: Union[float, jax.typing.ArrayLike]) -> Tuple["DetectorState", jax.Array]:
         # Filter finite-difference estimates of the pendulum angular velocity
         dtn = ts - state.tsn_1
         thn_unwrapped, thn_1_unwrapped = jnp.unwrap(jnp.array([th, state.thn_1]))
@@ -130,15 +85,9 @@ class Detector(BaseNode):
         xn = jnp.nan_to_num(xn, nan=(thn_unwrapped - thn_1_unwrapped)/self.rate)
         yn = self.filter_sample(state.yn_1, xn, state.xn_1, state.b, state.a)
 
-        # Prepare output
-        output = DetectorOutput(centroid=centroid, median=median, th=th, thdot=yn, ts=ts)
-
-        # Update state
-        new_state = state.replace(cummin=cummin, cummax=cummax, yn_1=yn, xn_1=xn, thn_1=th, tsn_1=ts)
-
-        # Update state
-        new_step_state = step_state.replace(state=new_state)
-        return new_step_state, output
+        # New state
+        new_state = state.replace(yn_1=yn, xn_1=xn, thn_1=th, tsn_1=ts)
+        return new_state, yn
 
     @staticmethod
     def _movement_mask(bgr, cummin, cummax, threshold):
@@ -311,6 +260,87 @@ class Detector(BaseNode):
 
 
 @struct.dataclass
+class DetectorState(Base):
+    # Movement detection state
+    cummin: jax.typing.ArrayLike  # [num_frames, height, width, 3]
+    cummax: jax.typing.ArrayLike  # [num_frames, height, width, 3]
+    # Low-pass filter state for thdot
+    b: jax.typing.ArrayLike  # Numerator coefficients of the filter
+    a: jax.typing.ArrayLike  # Denominator coefficients of the filter
+    yn_1: Union[float, jax.typing.ArrayLike]  # The filtered angular velocity at time n-1
+    xn_1: Union[float, jax.typing.ArrayLike]  # The finite-difference angular velocity at time n-1
+    thn_1: Union[float, jax.typing.ArrayLike]  # The angle at time n-1
+    tsn_1: Union[float, jax.typing.ArrayLike]  # The timestamp at time n-1
+
+
+@struct.dataclass
+class DetectorOutput(Base):
+    centroid: jax.typing.ArrayLike  # [height, width] (int)
+    median: jax.typing.ArrayLike  # [height, width] (int)
+    th: Union[float, jax.typing.ArrayLike]  # physical pendulum angle (in radians)
+    thdot: Union[float, jax.typing.ArrayLike]  # (low-pass filtered finite-difference) angular velocity (in radians/second)
+    ts: Union[float, jax.typing.ArrayLike]  # ts of the image
+
+
+class Detector(BaseNode):
+    def __init__(self, *args, width=424, height=240, **kwargs):
+        self.width = width
+        self.height = height
+        super().__init__(*args, **kwargs)
+
+    def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> DetectorParams:
+        """Default params of the root."""
+        params = DetectorParams(width=self.width,
+                                height=self.height,
+                                min_max_threshold=70,
+                                lower_bgr=jnp.array([0, 0, 100]),
+                                upper_bgr=jnp.array([150, 60, 255]),
+                                kernel_size=10,
+                                sigma=10/6,
+                                binarization_threshold=0.5,
+                                a=58.5709114074707,
+                                b=70.53766632080078,
+                                x0=211.99990844726562,
+                                y0=119.99968719482422,
+                                phi=1.0113574266433716,
+                                theta_offset=0.7549607157707214,
+                                rate=self.rate,
+                                wn=5,
+                                )
+        return params
+
+    def init_state(self, rng: jax.Array = None, graph_state: GraphState = None) -> DetectorState:
+        """Default state of the root."""
+        graph_state = graph_state or GraphState()
+        params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
+        state = params.init_state()
+        return state
+
+    def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> DetectorOutput:
+        """Default output of the root."""
+        graph_state = graph_state or GraphState()
+        params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
+        output = params.init_output()
+        return output
+
+    def step(self, step_state: StepState) -> Tuple[StepState, DetectorOutput]:
+        """Step the node."""
+        # Unpack StepState
+        _, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
+
+        # Get binary mask
+        bgr = inputs["camera"].data.bgr[-1]
+        ts = inputs["camera"].data.ts[-1]
+
+        # Apply the detector
+        new_state, output = params.step(ts, bgr, state)
+
+        # Update step state
+        new_step_state = step_state.replace(state=new_state)
+        return new_step_state, output
+
+
+@struct.dataclass
 class SimDetectorState(DetectorState):
     loss_th: [float, jax.typing.ArrayLike]
 
@@ -354,25 +384,25 @@ class SimDetector(Detector):
             # Here we use the camera output, and rely on pixel detection
             # Get binary mask
             bgr = inputs["camera"].data.bgr[0]
-            mask_mov, cummin, cummax = self._movement_mask(bgr, state.cummin, state.cummax, params.min_max_threshold)
-            mask_col = self._color_mask(bgr, params.lower_bgr, params.upper_bgr)
+            mask_mov, cummin, cummax = params._movement_mask(bgr, state.cummin, state.cummax, params.min_max_threshold)
+            mask_col = params._color_mask(bgr, params.lower_bgr, params.upper_bgr)
             mask_comb = jnp.logical_and(mask_mov, mask_col)
-            mask_smooth = self._gaussian_smoothing(mask_comb, params.kernel_size, params.sigma)
+            mask_smooth = params._gaussian_smoothing(mask_comb, params.kernel_size, params.sigma)
             mask_binarized = jnp.where(mask_smooth > params.binarization_threshold, 1.0, 0.0).astype(bool)
 
             # Calculate centroid and median
-            centroid = self._centroid(mask_binarized)
-            median = self._median(mask_binarized)
+            centroid = params._centroid(mask_binarized)
+            median = params._median(mask_binarized)
 
             # Calculate theta
-            th = self._point_to_theta(median[1], median[0], params.a, params.b, params.x0, params.y0, params.phi, params.theta_offset)
+            th = params._point_to_theta(median[1], median[0], params.a, params.b, params.x0, params.y0, params.phi, params.theta_offset)
         elif self._outputs is not None:
             # Here, we do not use the camera output, but the outputs provided to the node
             output = tree_dynamic_slice(self._outputs, jnp.array([step_state.eps, step_state.seq]))
             median, centroid = output.median, output.centroid
 
             # Calculate theta
-            th = self._point_to_theta(median[1], median[0], params.a, params.b, params.x0, params.y0, params.phi, params.theta_offset)
+            th = params._point_to_theta(median[1], median[0], params.a, params.b, params.x0, params.y0, params.phi, params.theta_offset)
 
             # Repeat unchanged state
             cummin, cummax = state.cummin, state.cummax
@@ -391,7 +421,7 @@ class SimDetector(Detector):
         thn_unwrapped, thn_1_unwrapped = jnp.unwrap(jnp.array([th, state.thn_1]))
         xn = (thn_unwrapped - thn_1_unwrapped) / dtn
         xn = jnp.nan_to_num(xn, nan=(thn_unwrapped - thn_1_unwrapped) / self.rate)
-        yn = self.filter_sample(state.yn_1, xn, state.xn_1, state.b, state.a)
+        yn = params.filter_sample(state.yn_1, xn, state.xn_1, state.b, state.a)
 
         # Prepare output
         output = DetectorOutput(centroid=centroid, median=median, th=th, thdot=yn, ts=ts)

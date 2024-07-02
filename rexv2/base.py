@@ -65,6 +65,10 @@ class Base:
     def __getitem__(self, val):
         return jax.tree_util.tree_map(lambda x: x[val], self)
 
+    def replace(self, *args, **kwargs):
+        """Replace fields in the dataclass."""
+        return self.replace(*args, **kwargs)
+
     def reshape(self, shape: Sequence[int]) -> Any:
         return jax.tree_util.tree_map(lambda x: x.reshape(shape), self)
 
@@ -1108,6 +1112,11 @@ class Identity(Transform):
         return params
 
 
+# @struct.dataclass
+# class Share(Transform):
+
+
+
 @struct.dataclass
 class Chain(Transform):
     transforms: Sequence[Transform]
@@ -1205,3 +1214,23 @@ class ExpTransform(Transform):
 
     def inv(self, params: Params) -> Params:
         return jax.tree_util.tree_map(lambda x: jnp.log(x), params)
+
+
+@struct.dataclass
+class Shared(Transform):
+    where: Callable[[Any], Union[Any, Sequence[Any]]] = struct.field(pytree_node=False)
+    replace_fn: Callable[[Any], Union[Any, Sequence[Any]]] = struct.field(pytree_node=False)
+    inverse_fn: Callable[[Any], Union[Any, Sequence[Any]]] = struct.field(pytree_node=False)
+
+    @classmethod
+    def init(cls, where: Callable[[Any], Union[Any, Sequence[Any]]], replace_fn: Callable[[Any], Union[Any, Sequence[Any]]],
+             inverse_fn: Callable[[Any], Union[Any, Sequence[Any]]] = lambda _tree: None) -> 'Shared':
+        return cls(where=where, replace_fn=replace_fn, inverse_fn=inverse_fn)
+
+    def apply(self, params: Params) -> Params:
+        new = self.replace_fn(params)
+        return eqx.tree_at(self.where, params, new, is_leaf=lambda x: x is None)
+
+    def inv(self, params: Params) -> Params:
+        new = self.inverse_fn(params)
+        return eqx.tree_at(self.where, params, new, is_leaf=lambda x: x is None)

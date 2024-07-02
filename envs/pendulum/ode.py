@@ -8,7 +8,7 @@ from rexv2.base import StepState, GraphState, Empty, TrainableDist, Base
 from rexv2.node import BaseNode
 from rexv2.jax_utils import tree_dynamic_slice
 
-from envs.pendulum.base import ActuatorOutput, WorldState, SensorOutput, WorldParams, SensorParams
+from envs.pendulum.base import ActuatorOutput, WorldState, SensorOutput, WorldParams, SensorParams, ActuatorParams
 
 
 @struct.dataclass
@@ -68,10 +68,11 @@ class World(BaseNode):
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> OdeParams:
         """Default params of the node."""
         # Try to grab params from graph_state
-        # actuator_delay = TrainableDist.create(alpha=0.24462935328483582, min=0.0, max=1 / 30)
-        actuator_delay = TrainableDist.create(alpha=0., min=0.0, max=1 / 30)
+        graph_state = graph_state or GraphState()
+        actuator = self.inputs["actuator"].output_node
+        actuator_delay = graph_state.params.get("actuator", actuator.init_params(rng, graph_state)).actuator_delay
         return OdeParams(
-            actuator_delay,
+            actuator_delay=actuator_delay,
             max_speed=40.0,
             J=0.00019745720783248544,  # 0.000159931461600856,
             mass=0.053909555077552795,  # 0.0508581731919534,
@@ -250,6 +251,10 @@ class Actuator(BaseNode):
         """
         super().__init__(*args, **kwargs)
         self._outputs = outputs
+
+    def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> ActuatorParams:
+        actuator_delay = TrainableDist.create(alpha=0., min=0.0, max=1 / 30)
+        return ActuatorParams(actuator_delay=actuator_delay)
 
     def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> ActuatorOutput:
         """Default output of the node."""

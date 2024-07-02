@@ -13,6 +13,7 @@ from rexv2 import base
 from rexv2.base import GraphState, StepState, Base, InputState
 from rexv2.node import BaseNode
 from rexv2.rl import NormalizeVec, SquashState
+from rexv2.jax_utils import tree_dynamic_slice
 from envs.pendulum.base import ActuatorOutput, WorldState
 from envs.pendulum.estimator import EstimatorOutput
 
@@ -150,6 +151,10 @@ class PPOAgentState(base.Base):
 
 
 class PPOAgent(BaseNode):
+    def __init__(self, *args, outputs: ActuatorOutput = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._outputs = outputs
+
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> PPOAgentParams:
         """Default params of the node."""
         return PPOAgentParams(num_act=0, num_obs=0, act_scaling=None, obs_scaling=None, model=None)
@@ -158,20 +163,36 @@ class PPOAgent(BaseNode):
         """Default state of the node."""
         graph_state = graph_state or base.GraphState()
         params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
-        history_act = jnp.zeros((params.num_act, 1), dtype=jnp.float32)  # [torque]
-        history_obs = jnp.zeros((params.num_obs, 3), dtype=jnp.float32)  # [cos(th), sin(th), thdot]
+        history_act = jnp.zeros((params.num_act, 0), dtype=jnp.float32)  # [torque]
+        history_obs = jnp.zeros((params.num_obs, 0), dtype=jnp.float32)  # [cos(th), sin(th), thdot]
         return PPOAgentState(history_act=history_act, history_obs=history_obs)
 
     def init_output(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> ActuatorOutput:
         """Default output of the node."""
-        action = jnp.array([0.0], dtype=jnp.float32)
-        state_estimate = self.inputs["estimator"].output_node.init_output(rng, graph_state) if "estimator" in self.inputs else None
-        return ActuatorOutput(action=action, state_estimate=state_estimate)
+        if self._outputs is not None:
+            # In simulation, we never propagate the image
+            seq = graph_state.seq.get(self.name, 0)
+            output = tree_dynamic_slice(self._outputs, jnp.array([graph_state.eps, seq]))
+        else:
+            action = jnp.array([0.0], dtype=jnp.float32)
+            state_estimate = self.inputs["estimator"].output_node.init_output(rng, graph_state) if "estimator" in self.inputs else None
+            output = ActuatorOutput(action=action, state_estimate=state_estimate)
+        return output
 
     def step(self, step_state: base.StepState) -> Tuple[base.StepState, ActuatorOutput]:
         """Step the node."""
         # Unpack StepState
         rng, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
+
+        # Grab estimator output
+        assert len(self.inputs) > 0, "No estimator connected to controller"
+        est_output = inputs["estimator"][-1].data
+
+        # Get action from dataset or use passed through.
+        if self._outputs is not None:
+            output = tree_dynamic_slice(self._outputs, jnp.array([step_state.eps, step_state.seq]))
+            output = output.replace(state_estimate=est_output)
+            return step_state, output
 
         # Get observation for policy
         obs = params.get_observation(step_state)
@@ -227,7 +248,7 @@ class OpenLoopController(PPOAgent):
 
         # Step actions
         step_actions = jax.random.uniform(rng_step, shape=(params.num_steps,), minval=-params.max_torque_sysid, maxval=params.max_torque_sysid)
-        step_actions = step_actions.at[:3].set(onp.array([3.0, -3.0, 2.5]))
+        step_actions = step_actions.at[:3].set(onp.array([3.0, -2.5, 2.5]))
 
         # Random actions
         random_actions = jax.random.uniform(rng_random, shape=(params.num_rnd,), minval=-params.max_torque_sysid, maxval=params.max_torque_sysid)

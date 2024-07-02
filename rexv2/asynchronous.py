@@ -67,11 +67,11 @@ class _AsyncNodeWrapper:
         # Only used if no step and reset fn are provided
         self._i = 0
 
-        if not 1 / self.node.rate > self.node.phase_output:
+        if not 1 / self.node.rate > self.node.delay:
             self.log(
                 "WARNING",
                 f"The sampling time ({1/node.rate=:.3f} s) is smaller than"
-                f" the output phase ({self.node.phase_output=:.3f} s)."
+                f" the output phase ({self.node.delay=:.3f} s)."
                 " This may lead to large (accumulating) delays.",
                 LogLevel.WARN,
             )

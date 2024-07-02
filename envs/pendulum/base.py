@@ -11,6 +11,11 @@ class SensorParams(base.Base):
 
 
 @struct.dataclass
+class ActuatorParams(base.Base):
+    actuator_delay: base.TrainableDist
+
+
+@struct.dataclass
 class WorldParams(base.Base):
     actuator_delay: base.TrainableDist
 

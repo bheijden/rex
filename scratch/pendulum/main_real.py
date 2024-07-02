@@ -49,12 +49,17 @@ def play_video(bgr, fps):
 
 def get_default_distributions() -> DelaySim:
     delays_sim = dict(step={}, inputs={})
-    for n in ["world", "supervisor", "sensor", "camera", "detector", "estimator", "controller", "actuator", "viewer"]:
+    for n in ["world", "supervisor", "sensor", "camera", "estimator", "controller", "actuator", "viewer"]:
         delays_sim["step"][n] = base.StaticDist.create(distrax.Deterministic(0.))
         delays_sim["inputs"][n] = {}
-        for m in ["world", "supervisor", "sensor", "camera", "detector", "estimator", "controller", "actuator", "viewer"]:
+        for m in ["world", "supervisor", "sensor", "camera", "estimator", "controller", "actuator", "viewer"]:
             delays_sim["inputs"][n][m] = base.StaticDist.create(distrax.Deterministic(0.))
     return delays_sim
+
+
+def load_distribution(file: str) -> DelaySim:
+    with open(file, "rb") as f:
+        return pickle.load(f)
 
 
 def make_real_pendulum_system_nodes(delays_sim: DelaySim,
@@ -62,6 +67,8 @@ def make_real_pendulum_system_nodes(delays_sim: DelaySim,
                                     rates: Dict[str, float],
                                     cscheme: Dict[str, str] = None,
                                     order: list = None,
+                                    use_cam: bool = True,
+                                    include_image: bool = True,
                                     ):
     """Make a real pendulum system."""
     delays = jax.tree_util.tree_map(delay_fn, delays_sim, is_leaf=lambda x: isinstance(x, base.DelayDistribution))
@@ -79,38 +86,33 @@ def make_real_pendulum_system_nodes(delays_sim: DelaySim,
                     delay=delays["step"]["sensor"], delay_dist=delays_sim["step"]["sensor"])
 
     # Create camera
-    from envs.pendulum.realsense import D435i
-    camera = D435i(name="camera", color=cscheme["camera"], order=order.index("camera"),
-                   width=424, height=240, fps=rates["camera"], rate=rates["camera"], scheduling=Scheduling.FREQUENCY,
-                   advance=True,  # This is a polling node (i.e. it runs as fast as possible) --> unable to simulate with clock=SIMULATED
-                   delay=delays["step"]["camera"], delay_dist=delays_sim["step"]["camera"])
-
-    # Create detector
-    from envs.pendulum.detector import Detector
-    detector = Detector(name="detector", color=cscheme["detector"], order=order.index("detector"),
-                        rate=rates["detector"], scheduling=Scheduling.FREQUENCY, advance=True,
-                        delay=delays["step"]["detector"], delay_dist=delays_sim["step"]["detector"])
-    detector.connect(camera, window=1, blocking=False,
-                     delay_dist=delays_sim["inputs"]["detector"]["camera"], delay=delays["inputs"]["detector"]["camera"])
+    from envs.pendulum.realsense import D435iDetector
+    camera = D435iDetector(name="camera", color=cscheme["camera"], order=order.index("camera"),
+                           include_image=include_image, width=424,  height=240, fps=rates["camera"],
+                           rate=rates["camera"], scheduling=Scheduling.PHASE, advance=True,
+                           # This is a polling node (i.e. it runs as fast as possible) --> unable to simulate with clock=SIMULATED
+                           delay=delays["step"]["camera"], delay_dist=delays_sim["step"]["camera"])
 
     # Create estimator
     from envs.pendulum.estimator import Estimator
     estimator = Estimator(name="estimator", color=cscheme["estimator"], order=order.index("estimator"),
+                          use_cam=use_cam,
                           rate=rates["estimator"], scheduling=Scheduling.FREQUENCY, advance=False,
                           delay=delays["step"]["estimator"], delay_dist=delays_sim["step"]["estimator"])
     estimator.connect(sensor, window=1, blocking=False,
                       delay_dist=delays_sim["inputs"]["estimator"]["sensor"], delay=delays["inputs"]["estimator"]["sensor"])
-    estimator.connect(detector, window=1, blocking=False,
-                      delay_dist=delays_sim["inputs"]["estimator"]["detector"], delay=delays["inputs"]["estimator"]["detector"])
+    estimator.connect(camera, window=1, blocking=False,
+                      delay_dist=delays_sim["inputs"]["estimator"]["camera"], delay=delays["inputs"]["estimator"]["camera"])
 
     # Create controller
     from envs.pendulum.controller import OpenLoopController
     controller = OpenLoopController(name="controller", color=cscheme["controller"], order=order.index("controller"),
                                     rate=rates["controller"], scheduling=Scheduling.FREQUENCY, advance=True,
-    # controller = MLPController(name="controller", rate=rates["controller"], scheduling=const.PHASE, advance=True,
-                               delay=delays["step"]["controller"], delay_dist=delays_sim["step"]["controller"])
+                                    delay=delays["step"]["controller"], delay_dist=delays_sim["step"]["controller"])
     controller.connect(estimator, window=1, blocking=True,
                        delay_dist=delays_sim["inputs"]["controller"]["estimator"], delay=delays["inputs"]["controller"]["estimator"])
+    estimator.connect(controller, window=3, blocking=True, skip=True,
+                      delay_dist=delays_sim["inputs"]["estimator"]["controller"], delay=delays["inputs"]["estimator"]["controller"])
 
     # Create actuator
     actuator = Actuator(name="actuator", color=cscheme["actuator"], order=order.index("actuator"),
@@ -118,28 +120,17 @@ def make_real_pendulum_system_nodes(delays_sim: DelaySim,
                         delay=delays["step"]["actuator"], delay_dist=delays_sim["step"]["actuator"])
     actuator.connect(controller, window=1, blocking=True,
                      delay_dist=delays_sim["inputs"]["actuator"]["controller"], delay=delays["inputs"]["actuator"]["controller"])
-    estimator.connect(actuator, window=1, blocking=True, skip=True,
-                      delay_dist=delays_sim["inputs"]["estimator"]["actuator"], delay=delays["inputs"]["estimator"]["actuator"])
 
     # Create supervisor
     from envs.pendulum.supervisor import Supervisor
     supervisor = Supervisor(name="supervisor", color=cscheme["supervisor"], order=order.index("supervisor"),
                             rate=rates["supervisor"], scheduling=Scheduling.FREQUENCY, advance=False,
                             delay=delays["step"]["supervisor"], delay_dist=delays_sim["step"]["supervisor"])
-    supervisor.connect(controller, window=1, blocking=False,
-                       delay_dist=delays_sim["inputs"]["supervisor"]["controller"], delay=delays["inputs"]["supervisor"]["controller"])
     supervisor.connect(estimator, window=1, blocking=False,
                        delay_dist=delays_sim["inputs"]["supervisor"]["estimator"], delay=delays["inputs"]["supervisor"]["estimator"])
-    # supervisor.connect(detector, window=1, blocking=False,
-    #                    delay_dist=delays_sim["inputs"]["supervisor"]["detector"], delay=delays["inputs"]["supervisor"]["detector"])
-    # supervisor.connect(sensor, window=1, blocking=False,
-    #                    delay_dist=delays_sim["inputs"]["supervisor"]["sensor"], delay=delays["inputs"]["supervisor"]["sensor"])
-    # supervisor.connect(camera, window=1, blocking=False,
-    #                    delay_dist=delays_sim["inputs"]["supervisor"]["camera"], delay=delays["inputs"]["supervisor"]["camera"])
 
     nodes = dict(sensor=sensor,
                  camera=camera,
-                 detector=detector,
                  estimator=estimator,
                  controller=controller,
                  actuator=actuator,
@@ -153,14 +144,18 @@ if __name__ == "__main__":
     CPU_DEVICE = jax.devices('cpu')[0]
     RNG = jax.random.PRNGKey(0)
     LOG_DIR = "/home/r2ci/rex/scratch/pendulum/logs"
-    ORDER = ["supervisor", "camera", "detector", "sensor", "estimator", "controller", "actuator"]
-    CSCHEME = {"world": "gray", "sensor": "grape", "camera": "indigo", "detector": "orange",
-               "estimator": "violet", "controller": "lime", "actuator": "green", "supervisor": "indigo"}
-    T_sim = 19
-    delays_sim = get_default_distributions()
-    delay_fn = lambda d: 0.0
-    rates = dict(sensor=30, camera=30, detector=30, estimator=30, controller=30, actuator=30, supervisor=1)
-    nodes = make_real_pendulum_system_nodes(delays_sim, delay_fn, rates, cscheme=CSCHEME, order=ORDER)
+    ORDER = ["camera", "sensor", "actuator", "controller", "estimator", "supervisor"]
+    CSCHEME = {"world": "gray", "sensor": "grape", "camera": "orange", "estimator": "violet", "controller": "lime",
+               "actuator": "green", "supervisor": "indigo"}
+    FILE_NAME = "pendulum_data.pkl"  # todo: If recording for delays, set to "pendulum_data_delay_only.pkl"
+    INCLUDE_IMAGE = True  # Include image in camera output # todo: If recording for delays, set to False
+    USE_CAM = False  # Use camera instead of sensor in estimator
+    NUM_EPISODES = 1  # todo: set to 1 for sysid?
+    TSIM = 21
+    DELAYS_SIM = load_distribution(f"{LOG_DIR}/dists.pkl")  # get_default_distributions()
+    DELAY_FN = lambda d: d.quantile(0.85)  # lambda d: 0.0
+    RATES = dict(sensor=30, camera=30, estimator=30, controller=30, actuator=30, supervisor=10)
+    nodes = make_real_pendulum_system_nodes(DELAYS_SIM, DELAY_FN, RATES, cscheme=CSCHEME, order=ORDER, use_cam=USE_CAM, include_image=INCLUDE_IMAGE)
     graph = rexv2.asynchronous.AsyncGraph(nodes, supervisor=nodes["supervisor"],
                                           clock=Clock.WALL_CLOCK,
                                           real_time_factor=RealTimeFactor.REAL_TIME)
@@ -168,8 +163,8 @@ if __name__ == "__main__":
     # Jit functions
     graph.init = jax.jit(graph.init, static_argnames=["order"], device=GPU_DEVICE)
     cpu_devices = itertools.cycle(jax.devices('cpu'))
-    # _ = next(cpu_devices)  # Skip first CPU
-    cpu_devices = itertools.cycle([jax.devices('cpu')[0]])  # Single CPU
+    _ = next(cpu_devices)  # Skip first CPU
+    # cpu_devices = itertools.cycle([jax.devices('cpu')[0]])  # Single CPU
     for name, node in graph.nodes.items():
         cpu = next(cpu_devices)
         print(f"Jitting {name} on {cpu}")
@@ -177,7 +172,7 @@ if __name__ == "__main__":
 
     # Initialize graph state
     with timer(f"warmup[graph_state]", log_level=LogLevel.WARN):
-        gs = graph.init(RNG, order=("supervisor",))
+        gs = graph.init(RNG, order=("supervisor", "actuator"))
 
     # Load trained params
     with open("controller_trained_params.pkl", "rb") as f:
@@ -206,7 +201,7 @@ if __name__ == "__main__":
     # Set record settings # todo: TURN ON TO RECORD IMAGES ETC...
     for n, node in graph.nodes.items():
         node.set_record_settings(params=True, rng=False, inputs=False, state=True, output=True)
-        if n in ["detector", "controller"]:
+        if n in ["camera", "controller"]:
             node.set_record_settings(state=False)
 
     # Set logging
@@ -214,11 +209,11 @@ if __name__ == "__main__":
 
     # Get data
     episodes = []
-    for i in range(2):
+    for i in range(NUM_EPISODES + 1):
         print(f"Episode {i}")
         with jax.log_compiles():
             gs, _ss = graph.reset(gs)
-            num_steps = int(rates["supervisor"]*T_sim)if i > 0 else 1
+            num_steps = int(RATES["supervisor"]*TSIM)if i > 0 else 1
             for j in tqdm.tqdm(range(num_steps), disable=True):
                 gs, _ss = graph.step(gs)
         graph.stop()  # Stop environment
@@ -242,34 +237,68 @@ if __name__ == "__main__":
         supergraph.plot_graph(G, max_x=MAX_X, ax=axs[i])
         axs[i].set_title(f"Episode {i}")
         axs[i].set_xlabel("Time [s]")
+    # plt.show()
+
+    # Plot results
+    camera = record.episodes[0].nodes["camera"].steps
+    sensor = record.episodes[0].nodes["sensor"].steps
+    estimator = record.episodes[0].nodes["estimator"].steps
+    actuator = record.episodes[0].nodes["actuator"].steps
+
+    # Get std
+    std_vfn = jax.vmap(lambda x: jnp.diag(jnp.sqrt(x)))
+    std_est = std_vfn(estimator.output.cov)
+
+    fig, axes = plt.subplots(3, 1, figsize=(12, 9))
+    axes[0].plot(sensor.ts_start, sensor.output.th, label="sensor", color='r')
+    axes[0].plot(estimator.output.ts, estimator.output.mean.th, label="estimator", color='g')
+    axes[0].fill_between(estimator.output.ts, estimator.output.mean.th - std_est[:, 0], estimator.output.mean.th + std_est[:, 0], alpha=0.5,
+                         color='g')
+    axes[0].plot(camera.output.ts, camera.output.th, label="camera", color='b')
+    # axes[0].plot(est_fut.ts, est_fut.state.mu[:, 0], label="fut", color='b')
+    # axes[0].fill_between(est_fut.ts, est_fut.state.mu[:, 0] - std_fut[:, 0], est_fut.state.mu[:, 0] + std_fut[:, 0], alpha=0.5,
+    #                      color='b')
+    # axes[0].plot(measurements.ts, measurements.th, 'o', label="y", markersize=2)
+    axes[0].legend()
+
+    axes[1].plot(sensor.ts_start, sensor.output.thdot, label="sensor", color='r')
+    axes[1].plot(estimator.output.ts, estimator.output.mean.thdot, label="estimator", color='g')
+    axes[1].fill_between(estimator.output.ts, estimator.output.mean.thdot - std_est[:, 1], estimator.output.mean.thdot + std_est[:, 1], alpha=0.5,
+                         color='g')
+    axes[1].plot(camera.output.ts, camera.output.thdot, label="camera", color='b')
+    # axes[1].plot(est_fut.ts, est_fut.state.mu[:, 1], label="fut", color='b')
+    # axes[1].fill_between(est_fut.ts, est_fut.state.mu[:, 1] - std_fut[:, 1], est_fut.state.mu[:, 1] + std_fut[:, 1], alpha=0.5,
+    #                      color='b')
+    axes[1].legend()
+    # axes[2].plot(actions.ts, actions.action, label="action", color='r')
+    # axes[2].legend()
     plt.show()
 
     # Save data
     stacked = record.stack("padded")
-    name = "pendulum_data.pkl"
-    with open(os.path.join(LOG_DIR, name), "wb") as f:
+    with open(os.path.join(LOG_DIR, FILE_NAME), "wb") as f:
         pickle.dump(stacked, f)
-    print(f"Data saved to {os.path.join(LOG_DIR, name)}")
+    print(f"Data saved to {os.path.join(LOG_DIR, FILE_NAME)}")
     # Unpickle with
     # with open(os.path.join(LOG_DIR, "pendulum_data.pkl"), "rb") as f:
     #     data = pickle.load(f)
 
     # Play video
-    images = record.episodes[0].nodes["camera"].steps.output
-    detections = record.episodes[0].nodes["detector"].steps.output
-    bgr = images.bgr
-    masks = bgr
+    detections = record.episodes[0].nodes["camera"].steps.output
+    if detections.bgr is not None:
+        bgr = detections.bgr
+        masks = bgr
 
-    import cv2
-    for i in range(bgr.shape[0]):
-        if i >= detections.centroid.shape[0]:
-            break
-        # Get the center for the current frame (note that OpenCV uses x, y coordinates)
-        center_col, center_row = detections.centroid[i].astype(int)
+        import cv2
+        for i in range(bgr.shape[0]):
+            if i >= detections.centroid.shape[0]:
+                break
+            # Get the center for the current frame (note that OpenCV uses x, y coordinates)
+            center_col, center_row = detections.centroid[i].astype(int)
 
-        # Mark the centroid with a circle on the image
-        cv2.circle(bgr[i], (int(center_row), int(center_col)), 3, (0, 0, 255), -1)
+            # Mark the centroid with a circle on the image
+            cv2.circle(bgr[i], (int(center_row), int(center_col)), 3, (0, 0, 255), -1)
 
-    min_frames = min(bgr.shape[0], masks.shape[0])
-    video = onp.concatenate([bgr[:min_frames], masks[:min_frames]], axis=2)
-    play_video(video, rates["camera"])
+        min_frames = min(bgr.shape[0], masks.shape[0])
+        video = onp.concatenate([bgr[:min_frames], masks[:min_frames]], axis=2)
+        play_video(video, RATES["camera"])
