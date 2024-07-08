@@ -13,14 +13,12 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.9.0"
-supergraph = "^0.0.6"  # todo: Latest version?
+supergraph = "^0.0.8"  # todo: Latest version? todo: supergraph depends on numpy < 2.0...
 gymnasium = "^0.28.1"
-protobuf = "^3.20"  # todo: remove?
 jax = "^0.4.1"  # 0.4.29?
 equinox="0.11.4"  # Required for sysid
-# todo: optimistix="0.0.7"(sysid), evosax="0.1.6" (sysid), optax="0.2.2" (ppo)
+# todo: , evosax="0.1.6" (sysid), optax="0.2.2" (ppo)
 flax = "^0.8.4"
-tensorflow-probability = "^0.20.1"  # todo: replace with distrax?
 distrax = "^0.1.5"
 termcolor = "^2.1.1"
 networkx = "^3.1"

@@ -132,6 +132,8 @@ dmypy.json
 .idea/
 
 # experiments
+cache-*/
+wandb/
 logs/
 *.zip
 *.mp4

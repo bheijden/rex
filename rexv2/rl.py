@@ -1,4 +1,4 @@
-from typing import Optional, Tuple, Union, Any, Sequence, Dict
+from typing import Optional, Tuple, Union, Any, Sequence, Dict, Callable
 from jax._src.typing import Array, ArrayLike, DTypeLike
 import jax
 import jax.numpy as jnp
@@ -259,7 +259,9 @@ class AutoResetWrapper(BaseWrapper):
         else:
             # todo: Why can't the node be in self._env.params? What if all params in self._env.params are preset?
             names = [name for name in list(gs.rng.keys()) if self._env.params is not None and name not in self._env.params]
-            assert len(names) > 0, "No node found in graph state."
+            if len(names) == 0:
+                names = list(gs.rng.keys())
+                print(f"rl.AutoResetWrapper.step(...) | Warning: No node found in graph state. May not actually be fully randomizing...")
             name = names[0]  # Grab arbitrary node not in preset params
             new_rng, rng_init = jax.random.split(gs.rng[name])
             gs = gs.replace(rng=gs.rng.copy({name: new_rng}))
@@ -557,6 +559,39 @@ class NormalizeVecReward(BaseWrapper):
         # norm_reward = jnp.clip(reward / jnp.sqrt(norm_state.var + 1e-8), -self.clip_reward, self.clip_reward)
         return norm_gs, obs, norm_reward, terminated, truncated, info
 
+
+@struct.dataclass
+class Transition:
+    gs: base.GraphState
+    action: jax.typing.ArrayLike
+    obs: jax.typing.ArrayLike
+    next_obs: jax.typing.ArrayLike
+    reward: Union[float, jax.typing.ArrayLike]
+    terminated: Union[bool, jax.typing.ArrayLike]
+    truncated: Union[bool, jax.typing.ArrayLike]
+    info: Dict[str, jax.typing.ArrayLike]
+
+
+def rollout(env: Environment, get_action: Callable[[jax.Array], jax.Array], num_steps: int, rng: jax.Array = None):
+    """Rollout a single episode of the environment."""
+    rng = jax.random.PRNGKey(0) if rng is None else rng
+
+    def _step(carry, _):
+        _gs, _obs, _is_done = carry
+        action = get_action(_obs)
+        next_gs, next_obs, reward, terminated, truncated, info = env.step(_gs, action)
+        reward = reward * (1 - _is_done)  # If previous step was done, reward is 0
+        done = jnp.logical_or(terminated, truncated)
+        next_is_done = jnp.logical_or(_is_done, done)
+        transition = Transition(gs=_gs, action=action, obs=_obs, next_obs=next_obs, reward=reward, terminated=terminated, truncated=truncated, info=info)
+        return (next_gs, next_obs, next_is_done), transition
+
+    # Reset the environment
+    gs, obs, info = env.reset(rng)
+
+    # Step
+    _, transition = jax.lax.scan(_step, (gs, obs, jnp.array(False)), jnp.arange(num_steps))
+    return transition
 
 ####################################################################################################
 # Not used yet

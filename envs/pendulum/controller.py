@@ -28,6 +28,7 @@ class PPOAgentParams(Base):
     hidden_activation: str = struct.field(pytree_node=False, default="tanh")
     output_activation: str = struct.field(pytree_node=False, default="gaussian")
     stochastic: bool = struct.field(pytree_node=False, default=False)
+    incl_covariance: bool = struct.field(pytree_node=False, default=True)
 
     def apply_actor(self, x: jax.typing.ArrayLike, rng: jax.Array = None) -> jax.Array:
         # Get parameters
@@ -69,22 +70,29 @@ class PPOAgentParams(Base):
         action = self.act_scaling.unsquash(action)
         return action
 
-    @staticmethod
-    def inputs_to_obs(inputs: FrozenDict[str, InputState]) -> jax.Array:
+    def inputs_to_obs(self, inputs: FrozenDict[str, InputState]) -> jax.Array:
         # Get observation
         if "estimator" in inputs:
             state_estimate = inputs["estimator"][-1].data
             th, thdot = state_estimate.mean.th, state_estimate.mean.thdot
+            obs = jnp.array([jnp.cos(th), jnp.sin(th), thdot])
+            if self.incl_covariance:
+                var = state_estimate.cov.diagonal()
+                covar = state_estimate.cov[0, 1]
+                obs_covar = jnp.array([var[0], var[1], covar])
+                obs = jnp.concatenate([obs, obs_covar])
         elif "sensor" in inputs:
+            assert self.incl_covariance is False, "Covariance not implemented for sensor input."
             th, thdot = inputs["sensor"][-1].data.th, inputs["sensor"][-1].data.thdot
+            obs = jnp.array([jnp.cos(th), jnp.sin(th), thdot])
         else:
+            assert self.incl_covariance is False, "Covariance not implemented for sensor input."
             assert "world" in inputs, "Either 'estimator', 'sensor', or 'world' must be in the inputs."
             th, thdot = inputs["world"][-1].data.th, inputs["world"][-1].data.thdot
-        obs = jnp.array([jnp.cos(th), jnp.sin(th), thdot])
+            obs = jnp.array([jnp.cos(th), jnp.sin(th), thdot])
         return obs
 
-    @staticmethod
-    def get_observation(step_state: StepState) -> jax.Array:
+    def get_observation(self, step_state: StepState) -> jax.Array:
         """Get observation for the policy.
 
         :return: Flattened observation of the policy
@@ -93,19 +101,18 @@ class PPOAgentParams(Base):
         rng, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
 
         # Convert inputs to observation
-        obs = PPOAgentParams.inputs_to_obs(inputs)
+        obs = self.inputs_to_obs(inputs)
 
         # Convert to observation with history
         obs_history = jnp.concatenate([obs, state.history_obs.flatten(), state.history_act.flatten()])
         return obs_history
 
-    @staticmethod
-    def update_state(step_state: StepState, action: jax.Array) -> StepState:
+    def update_state(self, step_state: StepState, action: jax.Array) -> StepState:
         # Unpack StepState
         rng, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
 
         # Convert inputs to observation
-        obs = PPOAgentParams.inputs_to_obs(inputs)
+        obs = self.inputs_to_obs(inputs)
 
         # Update obs history
         if params.num_obs > 0:
@@ -132,15 +139,9 @@ class PPOAgentParams(Base):
             state_estimate = inputs["estimator"][-1].data
         elif "sensor" in inputs:
             state_estimate = None
-            # th, thdot = inputs["sensor"][-1].data.th, inputs["sensor"][-1].data.thdot
-            # world_state = WorldState(th=th, thdot=thdot)
-            # state_estimate = EstimatorOutput(mean=world_state, ts=step_state.ts)
         else:
             assert "world" in inputs, "Either 'estimator', 'sensor', or 'world' must be in the inputs."
             state_estimate = None
-            # th, thdot = inputs["world"][-1].data.th, inputs["world"][-1].data.thdot
-            # world_state = WorldState(th=th, thdot=thdot)
-            # state_estimate = EstimatorOutput(mean=world_state, ts=step_state.ts)
         return ActuatorOutput(action=action, state_estimate=state_estimate)
 
 

@@ -58,6 +58,7 @@ class EstimatorParams(Base):
     dt_future: Union[float, jax.typing.ArrayLike]  # Time to predict into the future [0, inf]
     std_acc: Union[float, jax.typing.ArrayLike]  # Standard deviation of acceleration noise
     std_th: Union[float, jax.typing.ArrayLike]  # Standard deviation of angle noise
+    std_init: Union[float, jax.typing.ArrayLike]  # Standard deviation of initial state
     use_cam: bool = struct.field(pytree_node=False)  # Use camera+detector or angle sensor
     substeps_update: int = struct.field(pytree_node=False)
     substeps_predict: int = struct.field(pytree_node=False)
@@ -67,6 +68,7 @@ class EstimatorParams(Base):
 class EstimatorState(Base):
     ts: Union[float, jax.typing.ArrayLike]  # ts of prior
     prior: UKFState
+    loss_th: Union[float, jax.typing.ArrayLike]  # Running reconstruction loss of the estimated pendulum angle
 
     def to_output(self) -> "EstimatorOutput":
         mean = WorldState(th=self.prior.mu[0], thdot=self.prior.mu[1])
@@ -87,7 +89,6 @@ class Estimator(BaseNode):
 
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> EstimatorParams:
         """Default params of the root."""
-        # todo: world not always available here.
         ode = UKFOde(
             None,
             max_speed=40.0,
@@ -105,16 +106,25 @@ class Estimator(BaseNode):
                                substeps_predict=4,  # todo: set appropriately
                                # Note: dt_future measures latency from estimator to control application on the world
                                # This means that: dt_future ~= (world.inputs["actuator"].phase - estimator.phase)
-                               dt_future=0.003,
-                               std_acc=jnp.sqrt(10.0),
-                               std_th=jnp.sqrt(0.2),
-                               use_cam=self.use_cam)
+                               dt_future=0.027,
+                               std_acc=3.154,
+                               std_th=0.43,
+                               std_init=0.5,
+                               use_cam=self.use_cam
+                            )
 
     def init_state(self, rng: jax.Array = None, graph_state: GraphState = None) -> EstimatorState:
         """Default state of the root."""
-        prior = UKFState(mu=jnp.array([jnp.pi, 0.0]),
-                         sigma=jnp.eye(2) * 0.01)
-        return EstimatorState(ts=0.0, prior=prior)
+        # Try to grab state from graph_state
+        graph_state = graph_state or GraphState()
+        state = graph_state.state.get("supervisor", None)
+        th = state.init_th if state is not None else jnp.pi
+        thdot = state.init_thdot if state is not None else 0.
+        graph_state = graph_state or GraphState()
+        std_init = graph_state.params.get(self.name, self.init_params(rng, graph_state)).std_init
+        prior = UKFState(mu=jnp.array([th, thdot]),
+                         sigma=jnp.eye(2) * std_init**2)
+        return EstimatorState(ts=0.0, prior=prior, loss_th=0.0)
 
     def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> EstimatorOutput:
         """Default output of the root."""
@@ -131,7 +141,7 @@ class Estimator(BaseNode):
         ts_actions = inputs["controller"].data.state_estimate.ts
 
         # Filter finite difference of the pendulum angle
-        source_name = "camera" if params.use_cam else "sensor"
+        source_name = "camera" if self.use_cam else "sensor"
         source = inputs[source_name][-1].data
         th = source.th[None]
         trig_th = jnp.concatenate([jnp.cos(th), jnp.sin(th)], axis=0)
@@ -148,7 +158,10 @@ class Estimator(BaseNode):
         def _update(_state: EstimatorState) -> EstimatorState:
             """Only update if new measurement (i.e. ts_prev < ts_meas)."""
             _posterior = params.ukf.predict_and_update(Fx_upd, Qx_upd, Gx, Rx, state.prior, trig_th)
-            _new_state = EstimatorState(ts=ts_meas, prior=_posterior)
+            # Calculate loss_th
+            _th_est = _posterior.mu[0]
+            loss_th = _state.loss_th + 10*(jnp.sin(_th_est) - jnp.sin(th[0])) ** 2 + (jnp.cos(_th_est) - jnp.cos(th[0])) ** 2
+            _new_state = EstimatorState(ts=ts_meas, prior=_posterior, loss_th=loss_th)
             return _new_state
 
         def _no_update(_state: EstimatorState) -> EstimatorState:
@@ -170,7 +183,7 @@ class Estimator(BaseNode):
         Fx_fut = params.ode.make_Fx(params.substeps_predict, new_state.ts, dt_fut, ts_actions, actions)
         Qx_fut = params.ode.make_Qx(dt_fut, params.std_acc)
         ukf_fut = params.ukf.predict(Fx_fut, Qx_fut, posterior)
-        est_fut = EstimatorState(ts=ts_fut, prior=ukf_fut)
+        est_fut = EstimatorState(ts=ts_fut, prior=ukf_fut, loss_th=None)
 
         # To output
         output = est_fut.to_output()

@@ -1,0 +1,17 @@
+setuptools
+pip
+
+supergraph
+gymnasium
+tqdm
+dill
+seaborn
+matplotlib
+networkx
+termcolor
+jax[cuda12]
+equinox
+evosax
+optax
+flax
+distrax

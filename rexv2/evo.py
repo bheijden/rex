@@ -66,7 +66,7 @@ class EvoSolver:
 
     def init_logger(self, num_generations: int, top_k: int = 5, maximize: bool = False) -> LogState:
         logger = evx.ESLog(pholder_params=self.strategy.param_reshaper.placeholder_params,
-                         num_generations=num_generations, top_k=top_k, maximize=maximize)
+                           num_generations=num_generations, top_k=top_k, maximize=maximize)
         log_state = logger.initialize()
         return LogState(state=log_state, logger=logger)
 

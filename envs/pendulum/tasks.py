@@ -56,31 +56,26 @@ class Task:
         sol_state, log_state, losses = evo.evo(loss, self.solver, init_sol_state, (trans_extend,),
                                                max_steps=max_steps, rng=rng, verbose=verbose, logger=logger)
         opt_params = self.solver.unflatten(sol_state.best_member)
-        if verbose:
-            class _PrettyPrint:
-                def __init__(self, xt, x):
-                    self.xt = onp.array(xt)
-                    self.x = x
 
-                def __repr__(self):
-                    """Relative to the transformed value."""
-                    return f"{self.xt} Rel({self.x:.2f})"
+        if verbose:
+            def cb_pretty_print(_opt_params, _opt_params_trans_inv):
+                class _PrettyPrint:
+                    def __init__(self, xt, x):
+                        self.xt = onp.array(xt)
+                        self.x = x
+
+                    def __repr__(self):
+                        """Relative to the transformed value."""
+                        return f"{self.xt} Rel({self.x:.2f})"
+
+                pp = jax.tree_util.tree_map(lambda _xt, _x: _PrettyPrint(_xt, _x), _opt_params_trans_inv, _opt_params)
+                _ = eqx.tree_pprint(pp)
+                return jnp.array(0.)  # Dummy return
 
             opt_params_trans = self.trans.apply(opt_params)
             extend = base.Extend.init(opt_params_trans, opt_params)
             opt_params_trans_inv = extend.inv(opt_params_trans)  # Filters shared parameters
-            pp = jax.tree_util.tree_map(lambda _xt, _x: _PrettyPrint(_xt, _x), opt_params_trans_inv, opt_params)
-            # Pretty print the parameters
-            _ = eqx.tree_pprint(pp)
-            # msg = ""
-            # pdict = {}
-            # for key, value in pp.items():
-            #     leaves = jax.tree_util.tree_leaves(value)
-            #     if len(leaves) > 0:
-            #         pdict[key] = value
-            #         msg += f"{key}: " + "{"f"{key}""}\n"
-            # print((f"{self.description}: \n" + msg).format(**pdict))
-            # jax.debug.print(f"{self.description}: \n" + msg, **pdict)
+            jax.experimental.io_callback(cb_pretty_print, jnp.array(0.), opt_params, opt_params_trans_inv)
         opt_params_trans_ex = trans_extend.apply(opt_params)
         return sol_state, opt_params_trans_ex, log_state
 
@@ -176,17 +171,17 @@ def create_control_task(graph: Graph, graph_state: base.GraphState, strategy: st
         figs.append(fig)
         ts_world = graph_states.ts["world"] + 1/graph.nodes["world"].rate
         th_world = graph_states.state["world"].th
-        axes[0].plot(ts_world, th_world, label="world")
+        axes[0].plot(ts_world, th_world, label="world", color="blue")
         if "estimator" in graph_states.inputs:
             axes[0].plot(graph_states.inputs["estimator"]["sensor"].ts_recv[:, 0],
-                         graph_states.inputs["estimator"]["sensor"].data.th[:, 0], label="sensor")
+                         graph_states.inputs["estimator"]["sensor"].data.th[:, 0], label="sensor", color="orange")
         if "controller" in graph_states.inputs:
             if "estimator" in graph_states.inputs["controller"]:
                 axes[0].plot(graph_states.inputs["controller"]["estimator"].ts_recv[:, 0],
                              graph_states.inputs["controller"]["estimator"].data.mean.th[:, 0], label="estimator")
             elif "world" in graph_states.inputs["controller"]:
                 axes[0].plot(graph_states.inputs["controller"]["world"].ts_recv[:, 0],
-                             graph_states.inputs["controller"]["world"].data.th[:, 0], label="world")
+                             graph_states.inputs["controller"]["world"].data.th[:, 0], label="world", color="blue")
         if "actuator" in graph_states.inputs:
             axes[0].plot(graph_states.inputs["actuator"]["controller"].ts_recv[:, 0],
                          graph_states.inputs["actuator"]["controller"].data.state_estimate.mean.th[:, 0], label="controller")
@@ -196,7 +191,7 @@ def create_control_task(graph: Graph, graph_state: base.GraphState, strategy: st
         axes[0].set(ylabel="th")
         axes[0].legend()
         thdot_world = graph_states.state["world"].thdot
-        axes[1].plot(ts_world, thdot_world, label="world")
+        axes[1].plot(ts_world, thdot_world, label="world", color="blue")
         axes[1].set(ylabel="thdot", ylim=[-30, 30])
         fig.suptitle(f"{identifier}(th, thdot)")
         # plt.show()
@@ -224,9 +219,10 @@ def create_sysid_task(graph: Graph, graph_state: base.GraphState, strategy: str 
     # Create an empty filter
     base_states = {name: s for name, s in graph_state.state.items()}
     loss_filter = jax.tree_util.tree_map(lambda x: False, base_states)
-    # loss_filter["world"] = loss_filter["world"].replace(loss_th=True, loss_thdot=True)  # Estimator loss
+    # loss_filter["world"] = loss_filter["world"].replace(loss_th=True, loss_thdot=True)  # Estimator loss # todo: remove?
     # loss_filter["world"] = loss_filter["world"].replace(loss_task=True)  # Task loss
     loss_filter["world"] = loss_filter["world"].replace(loss_ts=True)  # Reconstruction loss
+    loss_filter["estimator"] = loss_filter["estimator"].replace(loss_th=True)  # Estimator loss
     # loss_filter["sensor"] = loss_filter["sensor"].replace(loss_th=True, loss_thdot=True)  # Reconstruction loss
     loss_filter["camera"] = loss_filter["camera"].replace(loss_th=True)  # Reconstruction loss
     # loss_filter["world"] = loss_filter["world"].replace(loss_task=True)  # Controller loss
@@ -272,18 +268,19 @@ def create_sysid_task(graph: Graph, graph_state: base.GraphState, strategy: str 
     init_detector = init_detector.replace(wn=None)  # Low-pass filter
     u_min_detector = jax.tree_util.tree_map(lambda x: x * 0.9, init_detector)  # todo: Use MIN?
     u_max_detector = jax.tree_util.tree_map(lambda x: x * 1.1, init_detector)  # todo: use MAX?
-    u_min_detector = eqx.tree_at(lambda _min: _min.phi, u_min_detector, -2 * onp.pi)
-    u_max_detector = eqx.tree_at(lambda _max: _max.phi, u_max_detector, 2 * onp.pi)
-    u_min_detector = eqx.tree_at(lambda _min: _min.theta_offset, u_min_detector, -2 * onp.pi)
-    u_max_detector = eqx.tree_at(lambda _max: _max.theta_offset, u_max_detector, 2 * onp.pi)
+    u_min_detector = eqx.tree_at(lambda _min: _min.phi, u_min_detector, -onp.pi)
+    u_max_detector = eqx.tree_at(lambda _max: _max.phi, u_max_detector, onp.pi)
+    u_min_detector = eqx.tree_at(lambda _min: _min.theta_offset, u_min_detector, -onp.pi)
+    u_max_detector = eqx.tree_at(lambda _max: _max.theta_offset, u_max_detector, onp.pi)
 
     # Camera
-    # todo: add measurement noise to camera & connect with estimator
     init_params["camera"] = base_params["camera"].replace(detector=None)  # Add detector after setting other camera params
     u_min["camera"] = jax.tree_util.tree_map(lambda x: x * MIN, init_params["camera"])
     u_max["camera"] = jax.tree_util.tree_map(lambda x: x * MAX, init_params["camera"])
     u_min["camera"] = eqx.tree_at(lambda _min: _min.sensor_delay.alpha, u_min["camera"], 0.)
     u_max["camera"] = eqx.tree_at(lambda _max: _max.sensor_delay.alpha, u_max["camera"], 1.)
+    u_min["camera"] = eqx.tree_at(lambda _min: _min.std_th, u_min["camera"], 0.01)
+    u_max["camera"] = eqx.tree_at(lambda _max: _max.std_th, u_max["camera"], 0.5)
     # Add detector
     init_params["camera"] = init_params["camera"].replace(detector=init_detector)
     u_min["camera"] = u_min["camera"].replace(detector=u_min_detector)
@@ -291,13 +288,14 @@ def create_sysid_task(graph: Graph, graph_state: base.GraphState, strategy: str 
 
     # Estimator
     from envs.pendulum.estimator import UKFOde
-    init_params["estimator"] = base_params["estimator"].replace(dt_future=0.0, ode=None)
+    init_params["estimator"] = base_params["estimator"].replace(dt_future=0.0, ode=None, std_th=None)
     u_min["estimator"] = jax.tree_util.tree_map(lambda x: x * MIN, init_params["estimator"])
     u_max["estimator"] = jax.tree_util.tree_map(lambda x: x * MAX, init_params["estimator"])
     u_min["estimator"] = eqx.tree_at(lambda _min: _min.dt_future, u_min["estimator"], 0.)
-    u_max["estimator"] = eqx.tree_at(lambda _max: _max.dt_future, u_max["estimator"], 0.1)
+    u_max["estimator"] = eqx.tree_at(lambda _max: _max.dt_future, u_max["estimator"], 0.05)
     replace_fn = lambda _p: UKFOde(**_p["world"].__dict__).replace(actuator_delay=None)
     shared.append(base.Shared.init(where=lambda _p: _p["estimator"].ode, replace_fn=replace_fn))
+    shared.append(base.Shared.init(where=lambda _p: _p["estimator"].std_th, replace_fn=lambda _p: _p["camera"].std_th))
 
     # Controller
     # init_params["controller"] = base_params["controller"].replace(max_torque=None, min_torque=None)
@@ -328,31 +326,53 @@ def create_sysid_task(graph: Graph, graph_state: base.GraphState, strategy: str 
         ts_world = graph_states.ts["world"]
         ts_camera = graph_states.state["camera"].tsn_1
         ts_estimator = graph_states.inputs["controller"]["estimator"].data.ts[:, -1]
+        ts_estimator_meas = graph_states.state["estimator"].ts
+        ts_action = graph_states.inputs["world"]["actuator"].ts_recv[:, 0]
 
-        # wrap_unwrap = lambda x: onp.unwrap((x + onp.pi) % (2 * onp.pi) - onp.pi, discont=onp.pi)
-        wrap_unwrap = lambda x: onp.sin(x)
+        # Get action
+        action = graph_states.inputs["world"]["actuator"].data.action[:, 0, 0]
+        axes[0].plot(ts_action, action, label="action", color='purple')
+
+        # Get std
+        std_vfn = jax.vmap(lambda x: jnp.diag(jnp.sqrt(x)))
+        std_est = std_vfn(graph_states.inputs["controller"]["estimator"].data.cov[:, 0])
+
+        def wrap_unwrap(x):
+            _wrap_unwrap = lambda o: jnp.unwrap((x + onp.pi+o) % (2 * onp.pi) - onp.pi, discont=onp.pi)-o
+
+            x_map = jax.vmap(_wrap_unwrap)(jnp.array([0.1, 0.0, -0.1]))
+            # take i where the first x_map[i,0] is closest to onp.pi
+            i = jnp.argmin(jnp.abs(x_map[:, 0] - onp.pi))
+            return x_map[i]
+
         th_sensor = graph_states.inputs["estimator"]["sensor"].data.th[:, 0]
         th_sensor = wrap_unwrap(th_sensor)
+        th_sensor = th_sensor
         th_world = graph_states.state["world"].th
         th_world = wrap_unwrap(th_world)
         th_camera = jnp.unwrap(graph_states.state["camera"].thn_1)
         th_camera = wrap_unwrap(th_camera)
-        th_estimator = graph_states.inputs["controller"]["estimator"].data.mean.th[:, 0]
-        th_estimator = wrap_unwrap(th_estimator)
-        axes[0].plot(ts_world, th_world, label="world")
-        axes[0].plot(ts_sensor, th_sensor, label="sensor")
-        axes[0].plot(ts_camera, th_camera, label="camera")
-        axes[0].plot(ts_estimator, th_estimator, label="estimator")
+        th_estimator = wrap_unwrap(graph_states.inputs["controller"]["estimator"].data.mean.th[:, 0])
+        th_estimator_meas = wrap_unwrap(graph_states.state["estimator"].prior.mu[:, 0])
+        axes[0].plot(ts_world, th_world, label="world", color="blue")
+        axes[0].plot(ts_sensor, th_sensor, label="sensor", color="orange")
+        axes[0].plot(ts_camera, th_camera, label="camera", color="green")
+        axes[0].plot(ts_estimator, th_estimator, label="estimator", color='r')
+        axes[0].fill_between(ts_estimator, th_estimator - std_est[:, 0], th_estimator + std_est[:, 0], alpha=0.5, color='r')
+        # axes[0].plot(ts_estimator_meas, th_estimator_meas, label="estimator_meas", color='cyan')
         axes[0].set(ylabel="th")
         axes[0].legend()
         thdot_sensor = graph_states.inputs["estimator"]["sensor"].data.thdot[:, 0]
         thdot_world = graph_states.state["world"].thdot
         thdot_camera = graph_states.state["camera"].yn_1
         thdot_estimator = graph_states.inputs["controller"]["estimator"].data.mean.thdot[:, 0]
-        axes[1].plot(ts_world, thdot_world, label="world")
-        axes[1].plot(ts_sensor, thdot_sensor, label="sensor")
-        axes[1].plot(ts_camera, thdot_camera, label="camera")
-        axes[1].plot(ts_estimator, thdot_estimator, label="estimator")
+        thdot_estimator_meas = graph_states.state["estimator"].prior.mu[:, 1]
+        axes[1].plot(ts_world, thdot_world, label="world", color="blue")
+        axes[1].plot(ts_sensor, thdot_sensor, label="sensor", color="orange")
+        axes[1].plot(ts_camera, thdot_camera, label="camera", color="green")
+        axes[1].plot(ts_estimator, thdot_estimator, label="estimator", color='r')
+        axes[1].fill_between(ts_estimator, thdot_estimator - std_est[:, 1], thdot_estimator + std_est[:, 1], alpha=0.5, color='r')
+        # axes[1].plot(ts_estimator_meas, thdot_estimator_meas, label="estimator_meas", color='cyan')
         # axes[1].plot(outputs_sysid["camera"].ts[EPS_IDX], outputs_sysid["camera"].thdot[EPS_IDX], label="camera (data)")
         axes[1].set(ylabel="thdot", ylim=[-30, 30])
         axes[1].legend()
@@ -364,15 +384,15 @@ def create_sysid_task(graph: Graph, graph_state: base.GraphState, strategy: str 
         # th_world = graph_states.nodes["world"].state.th
         # ts_camera = graph_states.nodes["camera"].state.tsn_1
         # th_camera = jnp.unwrap(graph_states.nodes["camera"].state.thn_1)
-        # axes[0].plot(ts_world, jnp.sin(th_world), label="world")
-        # axes[0].plot(ts_sensor, jnp.sin(th_sensor), label="sensor")
-        # axes[0].plot(ts_camera, jnp.sin(th_camera), label="camera")
-        # axes[1].plot(ts_world, jnp.cos(th_world), label="world")
-        # axes[1].plot(ts_sensor, jnp.cos(th_sensor), label="sensor")
-        # axes[1].plot(ts_camera, jnp.cos(th_camera), label="camera")
+        # axes[0].plot(ts_world, jnp.sin(th_world), label="world", color="blue)
+        # axes[0].plot(ts_sensor, jnp.sin(th_sensor), label="sensor", color="orange)
+        # axes[0].plot(ts_camera, jnp.sin(th_camera), label="camera", color="green)
+        # axes[1].plot(ts_world, jnp.cos(th_world), label="world", color="blue)
+        # axes[1].plot(ts_sensor, jnp.cos(th_sensor), label="sensor", color="orange)
+        # axes[1].plot(ts_camera, jnp.cos(th_camera), label="camera", color="green)
         # axes[0].legend()
         # fig.suptitle(f"{identifier}(sin, cos)")
-        figs.append(fig)
+        # figs.append(fig)
         return figs
 
     # Initialize solver
@@ -381,7 +401,7 @@ def create_sysid_task(graph: Graph, graph_state: base.GraphState, strategy: str 
         "OpenES": dict(popsize=200, use_antithetic_sampling=True, opt_name="adam",
                        lrate_init=0.125, lrate_decay=0.999, lrate_limit=0.001,
                        sigma_init=0.05, sigma_decay=0.999, sigma_limit=0.01, mean_decay=0.0),
-        "CMA_ES": dict(popsize=200, elite_ratio=0.1, sigma_init=0.25, mean_decay=0.),
+        "CMA_ES": dict(popsize=200, elite_ratio=0.1, sigma_init=0.4, mean_decay=0.),
     }
 
     denorm = base.Denormalize.init(u_min, u_max)
@@ -477,16 +497,16 @@ def create_estimator_task(graph: Graph, graph_state: base.GraphState, strategy: 
         th_sensor = graph_states.inputs["estimator"]["sensor"].data.th[:, 0] - graph_states.inputs["estimator"]["sensor"].data.th[1, 0]
         th_world = graph_states.state["world"].th
         th_detector = jnp.unwrap(graph_states.state["detector"].thn_1)
-        axes[0].plot(ts_world, th_world, label="world")
-        axes[0].plot(ts_sensor, th_sensor, label="sensor")
+        axes[0].plot(ts_world, th_world, label="world", color="blue")
+        axes[0].plot(ts_sensor, th_sensor, label="sensor", color="orange")
         axes[0].plot(ts_detector, th_detector, label="detector")
         axes[0].set(ylabel="th")
         axes[0].legend()
         thdot_sensor = graph_states.inputs["estimator"]["sensor"].data.thdot[:, 0]
         thdot_world = graph_states.state["world"].thdot
         thdot_detector = graph_states.state["detector"].yn_1
-        axes[1].plot(ts_world, thdot_world, label="world")
-        axes[1].plot(ts_sensor, thdot_sensor, label="sensor")
+        axes[1].plot(ts_world, thdot_world, label="world", color="blue")
+        axes[1].plot(ts_sensor, thdot_sensor, label="sensor", color="orange")
         axes[1].plot(ts_detector, thdot_detector, label="detector (low-pass)")
         # axes[1].plot(outputs_sysid["detector"].ts[EPS_IDX], outputs_sysid["detector"].thdot[EPS_IDX], label="detector (data)")
         axes[1].set(ylabel="thdot", ylim=[-30, 30])
@@ -499,11 +519,11 @@ def create_estimator_task(graph: Graph, graph_state: base.GraphState, strategy: 
         # th_world = graph_states.nodes["world"].state.th
         # ts_detector = graph_states.nodes["detector"].state.tsn_1
         # th_detector = jnp.unwrap(graph_states.nodes["detector"].state.thn_1)
-        # axes[0].plot(ts_world, jnp.sin(th_world), label="world")
-        # axes[0].plot(ts_sensor, jnp.sin(th_sensor), label="sensor")
+        # axes[0].plot(ts_world, jnp.sin(th_world), label="world", color="blue)
+        # axes[0].plot(ts_sensor, jnp.sin(th_sensor), label="sensor", color="orange)
         # axes[0].plot(ts_detector, jnp.sin(th_detector), label="detector")
-        # axes[1].plot(ts_world, jnp.cos(th_world), label="world")
-        # axes[1].plot(ts_sensor, jnp.cos(th_sensor), label="sensor")
+        # axes[1].plot(ts_world, jnp.cos(th_world), label="world", color="blue)
+        # axes[1].plot(ts_sensor, jnp.cos(th_sensor), label="sensor", color="orange)
         # axes[1].plot(ts_detector, jnp.cos(th_detector), label="detector")
         # axes[0].legend()
         # fig.suptitle(f"{identifier}(sin, cos)")

@@ -3,6 +3,7 @@ from typing import Union, Tuple
 import jax
 from flax import struct
 from jax import numpy as jnp
+import numpy as onp
 
 from rexv2.base import GraphState, StepState, Base
 from rexv2.node import BaseNode
@@ -57,6 +58,19 @@ class DetectorParams(Base):
         new_state, thdot = self.th_to_thdot(new_state, th, ts)
         output = DetectorOutput(centroid=centroid, median=median, th=th, thdot=thdot, ts=ts)
         return new_state, output
+
+    def noncausal_step(self, ts: Union[float, jax.typing.ArrayLike], bgr: jax.typing.ArrayLike) -> Tuple["DetectorState", "DetectorOutput"]:
+        cummin = bgr.min(axis=0)
+        cummax = bgr.max(axis=0)
+        init_state = self.init_state().replace(cummin=cummin, cummax=cummax)
+
+        def _scan(state, x):
+            ts, bgr = x
+            next_state, output = self.step(ts, bgr, state)
+            return next_state, output
+
+        final_state, outputs = jax.lax.scan(_scan, init_state, (ts, bgr))
+        return final_state, outputs
 
     def bgr_to_pixel(self, state: "DetectorState", bgr: jax.typing.ArrayLike) -> Tuple["DetectorState", jax.Array, jax.Array]:
         mask_mov, cummin, cummax = self._movement_mask(bgr, state.cummin, state.cummax, self.min_max_threshold)
@@ -258,6 +272,78 @@ class DetectorParams(Base):
 
         return a, b, x0, y0, phi
 
+    def draw_ellipse(self, bgr: jax.typing.ArrayLike, border: float = 0.95, color=(0, 255, 0)):
+        color = onp.array(color, dtype=onp.uint8)
+
+        def draw_single_ellipse(_bgr):
+            # Create a meshgrid for the image
+            y, x = jnp.meshgrid(jnp.arange(_bgr.shape[0]), jnp.arange(_bgr.shape[1]), indexing='ij')
+
+            # Translate and rotate coordinates
+            x_t = x - self.x0
+            y_t = y - self.y0
+            x_r = -x_t * jnp.sin(self.phi) + y_t * jnp.cos(self.phi)
+            y_r = -x_t * jnp.cos(self.phi) - y_t * jnp.sin(self.phi)
+
+            # Ellipse equation
+            ellipse = ((x_r / self.b) ** 2 + (y_r / self.a) ** 2 <= 1) & ((x_r / self.b) ** 2 + (y_r / self.a) ** 2 > border)
+
+            # Create ellipse mask (green color)
+            ellipse_mask = jnp.zeros_like(_bgr)
+            ellipse_mask = ellipse_mask.at[ellipse, :].set(color)  # Green channel
+
+            # Draw center point
+            center_mask = ((x - self.x0) ** 2 + (y - self.y0) ** 2 <= 9)
+            ellipse_mask = ellipse_mask.at[center_mask, :].set(color)  # Green channel
+
+            # Add ellipse to _bgr
+            res = jnp.maximum(_bgr, ellipse_mask)
+            return res  # jnp.clip(_bgr + ellipse_mask, 0, 255)
+
+        return jax.vmap(draw_single_ellipse)(bgr)
+
+    @staticmethod
+    def draw_centroids(bgr: jax.typing.ArrayLike, centroids: jax.typing.ArrayLike, color=(0, 255, 0), dot_radius: float = 2, stack: bool = True):
+        color = onp.array(color, dtype=onp.uint8)
+
+        def draw_single_centroid(_bgr, _centroid):
+            # Create a meshgrid for the image
+            y, x = jnp.meshgrid(jnp.arange(_bgr.shape[0]), jnp.arange(_bgr.shape[1]), indexing='ij')
+
+            # Draw center point
+            center_mask = ((x - _centroid[1]) ** 2 + (y - _centroid[0]) ** 2 <= dot_radius ** 2)
+            center_mask = center_mask[..., None].repeat(3, axis=-1)
+            center_mask = jnp.where(center_mask, color, 0)
+
+            # Add center to _bgr
+            res = jnp.maximum(_bgr, center_mask)
+            return res
+
+        if not stack:
+            bgr_out = jax.vmap(draw_single_centroid)(bgr, centroids)
+        else:
+            def _scan(_mask, x):
+                _bgr, _centroid = x
+                _stacked_mask = draw_single_centroid(_mask, _centroid)
+                res = jnp.maximum(_bgr, _stacked_mask)
+                return _stacked_mask, res
+
+            init_mask = jnp.zeros_like(bgr[0])
+            _, bgr_out = jax.lax.scan(_scan, init_mask,(bgr, centroids))
+        return bgr_out
+
+    @staticmethod
+    def play_video(bgr, fps):
+        import cv2
+        wait_time = int(1000 / fps)  # Time in ms between frames
+        bgr_uint8 = onp.array(bgr).astype(onp.uint8)
+        while True:
+            for img_uint8 in bgr_uint8:
+                cv2.imshow('Video', img_uint8)
+                if cv2.waitKey(wait_time) & 0xFF == ord('q'):
+                    cv2.destroyAllWindows()
+                    return
+
 
 @struct.dataclass
 class DetectorState(Base):
@@ -343,6 +429,7 @@ class Detector(BaseNode):
 @struct.dataclass
 class SimDetectorState(DetectorState):
     loss_th: [float, jax.typing.ArrayLike]
+    loss_th_prob: [float, jax.typing.ArrayLike]
 
 
 class SimDetector(Detector):
@@ -365,7 +452,7 @@ class SimDetector(Detector):
         state = super().init_state(rng, graph_state)
         # Remove cummin and cummax from state if outputs are available (i.e., if the node is used for system identification)
         state = state if self._outputs is None else state.replace(cummin=None, cummax=None)
-        state = SimDetectorState(**state.__dict__, loss_th=0.0)
+        state = SimDetectorState(**state.__dict__, loss_th=0.0, loss_th_prob=0.0)
         return state
 
     def step(self, step_state: StepState) -> Tuple[StepState, DetectorOutput]:

@@ -59,7 +59,7 @@ class Sensor(BaseNode):
 
     def init_params(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> SensorParams:
         """Default params of the node."""
-        sensor_delay = base.TrainableDist.create(alpha=0., min=0.0, max=1 / self.rate)
+        sensor_delay = base.TrainableDist.create(alpha=0., min=0.0, max=0.05)
         return SensorParams(sensor_delay=sensor_delay)
 
     def init_output(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> SensorOutput:
@@ -108,7 +108,7 @@ class Actuator(BaseNode):
 
     def init_params(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> ActuatorParams:
         """Default params of the node."""
-        actuator_delay = base.TrainableDist.create(alpha=0., min=0.0, max=1 / self.rate)
+        actuator_delay = base.TrainableDist.create(alpha=0., min=0.0, max=0.05)
         return ActuatorParams(actuator_delay=actuator_delay)
 
     def init_output(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> ActuatorOutput:
@@ -160,7 +160,7 @@ class Actuator(BaseNode):
         req.actuators.voltage0 = action
         req.actuators.voltage1 = 0.0
         req.actuators.timeout = 0.5
-        if ts_throttle is not None:
+        if False and ts_throttle is not None:  # todo: not throttling for now
             now = self.now()
             # print(f"now: {now}, ts_throttle: {ts_throttle}")
             if now < ts_throttle:

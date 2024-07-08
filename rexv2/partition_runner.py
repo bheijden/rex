@@ -97,6 +97,7 @@ def make_run_partition_excl_supervisor(
     nodes: Dict[str, "BaseNode"], timings: Timings, S: nx.DiGraph, supervisor_slot: str, skip: List[str] = None
 ):
     INTERMEDIATE_UPDATE = False
+    RETURN_OUTPUT = True
 
     # Define input function
     update_input_fns = {name: make_update_inputs(n) for name, n in nodes.items()}
@@ -134,9 +135,10 @@ def make_run_partition_excl_supervisor(
         _new_seq_ss = _new_ss.replace(seq=_new_ss.seq + 1)
 
         # Update output buffer
-        _new_output = update_output(graph_state.buffer[kind], output, timings_node.seq)
+        if not RETURN_OUTPUT:
+            output = update_output(graph_state.buffer[kind], output, timings_node.seq)
         # _new_output = graph_state.outputs[kind]
-        return _new_seq_ss, _new_output
+        return _new_seq_ss, output
 
     node_step_fns = {kind: functools.partial(_run_node, kind) for kind in nodes.keys()}
 
@@ -155,25 +157,31 @@ def make_run_partition_excl_supervisor(
             pred = timings_gen[slot_kind].run  # Predicate for running node step
 
             # Prepare old states
-            _old_ss = graph_state.step_state[kind]
-            _old_output = graph_state.buffer[kind]
+            noop_ss = graph_state.step_state[kind]
+            if RETURN_OUTPUT:
+                noop_output = rjax.tree_take(graph_state.buffer[kind], timings_node.seq)
+            else:
+                noop_output = graph_state.buffer[kind]
 
-            if _old_ss.inputs is None:
+            if noop_ss.inputs is None:
                 raise DeprecationWarning("Inputs should not be None, but pre-filled via graph.init")
 
             # Run node step
-            no_op = lambda *args: (_old_ss, _old_output)
+            no_op = lambda *args: (noop_ss, noop_output)
             # no_op = jax.checkpoint(no_op) # todo: apply jax.checkpoint to no_op?
             try:
-                new_ss, new_output = jax.lax.cond(pred, node_step_fns[kind], no_op, graph_state, timings_node)
+                new_ss, output = jax.lax.cond(pred, node_step_fns[kind], no_op, graph_state, timings_node)
             except TypeError as e:
-                new_ss, new_output = node_step_fns[kind](graph_state, timings_node)
+                new_ss, output = node_step_fns[kind](graph_state, timings_node)
                 print(f"TypeError: kind={kind}")
                 raise e
 
             # Store new state
             new_step_states[kind] = new_ss
-            new_outputs[kind] = new_output
+            if RETURN_OUTPUT:
+                new_outputs[kind] = update_output(graph_state.buffer[kind], output, timings_node.seq)
+            else:
+                new_outputs[kind] = output
 
             # Update buffer
             if INTERMEDIATE_UPDATE:

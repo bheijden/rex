@@ -4,6 +4,9 @@ from typing import Dict, Union, Callable, Any
 import os
 import multiprocessing
 import itertools
+JAX_USE_CACHE = False
+# if JAX_USE_CACHE:
+    # os.environ["JAX_DEBUG_LOG_MODULES"] = "jax._src.compiler,jax._src.lru_cache"
 # os.environ["JAX_PLATFORM_NAME"] = "cpu"
 os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count={}".format(
     multiprocessing.cpu_count() - 4
@@ -16,6 +19,20 @@ import numpy as onp
 import distrax
 import equinox as eqx
 
+# Cache settings
+if JAX_USE_CACHE:
+    # More info: https://github.com/google/jax/pull/22271/files?short_path=71526fb#diff-71526fb9807ead876cbde1c3c88a868e56d49888023dd561e6705d403ab026c0
+    jax.config.update("jax_compilation_cache_dir", "./cache-rl")
+    # -1: disable the size restriction and prevent overrides.
+    # 0: Leave at default (0) to allow for overrides.
+    #    The override will typically ensure that the minimum size is optimal for the file system being used for the cache.
+    # > 0: the actual minimum size desired; no overrides.
+    jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
+    # A computation will only be written to the persistent cache if the compilation time is longer than the specified value.
+    # It is defaulted to 1.0 second.
+    jax.config.update("jax_persistent_cache_min_compile_time_secs", 1.0)
+    jax.config.update("jax_explain_cache_misses", False)  # True --> results in error
+
 import supergraph
 import rexv2
 from rexv2 import base, jax_utils as jutils, constants
@@ -23,6 +40,7 @@ from rexv2.constants import Clock, RealTimeFactor, Scheduling, LogLevel, Supergr
 from rexv2.utils import timer
 import rexv2.utils as rutils
 from rexv2.jax_utils import same_structure
+import envs.pendulum.systems as psys
 
 # plotting
 import matplotlib.pyplot as plt
@@ -30,56 +48,6 @@ import seaborn as sns
 sns.set()
 import matplotlib
 matplotlib.use("TkAgg")
-
-
-def make_simulated_pendulum_system_nodes(record: base.EpisodeRecord,
-                                         outputs: Dict[str, Any],
-                                         world_rate: float = 100.,
-                                         use_cam: bool = True,
-                                         ):
-    # Make pendulum
-    from envs.pendulum.ode import World, Sensor, Actuator
-
-    # Create sensor
-    sensor = Sensor.from_info(record.nodes["sensor"].info, outputs=outputs.get("sensor", None))
-
-    # Create camera
-    from envs.pendulum.realsense import SimD435iDetector
-    camera = SimD435iDetector.from_info(record.nodes["camera"].info, outputs=outputs.get("camera", None))
-
-    # Create estimator
-    from envs.pendulum.estimator import Estimator
-    estimator = Estimator.from_info(record.nodes["estimator"].info, use_cam=use_cam)
-
-    # Create controller
-    from envs.pendulum.controller import PPOAgent
-    controller = PPOAgent.from_info(record.nodes["controller"].info, outputs=outputs.get("controller", None))
-
-    # Create actuator
-    actuator = Actuator.from_info(record.nodes["actuator"].info, outputs=outputs.get("actuator", None))
-
-    # Create supervisor
-    from envs.pendulum.supervisor import Supervisor
-    supervisor = Supervisor.from_info(record.nodes["supervisor"].info)
-
-    nodes = dict(sensor=sensor, camera=camera, estimator=estimator, controller=controller, actuator=actuator, supervisor=supervisor)
-
-    # Connect from info
-    [n.connect_from_info(record.nodes[name].info.inputs, nodes) for name, n in nodes.items()]
-
-    # Simulation specific nodes
-    world = World(name="world", rate=world_rate, scheduling=Scheduling.FREQUENCY, advance=False,
-                  delay_dist=base.StaticDist.create(distrax.Deterministic(0.999/world_rate)))
-    nodes["world"] = world
-
-    # Connect according to delays
-    sensor_delay = base.TrainableDist.create(alpha=0., min=0.0, max=1 / sensor.rate)
-    camera_delay = base.TrainableDist.create(alpha=0., min=0.0, max=2*1 / camera.rate)
-    actuator_delay = base.TrainableDist.create(alpha=0., min=0.0, max=1 / actuator.rate)
-    world.connect(actuator, window=1, blocking=False, skip=True, jitter=Jitter.LATEST, delay_dist=actuator_delay, delay=0.)
-    sensor.connect(world, window=1, blocking=False, jitter=Jitter.LATEST, delay_dist=sensor_delay, delay=0.)
-    camera.connect(world, window=1, blocking=False, jitter=Jitter.LATEST, delay_dist=camera_delay, delay=0.)
-    return nodes
 
 
 if __name__ == "__main__":
@@ -90,49 +58,40 @@ if __name__ == "__main__":
     #       3. Learn estimation error model (Fit error model to difference between estimated states of real-data vs. simulator state) (non-causal)
     #       4. Learn controller parameters (Use simulator + error model provides state estimates to fit controller) (causal)
     # todo: Real pendulum:
-    #   [DONE] Why does the actuator have such a big delay? --> seemed to be caused by using a single device for all nodes.
-    #   [DONE] Improve graph:
-    #       [DONE] move actuator_delay to actuator_params --> change init order with actuator before world
-    #       [DONE] merge camera & detector in simulation
-    #       [DONE] connect estimator to actuator with larger window
-    #       [DONE] throttle in actuator until action.ts - actuator_delay --> This does influence the measured computation delay of the actuator.
-    #   - provide sigma as input to policy
+    #   - Evaluate throttle in actuator until action.ts - actuator_delay --> This does influence the measured computation delay of the actuator.
     #   - Test with sensor that has delay of camera + detector.
-    #   - Identify host cpu, and don't use it for jitting step functions.
-    #   - adjust action sequence to slow down if making full rotation (i.e. zero action if fully rotating).
     #   - rectify realsense image with intrinsic calibration.
-    #   [DONE] visualize delay distributions
-    #   [DONE] implement real
-    #   [DONE] gather RW data
-    #   [DONE] implement ODE
-    #   [DONE] train policy w/o camera
-    #   [DONE] implement estimator
-    #   - train policy with delays
-    #   - system identification with data
-    #   - train policy with camera
-    #   - Replace detector.LP filter with the one in crazyflie  (probably not necessary)
+    # todo: RL
+    #   - control at higher rate --> increased to 50 Hz
+    #   - Try without forward prediction?
+    #   - Speed up if replacing trainable distributions with fixed ones
+    #   - Speed up if only copying state, rng instead of complete step_state
+    #   - Initialize estimator init_state correctly, lower init_std, and decrease std_th. Correct for initial th_detector.
     # todo: System identification:
-    #   - We are not feeding back the actions from the controller in the system identification task.
-    #   [DONE] Are parameters correctly set? (e.g. actuator_delay in world, ode params in estimator)
-    #   - infer dt_future from world.inputs["actuator"] --> how to have access to this data when real does not have a world node?
-    #   - verify that min, max delays of params.delay are the same as the ones of ss.inputs.delay_sysid
-    #   - get policy trained on zero-delay pendulum and use it to control the real pendulum (and gather data).
-    #   - add params of dynamics model that can update and predict state.
+    #   - Use multiple episodes with short length for system identification
+    #   - Try and identify camera parameters as well.
+    #   - ZOH instead of linear interpolation for control inputs
+    #   - Reduce acc_std
+    #   - Camera at lower rate. Separate thread maybe?
+    #   - Double check UKF implementation
     #   - optimize for dt_future during system parameter identification.
     #   - what to do with initial th_world for seq=-1?
     #   - how to assign outputs (e.g. use images, detector)
-    #   - initialize detector.state.(mincum,maxcum) in a non-causal way.
-    #   [DONE] replace delay distributions with trainable ones
+    #   - initialize detector.state.(mincum, maxcum) in a non-causal way.
     #   - double check ts offsets (real vs. sim vs. compiled)
     #   - ts_recv for world is not correct. Set delay to rate.
     #   - Computation delay of world is equal to the rate of the world (currently set to 99% of the rate, should be 100%)
     # todo: Refactor:
-    #   [DONE] Refactor tfd to distrax
+    #   - partition_runner.py
+    #       - INTERMEDIATE_UPDATE
+    #       - only update params? Speed comparison
+    #       - replace trainable distributions with fixed ones
     #   - How to deal with advance=True for nodes without inputs (& no blocking connections)?
     #       - Essentially, how to model "polling" nodes? They run as_fast_as_possible in the real_world, but not in the simulator.
     #   - Redefine ukf with pytrees (and use flatten/unflatten), and define cov as a pytree at the leaf of the pytree state.
-    #   - Add throttle to BaseNode
+    #   - Add .throttle method to BaseNode
     #   - Check weaktypes and recompilation & how to compile step function --> leads to more latency (maybe not if jit compiled)?
+
     # Make sysid nodes
     onp.set_printoptions(precision=3, suppress=True)
     jnp.set_printoptions(precision=5, suppress=True)
@@ -141,12 +100,13 @@ if __name__ == "__main__":
     CPU_DEVICE = jax.devices('cpu')[0]
     CPU_DEVICES = itertools.cycle(jax.devices('cpu')[1:])
     EPS_IDX = -1
-    WORLD_RATE = 50.
-    USE_CAM = True
+    WORLD_RATE = 100.
+    ID_CAM = False  # Use images to identify camera parameters
+    USE_CAM = True  # Use camera instead of sensor in estimator
     SUPERVISOR = "actuator"
     SUPERGRAPH = Supergraph.MCS
     LOG_DIR = "/home/r2ci/rex/scratch/pendulum/logs"
-    RECORD_FILE = f"{LOG_DIR}/pendulum_data.pkl"
+    RECORD_FILE = f"{LOG_DIR}/data_sysid.pkl"
     # ORDER = ["camera", "sensor", "actuator", "controller", "estimator", "supervisor"]
     # CSCHEME = {"world": "gray", "sensor": "grape", "camera": "orange", "estimator": "violet", "controller": "lime",
     #            "actuator": "green", "supervisor": "indigo"}
@@ -155,15 +115,23 @@ if __name__ == "__main__":
     with open(RECORD_FILE, "rb") as f:
         record: base.EpisodeRecord = pickle.load(f)
 
-    # Create nodes
+    # Gather outputs
     outputs_sysid = {name: n.steps.output for name, n in record.nodes.items()}
-    outputs_sysid = eqx.tree_at(lambda x: x["camera"].bgr, outputs_sysid, None)  # don't use bgr for now.
-    nodes_sysid = make_simulated_pendulum_system_nodes(record, outputs=outputs_sysid, world_rate=WORLD_RATE, use_cam=USE_CAM)
-    nodes_ctrl = make_simulated_pendulum_system_nodes(record, outputs={}, world_rate=WORLD_RATE, use_cam=USE_CAM)
+    cam = jax.tree_util.tree_map(lambda x: x[EPS_IDX], outputs_sysid["camera"])
+
+    # Visualize detection
+    if False:
+        detector = jax.tree_util.tree_map(lambda x: x[0], record.nodes["camera"].params.detector)
+        bgr_ellipse = detector.draw_ellipse_on_image(cam.bgr)
+        bgr_ellipse = detector.draw_ellipse(bgr_ellipse, color=(255, 0, 0))
+        bgr_centroids = detector.draw_centroids(bgr_ellipse, cam.median)
+        detector.play_video(bgr_centroids, fps=30)
+
+    # Create nodes
+    nodes_sysid = psys.simulated_system(record, outputs=outputs_sysid, world_rate=WORLD_RATE, use_cam=USE_CAM, id_cam=ID_CAM)
 
     # Set initialization method
     nodes_sysid["supervisor"].set_init_method("parametrized")
-    nodes_ctrl["supervisor"].set_init_method("random")
 
     # Generate computation graph
     graphs_real = record.to_graph()
@@ -207,11 +175,59 @@ if __name__ == "__main__":
     # Place gs on GPU
     gs = jax.device_put(gs, device=GPU_DEVICE)
 
-    # Control task
+    # System identification
     import envs.pendulum.tasks as tasks
+    if True:
+        figs = []
+        task = tasks.create_sysid_task(graph_sysid, gs).replace(max_steps=200)
+        # jit
+        task_evaluate = jax.jit(task.evaluate)
+        task_solve = jax.jit(task.solve, static_argnames=("verbose",))
+        # Initial guess
+        init_params = task.to_extended_params(gs, task.init_params)
+        with timer("jit_evaluate[init_params]", log_level=100):
+            all_gs = task_evaluate(init_params, RNG, EPS_IDX)
+        figs += task.plot(all_gs, identifier="init_sysid")
+        # plt.show()
+        # Solve
+        with timer("solve", log_level=100):
+            sol_state, opt_params, log_state = task_solve(gs, verbose=not JAX_USE_CACHE)
+        # Plot results
+        log_state.plot(f"{task.description} | {task.solver.strategy_name}", ylims=[0, 300])
+        params = task.to_extended_params(gs, opt_params)
+        with timer("jit_evaluate[opt_params]", log_level=100):
+            all_gs = task_evaluate(params, RNG, EPS_IDX)
+        figs += task.plot(all_gs, identifier="opt_sysid")
+        plt.show()
+        # Show detector
+        num_steps = cam.ts.shape[0]
+        fps = num_steps / cam.ts[-1]
+        det_init = init_params["camera"].detector
+        det_sysid = params["camera"].detector
+        bgr_sysid = det_init.draw_ellipse(cam.bgr, color=(0, 255, 0))
+        bgr_sysid = det_init.draw_centroids(bgr_sysid, cam.median)
+        bgr_sysid = det_sysid.draw_ellipse(bgr_sysid, color=(0, 0, 255))
+        print(f"Playing video at {fps} fps")
+        print(f"Press 'q' to stop")
+        det_init.play_video(bgr_sysid, fps=fps)
+        # Save sysid params
+        with open(f"{LOG_DIR}/sysid_params.pkl", "wb") as f:
+            pickle.dump(params, f)
+        print(f"Saved {LOG_DIR}/sysid_params.pkl")
+        # Save figs with suptitle
+        for fig in figs:
+            suptitle = fig._suptitle.get_text() if fig._suptitle else "Untitled"
+            fig.savefig(f"{LOG_DIR}/{suptitle}.png")
+            print(f"Saved {LOG_DIR}/{suptitle}.png")
+        # Overwrite base graph state
+        gs = base_init(RNG, params=params, order=("supervisor", "actuator"))
+
+    # Control task
     if False:
         # Make control graph
-        graph_ctrl = rexv2.graph.Graph(nodes_ctrl, nodes_ctrl[SUPERVISOR], graphs_aug, supergraph=SUPERGRAPH,skip=["supervisor"])
+        nodes_ctrl = psys.simulated_system(record, outputs={}, world_rate=WORLD_RATE, use_cam=USE_CAM)
+        nodes_ctrl["supervisor"].set_init_method("random")
+        graph_ctrl = rexv2.graph.Graph(nodes_ctrl, nodes_ctrl[SUPERVISOR], graphs_aug, supergraph=SUPERGRAPH, skip=["supervisor"])
         # Initialize control graph
         rng_init, rng_eval, rng_solv = jax.random.split(RNG, 3)
         gs = base_init(rng_init, order=("supervisor", "actuator"))
@@ -231,28 +247,8 @@ if __name__ == "__main__":
         gs = graph_ctrl.init(rng_init, params=params, order=("supervisor", "actuator"))
         # plt.show()
 
-    # System identification
-    if True:
-        task = tasks.create_sysid_task(graph_sysid, gs).replace(max_steps=80)  # todo: remove
-        # Initial guess
-        init_params = task.to_extended_params(gs, task.init_params)
-        all_gs = task.evaluate(init_params, RNG, EPS_IDX)
-        figs = task.plot(all_gs, identifier="init_sysid")
-        # plt.show()
-        # Solve
-        sol_state, opt_params, log_state = task.solve(gs)
-        log_state.plot(f"{task.description} | {task.solver.strategy_name}", ylims=[0, 300])
-        params = task.to_extended_params(gs, opt_params)
-        all_gs = task.evaluate(params, RNG, EPS_IDX)
-        figs = task.plot(all_gs, identifier="opt_sysid")
-        plt.show()
-        # Overwrite base graph state
-        gs = base_init(RNG, params=params, order=("supervisor", "actuator"))
-
     # Estimator
-    if True:
-        # todo: black-box/ukf estimator
-        # todo: How to train? Only real observations, or also with simulated data (incl. disturbances?)
+    if False:
         task = tasks.create_estimator_task(graph_sysid, gs)
         # Initial guess
         init_params = task.to_extended_params(gs, task.init_params)

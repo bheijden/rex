@@ -22,6 +22,7 @@ except ImportError as e:
 @struct.dataclass
 class D435iParams(base.Base):
     sensor_delay: base.TrainableDist
+    std_th: Union[float, jax.typing.ArrayLike]  # Standard deviation of angle noise
 
 
 @struct.dataclass
@@ -41,8 +42,9 @@ class D435iBase(BaseNode):
 
     def init_params(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> D435iParams:
         """Default params of the node."""
-        sensor_delay = base.TrainableDist.create(alpha=0.1262352466583252/2, min=0.0, max=2*1 / self.rate)
-        return D435iParams(sensor_delay=sensor_delay)
+        sensor_delay = base.TrainableDist.create(alpha=0.1262352466583252/2, min=0.0, max=0.05)
+        std_th = 0.4375  # Standard deviation of angle noise
+        return D435iParams(sensor_delay=sensor_delay, std_th=std_th)
 
 
 class D435i(D435iBase):
@@ -302,7 +304,7 @@ class SimD435iDetector(D435iDetectorBase):
         # Remove cummin and cummax from state if not using images to save memory (cummin and cummax are not used)
         has_bgr: bool = (self._outputs is not None and self._outputs.bgr is not None)
         state = state if has_bgr else state.replace(cummin=None, cummax=None)
-        sim_state = det.SimDetectorState(**state.__dict__, loss_th=0.0)
+        sim_state = det.SimDetectorState(**state.__dict__, loss_th=0.0, loss_th_prob=0.0)
         return sim_state
 
     def init_output(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> D435iDetectorOutput:
@@ -316,7 +318,7 @@ class SimD435iDetector(D435iDetectorBase):
             output = tree_dynamic_slice(self._outputs, jnp.array([graph_state.eps, seq])).replace(bgr=None)
         else:
             # Get default detector output
-            output_det = params.detector.init_output(rng, graph_state)
+            output_det = params.detector.init_output()
             # Account for sensor delay
             # To avoid division by zero and reflect that the measurement is not from before the start of the episode
             sensor_delay = params.sensor_delay.mean()
@@ -336,7 +338,7 @@ class SimD435iDetector(D435iDetectorBase):
     def step(self, step_state: base.StepState) -> Tuple[base.StepState, D435iDetectorOutput]:
         """Step the node."""
         # Unpack StepState
-        _, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
+        rng, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
 
         # Adjust ts_start (i.e. step_state.ts) to reflect the timestamp of the world state that generated the image
         ts = step_state.ts - step_state.params.sensor_delay.mean()  # Should be equal to world_interp.ts_sent[-1]?
@@ -349,24 +351,33 @@ class SimD435iDetector(D435iDetectorBase):
         if has_bgr:
             bgr = output.bgr
             new_state, centroid, median = params.detector.bgr_to_pixel(state, ts, bgr)
-        else:
+        elif has_output:
             new_state, centroid, median = state, output.centroid, output.median
+        else:
+            _dummy = onp.array([0, 0]).astype(int)
+            new_state, centroid, median = state, _dummy, _dummy
         # (1,2): Apply ellipse fitting and low-pass filter if outputs are available
         if has_output:
             # Calculate theta from
             th = params.detector.pixel_to_th(median)
+            # Calculate reconstruction loss
+            loss_th = state.loss_th + (jnp.sin(th) - jnp.sin(th_world)) ** 2 + (jnp.cos(th) - jnp.cos(th_world)) ** 2
+            # Calculate log probability loss
+            std_th = params.std_th
+            prob_th = jax.scipy.stats.norm.pdf(th, loc=th_world, scale=std_th)
+            loss_th_prob = state.loss_th_prob - 0.1*prob_th
+            # Update state
+            new_state = new_state.replace(loss_th=loss_th, loss_th_prob=loss_th_prob)
         else:
-            th = th_world  # Use th_world as the output
+            # Add noise
+            rng, rng_noise = jax.random.split(rng)
+            th = th_world + jax.random.normal(rng_noise, shape=th_world.shape) * params.std_th
 
         # (1,2,3,4): Get thdot from the low-pass filter
         new_state, thdot = params.detector.th_to_thdot(new_state, th, ts)
 
-        # Calculate loss
-        loss_th = state.loss_th + (jnp.sin(th) - jnp.sin(th_world)) ** 2 + (jnp.cos(th) - jnp.cos(th_world)) ** 2
-        new_state = new_state.replace(loss_th=loss_th)
-
         # Update step_state
-        new_step_state = step_state.replace(state=new_state)
+        new_step_state = step_state.replace(rng=rng, state=new_state)
 
         # Prepare output
         output = D435iDetectorOutput(ts=ts, centroid=centroid, median=median, th=th, thdot=thdot, bgr=None)

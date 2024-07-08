@@ -15,7 +15,6 @@ from rexv2.node import BaseNode
 from rexv2 import utils
 from rexv2.constants import Supergraph
 import rexv2.jax_utils as rjax
-from supergraph.evaluate import timer
 
 
 class Graph:
@@ -70,17 +69,17 @@ class Graph:
         v = next(iter(graphs_raw.vertices.values()))
         assert len(v.seq.shape) == 2, "Invalid shape. Expected 2 dimensions (episode, step)."
         self._graphs_raw = graphs_raw
-        with timer("apply_window", verbose=debug):
-            self._windowed_graphs = utils.apply_window(nodes, graphs_raw)  # Apply window to graphs
-        with timer("to_graph", verbose=debug):
-            self._graphs = self._windowed_graphs.to_graph()  # For visualization
+        # with timer("apply_window", verbose=debug):
+        self._windowed_graphs = utils.apply_window(nodes, graphs_raw)  # Apply window to graphs
+        # with timer("to_graph", verbose=debug):
+        self._graphs = self._windowed_graphs.to_graph()  # For visualization
 
         # Convert to networkx graphs
-        with timer("to_networkx_graph", verbose=debug):
-            self._Gs = []
-            for i in range(len(self._graphs)):
-                G = utils.to_networkx_graph(self._graphs[i], nodes=nodes, validate=debug)
-                self._Gs.append(G)
+        # with timer("to_networkx_graph", verbose=debug):
+        self._Gs = []
+        for i in range(len(self._graphs)):
+            G = utils.to_networkx_graph(self._graphs[i], nodes=nodes, validate=debug)
+            self._Gs.append(G)
 
         # Grow supergraph
         self.supergraph = supergraph
@@ -114,12 +113,12 @@ class Graph:
         self._Gs_monomorphism = Gs_monomorphism
 
         # Get timings
-        with timer("to_timings", verbose=debug):
-            self._timings = utils.to_timings(self._windowed_graphs, S, self._Gs, Gs_monomorphism, supervisor.name)
+        # with timer("to_timings", verbose=debug):
+        self._timings = utils.to_timings(self._windowed_graphs, S, self._Gs, Gs_monomorphism, supervisor.name)
 
         # Verify that buffer_sizes are large enough (than _buffer_sizes) if provided
-        with timer("get_buffer_sizes", verbose=debug):
-            _buffer_sizes = self._timings.get_buffer_sizes()
+        # with timer("get_buffer_sizes", verbose=debug):
+        _buffer_sizes = self._timings.get_buffer_sizes()
         if buffer_sizes is not None:
             for name, size in buffer_sizes.items():
                 size = [size] if isinstance(size, int) else size
@@ -292,37 +291,65 @@ class Graph:
 
         Internal use only. Use reset(), step(), run(), or rollout() instead.
         """
-        assert (step_state is None) == (
-            output is None
-        ), "Either both step_state and output must be None or both must be not None."
+        RETURN_OUTPUT = True
+        assert (step_state is None) == (output is None), "Either both step_state and output must be None or both must be not None."
         # Make update state function
         update_state = make_update_state(self._supervisor_kind)
         supervisor_slot = self._supervisor_slot
         supervisor = self.supervisor
 
-        def _run_supervisor_step() -> base.GraphState:
-            # Get next step state and output from supervisor node
-            if step_state is None and output is None:  # Run supervisor node
-                ss = graph_state.step_state[self.supervisor.name]
-                new_ss, new_output = supervisor.step(ss)
-            else:  # Override step_state and output
-                new_ss, new_output = step_state, output
-
+        if RETURN_OUTPUT:
             # Update graph state
-            new_graph_state = graph_state.replace_step(
-                self._timings, step=graph_state.step
-            )  # Make sure step is clipped to max_step size
+            graph_state = graph_state.replace_step(self._timings, step=graph_state.step)  # Make sure step is clipped to max_step size
             # The step counter was already incremented in run_until_supervisor, but supervisor of the previous step was not run yet.
             # Hence, we need to grab the timings of the previous step (i.e. graph_state.step-1).
-            timing = rjax.tree_take(graph_state.timings_eps.slots[supervisor_slot], i=new_graph_state.step - 1)
-            new_graph_state = update_state(graph_state, timing, new_ss, new_output)
-            return new_graph_state
+            timing = rjax.tree_take(graph_state.timings_eps.slots[supervisor_slot], i=graph_state.step - 1)
+            # Define NOOP
+            noop_ss = graph_state.step_state[self.supervisor.name]
+            noop_output = rjax.tree_take(graph_state.buffer[self.supervisor.name], timing.seq)
 
-        def _skip_supervisor_step() -> base.GraphState:
-            return graph_state
+            def _run_supervisor_step() -> Tuple[base.StepState, base.Output]:
+                # Get next step state and output from supervisor node
+                if step_state is None and output is None:  # Run supervisor node
+                    ss = noop_ss
+                    _new_ss, _new_output = supervisor.step(ss)
+                else:  # Override step_state and output
+                    _new_ss, _new_output = step_state, output
+                return _new_ss, _new_output
 
-        # Run supervisor node if step > 0, else skip
-        graph_state = jax.lax.cond(graph_state.step == 0, _skip_supervisor_step, _run_supervisor_step)
+            def _skip_supervisor_step() -> Tuple[base.StepState, base.Output]:
+                return noop_ss, noop_output
+
+            # Run supervisor node if step > 0, else skip
+            new_ss, new_output = jax.lax.cond(graph_state.step == 0, _skip_supervisor_step, _run_supervisor_step)
+
+            # Update graph state
+            graph_state = update_state(graph_state, timing, new_ss, new_output)
+
+        else:
+            def _run_supervisor_step() -> base.GraphState:
+                # Get next step state and output from supervisor node
+                if step_state is None and output is None:  # Run supervisor node
+                    ss = graph_state.step_state[self.supervisor.name]
+                    new_ss, new_output = supervisor.step(ss)
+                else:  # Override step_state and output
+                    new_ss, new_output = step_state, output
+
+                # Update graph state
+                new_graph_state = graph_state.replace_step(
+                    self._timings, step=graph_state.step
+                )  # Make sure step is clipped to max_step size
+                # The step counter was already incremented in run_until_supervisor, but supervisor of the previous step was not run yet.
+                # Hence, we need to grab the timings of the previous step (i.e. graph_state.step-1).
+                timing = rjax.tree_take(graph_state.timings_eps.slots[supervisor_slot], i=new_graph_state.step - 1)
+                new_graph_state = update_state(graph_state, timing, new_ss, new_output)
+                return new_graph_state
+
+            def _skip_supervisor_step() -> base.GraphState:
+                return graph_state
+
+            # Run supervisor node if step > 0, else skip
+            graph_state = jax.lax.cond(graph_state.step == 0, _skip_supervisor_step, _run_supervisor_step)
         return graph_state
 
     def run(self, graph_state: base.GraphState) -> base.GraphState:

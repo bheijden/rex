@@ -50,6 +50,10 @@ class Connection:
     def phase(self) -> float:
         return self.output_node.phase_output + self.delay
 
+    def disconnect(self):
+        del self.input_node.inputs[self.input_name]
+        del self.output_node.outputs[self.input_node.name]
+
 
 class BaseNode:
     def __init__(self, name: str, rate: float, delay: float = None, delay_dist: base.DelayDistribution = None,

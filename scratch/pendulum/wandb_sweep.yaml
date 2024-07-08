@@ -1,0 +1,46 @@
+# Program to run
+program: main_wandb.py
+# Method
+method: bayes
+# project name
+project: rex
+
+
+# metric to optimize
+metric:
+  name: final/success_rate
+#  name: final/mean_returns
+  goal: maximize
+
+# Hyperparameters
+parameters:
+  LR:
+    min: 1.0e-5
+    max: 1.0e-3
+  NUM_ENVS:
+    values: [128]
+  NUM_STEPS:
+    values: [16, 32, 64]
+  UPDATE_EPOCHS:
+    values: [4, 8, 16]
+  NUM_MINIBATCHES:
+    values: [4, 8, 16]
+  GAMMA:
+    min: 0.90
+    max: 0.999
+  GAE_LAMBDA:
+    min: 0.9
+    max: 1.0
+  CLIP_EPS:
+    min: 0.0
+    max: 0.2
+  MAX_GRAD_NORM:
+    min: 0.7
+    max: 1.0
+  ENT_COEF:
+    values: [0.0, 0.005, 0.01, 0.02]
+  VF_COEF:
+    min: 0.5
+    max: 0.9
+  INCL_COVARIANCE:
+    values: [ True, False ]

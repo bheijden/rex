@@ -42,6 +42,7 @@ class OdeParams(WorldParams):
 
     def ode(self, x: jax.typing.ArrayLike, u: jax.typing.ArrayLike) -> jax.typing.ArrayLike:
         """dx function for the pendulum ode"""
+        # Downward := [pi, 0], Upward := [0, 0]
         g, J, m, l, b, K, R, c = 9.81, self.J, self.mass, self.length, self.b, self.K, self.R, self.c
         activation = jnp.sign(x[1])
         ddx = (u * K / R + m * g * l * jnp.sin(x[0]) - b * x[1] - x[1] * K * K / R - c * activation) / J
@@ -187,7 +188,7 @@ class Sensor(BaseNode):
 
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> SensorParams:
         """Default params of the node."""
-        sensor_delay = TrainableDist.create(alpha=0., min=0.0, max=1 / 30)
+        sensor_delay = TrainableDist.create(alpha=0., min=0.0, max=0.05)
         return SensorParams(sensor_delay=sensor_delay)
 
     def init_state(self, rng: jax.Array = None, graph_state: GraphState = None) -> SensorState:
@@ -253,7 +254,7 @@ class Actuator(BaseNode):
         self._outputs = outputs
 
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> ActuatorParams:
-        actuator_delay = TrainableDist.create(alpha=0., min=0.0, max=1 / 30)
+        actuator_delay = TrainableDist.create(alpha=0., min=0.0, max=0.05)
         return ActuatorParams(actuator_delay=actuator_delay)
 
     def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> ActuatorOutput:
