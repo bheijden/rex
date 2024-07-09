@@ -61,10 +61,11 @@ if __name__ == "__main__":
     #   - Evaluate throttle in actuator until action.ts - actuator_delay --> This does influence the measured computation delay of the actuator.
     #   - Test with sensor that has delay of camera + detector.
     #   - rectify realsense image with intrinsic calibration.
+    #   - Add throttling in actuator, make sure it is reflected in training graph as well.
     # todo: RL
-    #   - control at higher rate --> increased to 50 Hz
-    #   - Try without forward prediction?
     #   - Speed up if replacing trainable distributions with fixed ones
+    #       - Replace delay_dist with static one before generating augmented graphs
+    #       - Only replace delay_dist in init_inputs if they are equivalent.
     #   - Speed up if only copying state, rng instead of complete step_state
     #   - Initialize estimator init_state correctly, lower init_std, and decrease std_th. Correct for initial th_detector.
     # todo: System identification:
@@ -103,10 +104,12 @@ if __name__ == "__main__":
     WORLD_RATE = 100.
     ID_CAM = False  # Use images to identify camera parameters
     USE_CAM = True  # Use camera instead of sensor in estimator
+    USE_BRAX = True  # Use brax for simulation  # todo: change to brax
     SUPERVISOR = "actuator"
     SUPERGRAPH = Supergraph.MCS
     LOG_DIR = "/home/r2ci/rex/scratch/pendulum/logs"
     RECORD_FILE = f"{LOG_DIR}/data_sysid.pkl"
+    PARAMS_FILE = f"{LOG_DIR}/sysid_params_brax.pkl"  # todo: change to brax
     # ORDER = ["camera", "sensor", "actuator", "controller", "estimator", "supervisor"]
     # CSCHEME = {"world": "gray", "sensor": "grape", "camera": "orange", "estimator": "violet", "controller": "lime",
     #            "actuator": "green", "supervisor": "indigo"}
@@ -128,7 +131,8 @@ if __name__ == "__main__":
         detector.play_video(bgr_centroids, fps=30)
 
     # Create nodes
-    nodes_sysid = psys.simulated_system(record, outputs=outputs_sysid, world_rate=WORLD_RATE, use_cam=USE_CAM, id_cam=ID_CAM)
+    nodes_sysid = psys.simulated_system(record, outputs=outputs_sysid, world_rate=WORLD_RATE, use_cam=USE_CAM, id_cam=ID_CAM,
+                                        use_brax=USE_BRAX)
 
     # Set initialization method
     nodes_sysid["supervisor"].set_init_method("parametrized")
@@ -211,9 +215,9 @@ if __name__ == "__main__":
         print(f"Press 'q' to stop")
         det_init.play_video(bgr_sysid, fps=fps)
         # Save sysid params
-        with open(f"{LOG_DIR}/sysid_params.pkl", "wb") as f:
+        with open(PARAMS_FILE, "wb") as f:
             pickle.dump(params, f)
-        print(f"Saved {LOG_DIR}/sysid_params.pkl")
+        print(f"Saved {PARAMS_FILE}")
         # Save figs with suptitle
         for fig in figs:
             suptitle = fig._suptitle.get_text() if fig._suptitle else "Untitled"

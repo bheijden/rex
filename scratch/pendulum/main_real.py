@@ -43,8 +43,8 @@ if __name__ == "__main__":
     CSCHEME = {"world": "gray", "sensor": "grape", "camera": "orange", "estimator": "violet", "controller": "lime",
                "actuator": "green", "supervisor": "indigo"}
     PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"
-    STD_TH = 0.01  # Overwrite std_th in estimator and camera --> None to keep default
-    MODE = "control"  # "delay_only", "sysid", "control"
+    STD_TH = 0.003  # Overwrite std_th in estimator and camera --> None to keep default
+    MODE = "evaluate"  # "delay_only", "sysid", "control"
     if MODE == "delay_only":
         NUM_EPISODES = 10
         TSIM = 5
@@ -68,7 +68,7 @@ if __name__ == "__main__":
         TSIM = 5
         NUM_EPISODES = 10
         RECORD_FILE = f"{LOG_DIR}/data_control.pkl"
-        CTRL_FILE = f"{LOG_DIR}/controller_params.pkl"
+        CTRL_FILE = f"{LOG_DIR}/controller_params_brax.pkl"  # todo: CHANGE BRAX
         USE_CAM = True  # Use camera instead of sensor in estimator
         INCLUDE_IMAGE = False  # Include image in camera output
         USE_OPENLOOP = False
@@ -77,7 +77,7 @@ if __name__ == "__main__":
         TSIM = 5
         NUM_EPISODES = 10
         RECORD_FILE = f"{LOG_DIR}/data_eval.pkl"
-        CTRL_FILE = f"{LOG_DIR}/controller_params.pkl"
+        CTRL_FILE = f"{LOG_DIR}/controller_params_brax.pkl"  # todo: CHANGE BRAX
         USE_CAM = True  # Use camera instead of sensor in estimator
         INCLUDE_IMAGE = True  # Include image in camera output
         USE_OPENLOOP = False

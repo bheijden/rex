@@ -34,11 +34,18 @@ def simulated_system(record: base.EpisodeRecord,
                      world_rate: float = 100.,
                      id_cam: bool = False,
                      use_cam: bool = True,
+                     use_brax: bool = False,
                      ):
     outputs = outputs or {}
 
+    # Load world
+    if use_brax:
+        from envs.pendulum.brax import World
+    else:
+        from envs.pendulum.ode import World
+
     # Make pendulum
-    from envs.pendulum.ode import World, Sensor, Actuator
+    from envs.pendulum.ode import Sensor, Actuator
 
     # Create sensor
     sensor = Sensor.from_info(record.nodes["sensor"].info, outputs=outputs.get("sensor", None))

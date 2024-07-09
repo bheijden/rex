@@ -288,13 +288,17 @@ def create_sysid_task(graph: Graph, graph_state: base.GraphState, strategy: str 
 
     # Estimator
     from envs.pendulum.estimator import UKFOde
-    init_params["estimator"] = base_params["estimator"].replace(dt_future=0.0, ode=None, std_th=None)
+    from envs.pendulum.ode import OdeParams
+    use_brax = not isinstance(init_params["world"], OdeParams)
+    ode = base_params["estimator"].ode.replace(actuator_delay=None, max_speed=None) if use_brax else None
+    init_params["estimator"] = base_params["estimator"].replace(dt_future=0.0, ode=ode, std_th=None)
     u_min["estimator"] = jax.tree_util.tree_map(lambda x: x * MIN, init_params["estimator"])
     u_max["estimator"] = jax.tree_util.tree_map(lambda x: x * MAX, init_params["estimator"])
     u_min["estimator"] = eqx.tree_at(lambda _min: _min.dt_future, u_min["estimator"], 0.)
     u_max["estimator"] = eqx.tree_at(lambda _max: _max.dt_future, u_max["estimator"], 0.05)
-    replace_fn = lambda _p: UKFOde(**_p["world"].__dict__).replace(actuator_delay=None)
-    shared.append(base.Shared.init(where=lambda _p: _p["estimator"].ode, replace_fn=replace_fn))
+    if not use_brax:
+        replace_fn = lambda _p: UKFOde(**_p["world"].__dict__).replace(actuator_delay=None)
+        shared.append(base.Shared.init(where=lambda _p: _p["estimator"].ode, replace_fn=replace_fn))
     shared.append(base.Shared.init(where=lambda _p: _p["estimator"].std_th, replace_fn=lambda _p: _p["camera"].std_th))
 
     # Controller

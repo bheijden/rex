@@ -64,15 +64,16 @@ if __name__ == "__main__":
     TS_MAX = 5.0
     WORLD_RATE = 100.
     USE_CAM = True
+    USE_BRAX = True  # Use brax for simulation # todo: change to brax
     STD_TH = 0.02  # Overwrite std_th in estimator and camera --> None to keep default
     INCL_COVARIANCE = False
     SUPERVISOR = "controller"
     SUPERGRAPH = Supergraph.MCS
     LOG_DIR = "/home/r2ci/rex/scratch/pendulum/logs"
     RECORD_FILE = f"{LOG_DIR}/data_control.pkl"
-    PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"
+    PARAMS_FILE = f"{LOG_DIR}/sysid_params_brax.pkl"  # todo: change to brax
     # CTRL_FILE = f"{LOG_DIR}/controller_trained_params_cov.pkl"
-    CTRL_FILE = f"{LOG_DIR}/controller_params.pkl"
+    CTRL_FILE = f"{LOG_DIR}/controller_params_brax.pkl"  # todo: change to brax
     SAVE_FILE = True
     # ORDER = ["camera", "sensor", "actuator", "controller", "estimator", "supervisor"]
     # CSCHEME = {"world": "gray", "sensor": "grape", "camera": "orange", "estimator": "violet", "controller": "lime",
@@ -91,7 +92,7 @@ if __name__ == "__main__":
         record: base.EpisodeRecord = pickle.load(f)
 
     # Create nodes
-    nodes = psys.simulated_system(record, world_rate=WORLD_RATE, use_cam=USE_CAM)
+    nodes = psys.simulated_system(record, world_rate=WORLD_RATE, use_cam=USE_CAM, use_brax=USE_BRAX)
 
     # Set initialization method
     nodes["supervisor"].set_init_method("random")
@@ -108,9 +109,6 @@ if __name__ == "__main__":
         graphs_real.edges.pop(("sensor", "estimator"))
 
     # Generate computation graph
-    # todo: fix distribution
-    #  - Replace delay_dist with static one before generating augmented graphs
-    #  - Only replace delay_dist in init_inputs if they are equivalent.
     graphs_aug = rexv2.artificial.augment_graphs(graphs_real, nodes, RNG)
 
     # Create simulation nodes
