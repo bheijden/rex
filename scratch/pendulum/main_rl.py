@@ -72,9 +72,10 @@ if __name__ == "__main__":
     LOG_DIR = "/home/r2ci/rex/scratch/pendulum/logs"
     RECORD_FILE = f"{LOG_DIR}/data_control.pkl"
     PARAMS_FILE = f"{LOG_DIR}/sysid_params_brax.pkl"  # todo: change to brax
+    METRICS_FILE = f"{LOG_DIR}/metrics_brax.pkl"  # todo: change to brax
     # CTRL_FILE = f"{LOG_DIR}/controller_trained_params_cov.pkl"
     CTRL_FILE = f"{LOG_DIR}/controller_params_brax.pkl"  # todo: change to brax
-    SAVE_FILE = True
+    SAVE_FILE = False
     # ORDER = ["camera", "sensor", "actuator", "controller", "estimator", "supervisor"]
     # CSCHEME = {"world": "gray", "sensor": "grape", "camera": "orange", "estimator": "violet", "controller": "lime",
     #            "actuator": "green", "supervisor": "indigo"}
@@ -138,6 +139,7 @@ if __name__ == "__main__":
 
     # Modify params if necessary
     params_env = params.copy()
+    # params_env["supervisor"] = params_env["supervisor"].replace(tmax=5.0)
     if STD_TH is not None:
         params_env["estimator"] = params_env["estimator"].replace(std_th=STD_TH)
         params_env["camera"] = params_env["camera"].replace(std_th=STD_TH)

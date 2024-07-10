@@ -54,7 +54,7 @@ def simulated_system(record: base.EpisodeRecord,
     from envs.pendulum.realsense import SimD435iDetector
     outputs_cam = outputs.get("camera", None)
     outputs_cam = outputs_cam if outputs_cam is None or id_cam else outputs_cam.replace(bgr=None)
-    camera = SimD435iDetector.from_info(record.nodes["camera"].info, outputs=outputs_cam)
+    camera = SimD435iDetector.from_info(record.nodes["camera"].info, outputs=outputs_cam, width=424,  height=240, fps=60,)
 
     # Create estimator
     from envs.pendulum.estimator import Estimator
