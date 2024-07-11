@@ -51,6 +51,11 @@ matplotlib.use("TkAgg")
 
 
 if __name__ == "__main__":
+    # todo: evaluate RL without noise
+    #  - train with stacked observations W/O estimator
+    #  - train without R noise
+    #  -
+    #  -
     # todo: Methodology:
     #       0. Gather real-data and construct computation graph
     #       1. Estimate simulator parameters + delays (fit simulator to reconstruct real-data) (non-causal)
@@ -67,12 +72,10 @@ if __name__ == "__main__":
     #       - Replace delay_dist with static one before generating augmented graphs
     #       - Only replace delay_dist in init_inputs if they are equivalent.
     #   - Speed up if only copying state, rng instead of complete step_state
-    #   - Initialize estimator init_state correctly, lower init_std, and decrease std_th. Correct for initial th_detector.
     # todo: System identification:
     #   - Use multiple episodes with short length for system identification
     #   - Try and identify camera parameters as well.
     #   - ZOH instead of linear interpolation for control inputs
-    #   - Reduce acc_std
     #   - Camera at lower rate. Separate thread maybe?
     #   - Double check UKF implementation
     #   - optimize for dt_future during system parameter identification.

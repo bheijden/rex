@@ -42,14 +42,15 @@ if __name__ == "__main__":
     ORDER = ["camera", "sensor", "world", "actuator", "controller", "estimator", "supervisor"]
     CSCHEME = {"world": "gray", "sensor": "grape", "camera": "orange", "estimator": "violet", "controller": "lime",
                "actuator": "green", "supervisor": "indigo"}
-    PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"
     STD_TH = 0.003  # Overwrite std_th in estimator and camera --> None to keep default
     MODE = "evaluate"  # "delay_only", "sysid", "control"
     if MODE == "delay_only":
         NUM_EPISODES = 10
         TSIM = 5
+        PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"
         RECORD_FILE = f"{LOG_DIR}/data_delay_only.pkl"
         CTRL_FILE = f"{LOG_DIR}/controller_trained_params.pkl"
+        INCL_COVARIANCE = False
         USE_CAM = True  # Use camera instead of sensor in estimator
         INCLUDE_IMAGE = False  # Include image in camera output
         USE_OPENLOOP = False
@@ -57,9 +58,11 @@ if __name__ == "__main__":
     elif MODE == "sysid":
         NUM_EPISODES = 1
         TSIM = 21
+        PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"
         RECORD_FILE = f"{LOG_DIR}/data_sysid.pkl"
         CTRL_FILE = f"{LOG_DIR}/controller_params.pkl"
         # CTRL_FILE = f"{LOG_DIR}/controller_trained_params.pkl"  # Workng controller?
+        INCL_COVARIANCE = False
         USE_CAM = True  # Use camera instead of sensor in estimator
         INCLUDE_IMAGE = True  # Include image in camera output
         USE_OPENLOOP = True
@@ -67,8 +70,10 @@ if __name__ == "__main__":
     elif MODE == "control":
         TSIM = 5
         NUM_EPISODES = 10
+        PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"
         RECORD_FILE = f"{LOG_DIR}/data_control.pkl"
         CTRL_FILE = f"{LOG_DIR}/controller_params_brax.pkl"  # todo: CHANGE BRAX
+        INCL_COVARIANCE = False
         USE_CAM = True  # Use camera instead of sensor in estimator
         INCLUDE_IMAGE = False  # Include image in camera output
         USE_OPENLOOP = False
@@ -76,8 +81,10 @@ if __name__ == "__main__":
     elif MODE == "evaluate":
         TSIM = 5
         NUM_EPISODES = 10
-        RECORD_FILE = f"{LOG_DIR}/data_eval.pkl"
-        CTRL_FILE = f"{LOG_DIR}/controller_params_brax.pkl"  # todo: CHANGE BRAX
+        PARAMS_FILE = f"{LOG_DIR}/20240710_141737_brax/sysid_params.pkl"
+        RECORD_FILE = f"{LOG_DIR}/data_eval_nodelay.pkl"
+        CTRL_FILE = f"{LOG_DIR}/controller_trained_params_nodelay.pkl"  # todo: CHANGE BRAX
+        INCL_COVARIANCE = False
         USE_CAM = True  # Use camera instead of sensor in estimator
         INCLUDE_IMAGE = True  # Include image in camera output
         USE_OPENLOOP = False
@@ -120,6 +127,7 @@ if __name__ == "__main__":
         ctrl_params = pickle.load(f)
     print(f"Controller params loaded from {CTRL_FILE}")
     params["controller"] = gs.params["controller"].replace(**ctrl_params.__dict__)
+    params["controller"] = params["controller"].replace(incl_covariance=INCL_COVARIANCE)
 
     # Overwrite th
     params = params.copy()

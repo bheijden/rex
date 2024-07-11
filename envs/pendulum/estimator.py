@@ -83,8 +83,10 @@ class EstimatorOutput(Base):
 
 
 class Estimator(BaseNode):
-    def __init__(self, *args, use_cam: bool = True, **kwargs):
+    def __init__(self, *args, use_cam: bool = True, use_pred: bool = True, use_ukf: bool = True, **kwargs):
         self.use_cam = use_cam
+        self.use_pred = use_pred
+        self.use_ukf = use_ukf
         super().__init__(*args, **kwargs)
 
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> EstimatorParams:
@@ -182,9 +184,14 @@ class Estimator(BaseNode):
         # Forward predict to ts_future
         Fx_fut = params.ode.make_Fx(params.substeps_predict, new_state.ts, dt_fut, ts_actions, actions)
         Qx_fut = params.ode.make_Qx(dt_fut, params.std_acc)
-        ukf_fut = params.ukf.predict(Fx_fut, Qx_fut, posterior)
+        ukf_fut = params.ukf.predict(Fx_fut, Qx_fut, posterior) if self.use_pred else posterior
         est_fut = EstimatorState(ts=ts_fut, prior=ukf_fut, loss_th=None)
 
         # To output
         output = est_fut.to_output()
+
+        # Overwrite output with source if not using camera
+        if not self.use_ukf:
+            mean = output.mean.replace(th=source.th, thdot=source.thdot)
+            output = output.replace(mean=mean, cov=jnp.eye(2) * params.std_th**2)
         return new_step_state, output

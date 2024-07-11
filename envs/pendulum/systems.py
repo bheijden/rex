@@ -35,6 +35,7 @@ def simulated_system(record: base.EpisodeRecord,
                      id_cam: bool = False,
                      use_cam: bool = True,
                      use_brax: bool = False,
+                     use_ukf: bool = True,
                      ):
     outputs = outputs or {}
 
@@ -58,7 +59,7 @@ def simulated_system(record: base.EpisodeRecord,
 
     # Create estimator
     from envs.pendulum.estimator import Estimator
-    estimator = Estimator.from_info(record.nodes["estimator"].info, use_cam=use_cam)
+    estimator = Estimator.from_info(record.nodes["estimator"].info, use_cam=use_cam, use_ukf=use_ukf)
 
     # Create controller
     from envs.pendulum.controller import PPOAgent
@@ -92,6 +93,74 @@ def simulated_system(record: base.EpisodeRecord,
     return nodes
 
 
+def no_delay_system(rates: Dict[str, float],
+                    cscheme: Dict[str, str] = None,
+                    order: list = None,
+                    use_brax: bool = False,
+                    ):
+    """Make a nodelay pendulum system."""
+    order = ["supervisor", "sensor", "controller", "actuator", "world"] if order is None else order
+    delays_sim = get_default_distributions()
+    delays_sim["step"]["world"] = base.StaticDist.create(distrax.Deterministic(0.99 / rates["world"]))  # todo: This is required
+    delays_sim["inputs"]["world"] = {}
+    delays_sim["inputs"]["sensor"] = {}
+    delays_sim["inputs"]["world"]["actuator"] = base.StaticDist.create(distrax.Deterministic(0.0))
+    delays_sim["inputs"]["sensor"]["world"] = base.StaticDist.create(distrax.Deterministic(0.0))
+    delays_sim["inputs"]["controller"]["sensor"] = delays_sim["inputs"]["estimator"]["sensor"]
+    delays = jax.tree_util.tree_map(lambda d: d.quantile(0.85), delays_sim, is_leaf=lambda x: isinstance(x, base.DelayDistribution))
+
+    # Load world
+    if use_brax:
+        from envs.pendulum.brax import World
+    else:
+        from envs.pendulum.ode import World
+
+    # Make pendulum
+    from envs.pendulum.ode import Sensor, Actuator
+
+    # Create sensor
+    sensor = Sensor(name="sensor", color=cscheme["sensor"], order=order.index("sensor"),
+                    rate=rates["sensor"], scheduling=Scheduling.FREQUENCY, advance=False,
+                    delay=delays["step"]["sensor"], delay_dist=delays_sim["step"]["sensor"])
+
+    # Create controller
+    from envs.pendulum.controller import PPOAgent
+    controller = PPOAgent(name="controller", color=cscheme["controller"], order=order.index("controller"),
+                          rate=rates["controller"], scheduling=Scheduling.FREQUENCY, advance=False,
+                          delay=delays["step"]["controller"], delay_dist=delays_sim["step"]["controller"])
+    controller.connect(sensor, window=1, blocking=False,
+                       delay_dist=delays_sim["inputs"]["controller"]["sensor"], delay=delays["inputs"]["controller"]["sensor"])
+
+    # Create actuator
+    actuator = Actuator(name="actuator", color=cscheme["actuator"], order=order.index("actuator"),
+                        rate=rates["actuator"], scheduling=Scheduling.FREQUENCY, advance=False,
+                        delay=delays["step"]["actuator"], delay_dist=delays_sim["step"]["actuator"])
+    actuator.connect(controller, window=1, blocking=False,
+                     delay_dist=delays_sim["inputs"]["actuator"]["controller"],
+                     delay=delays["inputs"]["actuator"]["controller"])
+
+    # Create supervisor
+    from envs.pendulum.supervisor import Supervisor
+    supervisor = Supervisor(name="supervisor", color=cscheme["supervisor"], order=order.index("supervisor"),
+                            rate=rates["supervisor"], scheduling=Scheduling.FREQUENCY, advance=False,
+                            delay=delays["step"]["supervisor"], delay_dist=delays_sim["step"]["supervisor"])
+    supervisor.connect(controller, window=1, blocking=False,
+                       delay_dist=delays_sim["inputs"]["supervisor"]["controller"],
+                       delay=delays["inputs"]["supervisor"]["controller"])
+
+    nodes = dict(sensor=sensor, controller=controller, actuator=actuator, supervisor=supervisor)
+
+    # Simulation specific nodes
+    world = World(name="world", rate=rates["world"], scheduling=Scheduling.FREQUENCY, advance=False,
+                  delay_dist=delays_sim["step"]["world"], delay=delays["step"]["world"])
+    nodes["world"] = world
+
+    # Connect according to delays
+    world.connect(actuator, window=1, blocking=False, skip=True, jitter=Jitter.LATEST, delay_dist=delays_sim["inputs"]["world"]["actuator"], delay=delays["inputs"]["world"]["actuator"])
+    sensor.connect(world, window=1, blocking=False, jitter=Jitter.LATEST, delay_dist=delays_sim["inputs"]["sensor"]["world"], delay=delays["inputs"]["sensor"]["world"])
+    return nodes
+
+
 def real_system(delays_sim: DelaySim,
                 delay_fn: Callable[[base.DelayDistribution], float],
                 rates: Dict[str, float],
@@ -100,6 +169,8 @@ def real_system(delays_sim: DelaySim,
                 use_cam: bool = True,
                 include_image: bool = True,
                 use_openloop: bool = True,
+                use_pred: bool = True,
+                use_ukf: bool = True,
                 ):
     """Make a real pendulum system."""
     delays = jax.tree_util.tree_map(delay_fn, delays_sim, is_leaf=lambda x: isinstance(x, base.DelayDistribution))
@@ -127,7 +198,7 @@ def real_system(delays_sim: DelaySim,
     # Create estimator
     from envs.pendulum.estimator import Estimator
     estimator = Estimator(name="estimator", color=cscheme["estimator"], order=order.index("estimator"),
-                          use_cam=use_cam,
+                          use_cam=use_cam, use_pred=use_pred, use_ukf=use_ukf,
                           rate=rates["estimator"], scheduling=Scheduling.FREQUENCY, advance=False,
                           delay=delays["step"]["estimator"], delay_dist=delays_sim["step"]["estimator"])
     estimator.connect(sensor, window=1, blocking=False,

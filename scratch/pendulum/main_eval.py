@@ -46,18 +46,26 @@ if __name__ == "__main__":
 
     # General settings
     LOG_DIR = "/home/r2ci/rex/scratch/pendulum/logs"
-    # EXP_DIR = f"{LOG_DIR}/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_brax"
-    EXP_DIR = f"{LOG_DIR}/20240710_141737_brax"
+    # EXP_DIR = f"{LOG_DIR}/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_brax_images"
+    EXP_DIR = f"{LOG_DIR}/20240710_141737_brax_stacked_images"
     # EXP_DIR = f"{LOG_DIR}/test_main_eval"
     SEED = 6
     SAVE_FILES = True
     RUN_SYSID = False
     RUN_RL = False
-    RUN_REAL = True
+    RUN_RL_NODELAY = False
+    RUN_RL_STACKED = False
+    RUN_RL_STACKED_NODELAY = False
+    RUN_REAL = False
+    RUN_REAL_STACKED = True
+    RUN_REAL_STACKED_NODELAY = True
+    RUN_REAL_STACKED_NODELAY_NOCAM = True
+    RUN_REAL_NODELAY_NOCAM = False
+    RUN_REAL_NODELAY_CAM = False
+    RUN_REAL_NODELAY_CAM_NOPRED = False
 
     # Environment Settings
-    USE_CAM = True
-    USE_BRAX = True  # Use brax for simulation # todo: change to brax
+    USE_BRAX = True  # Use brax for simulation
 
     # Sysid settings
     DATA_SYSID_FILE = f"{LOG_DIR}/data_sysid.pkl"
@@ -74,9 +82,20 @@ if __name__ == "__main__":
     NUM_POLICIES = 5  # Number of policies to train
     STD_TH_RL = 0.02  # Overwrite std_th in estimator and camera --> None to keep default
 
+    # RL (stacked) settings
+    NUM_OBS = 2
+    NUM_ACT = 2
+    CONTROLLER_STACKED_FILE = f"{EXP_DIR}/stacked_controllers.pkl"
+
+    # RL (no delay) settings
+    CONTROLLER_STACKED_NO_DELAY_FILE = f"{EXP_DIR}/stacked_nodelay_controllers.pkl"
+
+    # RL (no delay) settings
+    CONTROLLER_NO_DELAY_FILE = f"{EXP_DIR}/nodelay_controllers.pkl"
+
     # Real settings
-    # todo: only save the best episode's images
-    NUM_EPISODES = 10  # todo: IMPROVE # Number of episodes to evaluate
+    NUM_EPISODES = 2  # todo: CHANGE BACK TO 10
+    INCLUDE_IMAGES = True  # todo: CHANGE BACK TO False
     TS_MAX = 5.0
     STD_TH_REAL = 0.003  # Overwrite std_th in estimator and camera --> None to keep default
     DIST_FILE = f"{LOG_DIR}/dists.pkl"
@@ -104,7 +123,7 @@ if __name__ == "__main__":
             data_sysid: base.EpisodeRecord = pickle.load(f)
         outputs_sysid = {name: n.steps.output for name, n in data_sysid.nodes.items()}
         # Create system
-        nodes_sysid = psys.simulated_system(data_sysid, outputs=outputs_sysid, world_rate=RATES["world"], use_cam=USE_CAM,
+        nodes_sysid = psys.simulated_system(data_sysid, outputs=outputs_sysid, world_rate=RATES["world"], use_cam=True,
                                             id_cam=ID_CAM, use_brax=USE_BRAX)
         nodes_sysid["supervisor"].set_init_method("parametrized")
         graphs_real = data_sysid.to_graph()
@@ -176,10 +195,10 @@ if __name__ == "__main__":
         with open(DATA_CTRL_FILE, "rb") as f:  # Load record
             data_ctrl: base.EpisodeRecord = pickle.load(f)
         # Create system
-        nodes_train = psys.simulated_system(data_ctrl, world_rate=RATES["world"], use_cam=USE_CAM, use_brax=USE_BRAX)
+        nodes_train = psys.simulated_system(data_ctrl, world_rate=RATES["world"], use_cam=True, use_brax=USE_BRAX)
         nodes_train["supervisor"].set_init_method("random")  # Set initialization method
         graphs_real = data_ctrl.to_graph()
-        if USE_CAM:  # Exclude sensor if using camera
+        if True:  # Exclude sensor if using camera
             sensor = nodes_train.pop("sensor")
             [v.disconnect() for k, v in list(sensor.inputs.items())]
             [v.disconnect() for k, v in list(sensor.outputs.items())]
@@ -226,8 +245,8 @@ if __name__ == "__main__":
                                                          hidden_activation=ppo_config.HIDDEN_ACTIVATION, stochastic=False)
         controllers = jax.tree_util.tree_map(lambda x: onp.array(x), controllers)
         # Create evaluation system
-        nodes_eval = psys.simulated_system(data_ctrl, world_rate=RATES["world"], use_cam=USE_CAM, use_brax=USE_BRAX)
-        if USE_CAM:  # Exclude sensor if using camera
+        nodes_eval = psys.simulated_system(data_ctrl, world_rate=RATES["world"], use_cam=True, use_brax=USE_BRAX)
+        if True:  # Exclude sensor if using camera
             sensor = nodes_eval.pop("sensor")
             [v.disconnect() for k, v in list(sensor.inputs.items())]
             [v.disconnect() for k, v in list(sensor.outputs.items())]
@@ -286,31 +305,344 @@ if __name__ == "__main__":
             controllers = pickle.load(f)
         print(f"Controllers loaded from {CONTROLLER_FILE}")
 
-    # REAL
-    if RUN_REAL:
+    # RL
+    if RUN_RL_STACKED:
+        # Load record
+        with open(DATA_CTRL_FILE, "rb") as f:  # Load record
+            data_ctrl: base.EpisodeRecord = pickle.load(f)
+        # Create system
+        nodes_train = psys.simulated_system(data_ctrl, world_rate=RATES["world"], use_cam=True, use_brax=USE_BRAX, use_ukf=False)
+        nodes_train["supervisor"].set_init_method("random")  # Set initialization method
+        graphs_real = data_ctrl.to_graph()
+        if True:  # Exclude sensor if using camera
+            sensor = nodes_train.pop("sensor")
+            [v.disconnect() for k, v in list(sensor.inputs.items())]
+            [v.disconnect() for k, v in list(sensor.outputs.items())]
+            graphs_real.vertices.pop("sensor")
+            graphs_real.edges.pop(("sensor", "estimator"))
+        rng, rng_aug = jax.random.split(rng, num=2)
+        graphs_aug = rexv2.artificial.augment_graphs(graphs_real, nodes_train, rng_aug)
+        graph_train = rexv2.graph.Graph(nodes_train, nodes_train["controller"], graphs_aug)
+        # Modify params if necessary
+        params_train = params_sysid.copy()
+        params_train["estimator"] = params_train["estimator"].replace(std_th=STD_TH_RL)
+        params_train["camera"] = params_train["camera"].replace(std_th=STD_TH_RL)
+        print(f"[RL] Overwriting std_th to {STD_TH_RL}")
+        params_train["controller"] = params_train["controller"].replace(incl_covariance=False, incl_thdot=False,
+                                                                        num_act=NUM_ACT, num_obs=NUM_OBS)
+        # Create environment
+        from envs.pendulum.env import Environment
+        env = Environment(graph_train, params=params_train, order=("supervisor", "actuator"), randomize_eps=True)
+        # rng, rng_init = jax.random.split(rng)
+        # gs = graph_train.init(rng_init, params=params_train, order=("supervisor", "actuator"))
+        # print(f"obs_space | shape={env.observation_space(gs).shape}")  # Check observation space
+        # Create train function
+        import rexv2.ppo as ppo
+        ppo_config = ppo_config.sweep_pmv2r1zf.replace(TOTAL_TIMESTEPS=TOTAL_TIMESTEPS, EVAL_FREQ=EVAL_FREQ)
+        train = functools.partial(ppo.train, env)
+        train_v = jax.vmap(train, in_axes=(None, 0))
+        train_vjit = jax.jit(train_v)
+        rng, rng_ppo = jax.random.split(rng, num=2)
+        rngs_policies = jax.random.split(rng_ppo, NUM_POLICIES)
+        # Jit, lower, precompile
+        t_train_jit = timer("jit | lower | compile", log_level=100)  # Makes them available outside the context manager
+        with t_train_jit:
+            with timer("lower", log_level=100):
+                train_vjit = train_vjit.lower(ppo_config, rngs_policies)
+            with timer("compile", log_level=100):
+                train_vjit = train_vjit.compile()
+        # Train
+        t_train = timer("train", log_level=100)
+        with t_train:
+            ppo_out = train_vjit(ppo_config, rngs_policies)
+        # Store timings
+        elapsed_ctrl = dict(solve=t_train.duration, solve_jit=t_train_jit.duration)
+        # Extract policies
+        model_params = ppo_out["runner_state"][0].params["params"]
+        act_scaling = ppo_out["act_scaling"]
+        obs_scaling = ppo_out["norm_obs"]
+        controllers_stacked = params_train["controller"].replace(act_scaling=act_scaling, obs_scaling=obs_scaling, model=model_params,
+                                                         hidden_activation=ppo_config.HIDDEN_ACTIVATION, stochastic=False)
+        controllers_stacked = jax.tree_util.tree_map(lambda x: onp.array(x), controllers_stacked)
+        # Create evaluation system
+        nodes_eval = psys.simulated_system(data_ctrl, world_rate=RATES["world"], use_cam=True, use_brax=USE_BRAX, use_ukf=False)
+        if True:  # Exclude sensor if using camera
+            sensor = nodes_eval.pop("sensor")
+            [v.disconnect() for k, v in list(sensor.inputs.items())]
+            [v.disconnect() for k, v in list(sensor.outputs.items())]
+        nodes_eval["supervisor"].set_init_method("downward")  # Set initialization method
+        params_eval = params_train.copy()
+        params_eval["supervisor"] = params_eval["supervisor"].replace(tmax=5.0)
+        graph_eval = rexv2.graph.Graph(nodes_eval, nodes_eval["controller"], graphs_aug)
+
+        # Initialize state
+        def evaluate(controller, _rng):
+            # Replace controller
+            _params = params_eval.copy()
+            _params["controller"] = controller
+            # Initialize graph state
+            _gs_init = graph_eval.init(_rng, params=_params, order=("supervisor", "actuator"))
+            # Evaluate
+            eps = jnp.arange(NUM_EPISODES) % graph_eval.max_eps
+            _gs_eval = jax.vmap(graph_eval.rollout, in_axes=(None, None, 0))(_gs_init, 0, eps)
+
+            # Replace buffer and timings_eps to save space
+            _params = _gs_eval.params.unfreeze()
+            _params.pop("controller")
+            _gs_eval = _gs_eval.replace(buffer=None, timings_eps=None, params=_params)
+            return _gs_eval
+
+        rng, rng_eval = jax.random.split(rng, num=2)
+        rngs_eval = jax.random.split(rng_eval, num=NUM_POLICIES)
+        eval_fn = jax.jit(jax.vmap(evaluate))
+        with timer("eval_fn", log_level=100):
+            gs_evals = eval_fn(controllers_stacked, rngs_eval)
+        # Save
+        if SAVE_FILES:
+            # Save params
+            with open(f"{EXP_DIR}/stacked_controllers.pkl", "wb") as f:
+                pickle.dump(controllers_stacked, f)
+            print(f"Controller params saved to {EXP_DIR}/stacked_controllers.pkl")
+            # Save data_ctrl used for training
+            with open(f"{EXP_DIR}/stacked_data.pkl", "wb") as f:
+                pickle.dump(data_ctrl, f)
+            print(f"Data_ctrl saved to {EXP_DIR}/stacked_data.pkl")
+            # Save ppo metrics
+            with open(f"{EXP_DIR}/stacked_ppo_metrics.pkl", "wb") as f:
+                pickle.dump(ppo_out["metrics"], f)
+            print(f"PPO metrics saved to {EXP_DIR}/stacked_ppo_metrics.pkl")
+            # Save
+            with open(f"{EXP_DIR}/stacked_elapsed.pkl", "wb") as f:
+                pickle.dump(elapsed_ctrl, f)
+            print(f"Elapsed_ctrl saved to {EXP_DIR}/stacked_elapsed.pkl")
+            # Save gs_evals
+            with open(f"{EXP_DIR}/stacked_gs_evals.pkl", "wb") as f:
+                pickle.dump(gs_evals, f)
+            print(f"gs_evals saved to {EXP_DIR}/stacked_gs_evals.pkl")
+    else:
+        print("NOT RUNNING RL_STACKED")
+        with open(CONTROLLER_STACKED_FILE, "rb") as f:
+            controllers_stacked = pickle.load(f)
+        print(f"Controllers loaded from {CONTROLLER_STACKED_FILE}")
+
+    # RL NODELAY
+    if RUN_RL_STACKED_NODELAY:
+        nodes_train = psys.no_delay_system(RATES, cscheme=CSCHEME, use_brax=USE_BRAX)
+        nodes_train["supervisor"].set_init_method("random")  # Set initialization method
+        graphs_gen = artificial.generate_graphs(nodes_train, ts_max=TS_MAX, num_episodes=1)
+        graph_train = rexv2.graph.Graph(nodes_train, nodes_train["controller"], graphs_gen)
+        params_train = params_sysid.copy()
+        # params_train["estimator"] = params_train["estimator"].replace(std_th=STD_TH_RL)
+        # params_train["camera"] = params_train["camera"].replace(std_th=STD_TH_RL)
+        # print(f"[RL] Overwriting std_th to {STD_TH_RL}")
+        params_train["controller"] = params_train["controller"].replace(incl_covariance=INCL_COVARIANCE, incl_thdot=False,
+                                                                        num_act=NUM_ACT, num_obs=NUM_OBS)
+        # Create environment
+        from envs.pendulum.env import Environment
+        env = Environment(graph_train, params=params_train, order=("supervisor", "actuator"), randomize_eps=False)
+        # Create train function
+        import rexv2.ppo as ppo
+        ppo_config = ppo_config.sweep_pmv2r1zf.replace(TOTAL_TIMESTEPS=TOTAL_TIMESTEPS, EVAL_FREQ=EVAL_FREQ)
+        train = functools.partial(ppo.train, env)
+        train_v = jax.vmap(train, in_axes=(None, 0))
+        train_vjit = jax.jit(train_v)
+        rng, rng_ppo = jax.random.split(rng, num=2)
+        rngs_policies = jax.random.split(rng_ppo, NUM_POLICIES)
+        # Jit, lower, precompile
+        t_train_jit = timer("jit | lower | compile", log_level=100)  # Makes them available outside the context manager
+        with t_train_jit:
+            with timer("lower", log_level=100):
+                train_vjit = train_vjit.lower(ppo_config, rngs_policies)
+            with timer("compile", log_level=100):
+                train_vjit = train_vjit.compile()
+        # Train
+        t_train = timer("train", log_level=100)
+        with t_train:
+            ppo_out = train_vjit(ppo_config, rngs_policies)
+        # Store timings
+        elapsed_ctrl = dict(solve=t_train.duration, solve_jit=t_train_jit.duration)
+        # Extract policies
+        model_params = ppo_out["runner_state"][0].params["params"]
+        act_scaling = ppo_out["act_scaling"]
+        obs_scaling = ppo_out["norm_obs"]
+        controllers_stacked_nodelay = params_train["controller"].replace(act_scaling=act_scaling, obs_scaling=obs_scaling, model=model_params,
+                                                         hidden_activation=ppo_config.HIDDEN_ACTIVATION, stochastic=False)
+        controllers_stacked_nodelay = jax.tree_util.tree_map(lambda x: onp.array(x), controllers_stacked_nodelay)
+        # Create evaluation system
+        nodes_eval = psys.no_delay_system(RATES, cscheme=CSCHEME, use_brax=USE_BRAX)
+        nodes_eval["supervisor"].set_init_method("downward")  # Set initialization method
+        params_eval = params_train.copy()
+        params_eval["supervisor"] = params_eval["supervisor"].replace(tmax=5.0)
+        graph_eval = rexv2.graph.Graph(nodes_eval, nodes_eval["controller"], graphs_gen)
+
+        # Initialize state
+        def evaluate(controller, _rng):
+            # Replace controller
+            _params = params_eval.copy()
+            _params["controller"] = controller
+            # Initialize graph state
+            _gs_init = graph_eval.init(_rng, params=_params, order=("supervisor", "actuator"))
+            # Evaluate
+            eps = jnp.arange(NUM_EPISODES) % graph_eval.max_eps
+            _gs_eval = jax.vmap(graph_eval.rollout, in_axes=(None, None, 0))(_gs_init, 0, eps)
+
+            # Replace buffer and timings_eps to save space
+            _params = _gs_eval.params.unfreeze()
+            _params.pop("controller")
+            _gs_eval = _gs_eval.replace(buffer=None, timings_eps=None, params=_params)
+            return _gs_eval
+
+        rng, rng_eval = jax.random.split(rng, num=2)
+        rngs_eval = jax.random.split(rng_eval, num=NUM_POLICIES)
+        eval_fn = jax.jit(jax.vmap(evaluate))
+        with timer("eval_fn", log_level=100):
+            gs_evals = eval_fn(controllers, rngs_eval)
+        # Save
+        if SAVE_FILES:
+            # Save params
+            with open(f"{EXP_DIR}/stacked_nodelay_controllers.pkl", "wb") as f:
+                pickle.dump(controllers, f)
+            print(f"Controller params saved to {EXP_DIR}/stacked_nodelay_controllers.pkl")
+            # Save ppo metrics
+            with open(f"{EXP_DIR}/stacked_nodelay_ppo_metrics.pkl", "wb") as f:
+                pickle.dump(ppo_out["metrics"], f)
+            print(f"PPO metrics saved to {EXP_DIR}/stacked_nodelay_ppo_metrics.pkl")
+            # Save
+            with open(f"{EXP_DIR}/stacked_nodelay_elapsed.pkl", "wb") as f:
+                pickle.dump(elapsed_ctrl, f)
+            print(f"Elapsed_ctrl saved to {EXP_DIR}/stacked_nodelay_elapsed.pkl")
+            # Save gs_evals
+            with open(f"{EXP_DIR}/stacked_nodelay_gs_evals.pkl", "wb") as f:
+                pickle.dump(gs_evals, f)
+            print(f"gs_evals saved to {EXP_DIR}/stacked_nodelay_gs_evals.pkl")
+    else:
+        print("NOT RUNNING RL_STACKED_NODELAY")
+        with open(CONTROLLER_STACKED_NO_DELAY_FILE, "rb") as f:
+            controllers_stacked_nodelay = pickle.load(f)
+        print(f"Controllers loaded from {CONTROLLER_STACKED_NO_DELAY_FILE}")
+
+    # RL NODELAY
+    if RUN_RL_NODELAY:
+        nodes_train = psys.no_delay_system(RATES, cscheme=CSCHEME, use_brax=USE_BRAX)
+        nodes_train["supervisor"].set_init_method("random")  # Set initialization method
+        graphs_gen = artificial.generate_graphs(nodes_train, ts_max=TS_MAX, num_episodes=1)
+        graph_train = rexv2.graph.Graph(nodes_train, nodes_train["controller"], graphs_gen)
+        params_train = params_sysid.copy()
+        # params_train["estimator"] = params_train["estimator"].replace(std_th=STD_TH_RL)
+        # params_train["camera"] = params_train["camera"].replace(std_th=STD_TH_RL)
+        # print(f"[RL] Overwriting std_th to {STD_TH_RL}")
+        params_train["controller"] = params_train["controller"].replace(incl_covariance=INCL_COVARIANCE)
+        # Create environment
+        from envs.pendulum.env import Environment
+        env = Environment(graph_train, params=params_train, order=("supervisor", "actuator"), randomize_eps=True)
+        # Create train function
+        import rexv2.ppo as ppo
+        ppo_config = ppo_config.sweep_pmv2r1zf.replace(TOTAL_TIMESTEPS=TOTAL_TIMESTEPS, EVAL_FREQ=EVAL_FREQ)
+        train = functools.partial(ppo.train, env)
+        train_v = jax.vmap(train, in_axes=(None, 0))
+        train_vjit = jax.jit(train_v)
+        rng, rng_ppo = jax.random.split(rng, num=2)
+        rngs_policies = jax.random.split(rng_ppo, NUM_POLICIES)
+        # Jit, lower, precompile
+        t_train_jit = timer("jit | lower | compile", log_level=100)  # Makes them available outside the context manager
+        with t_train_jit:
+            with timer("lower", log_level=100):
+                train_vjit = train_vjit.lower(ppo_config, rngs_policies)
+            with timer("compile", log_level=100):
+                train_vjit = train_vjit.compile()
+        # Train
+        t_train = timer("train", log_level=100)
+        with t_train:
+            ppo_out = train_vjit(ppo_config, rngs_policies)
+        # Store timings
+        elapsed_ctrl = dict(solve=t_train.duration, solve_jit=t_train_jit.duration)
+        # Extract policies
+        model_params = ppo_out["runner_state"][0].params["params"]
+        act_scaling = ppo_out["act_scaling"]
+        obs_scaling = ppo_out["norm_obs"]
+        controllers_nodelay = params_train["controller"].replace(act_scaling=act_scaling, obs_scaling=obs_scaling, model=model_params,
+                                                         hidden_activation=ppo_config.HIDDEN_ACTIVATION, stochastic=False)
+        controllers_nodelay = jax.tree_util.tree_map(lambda x: onp.array(x), controllers_nodelay)
+        # Create evaluation system
+        nodes_eval = psys.no_delay_system(RATES, cscheme=CSCHEME, use_brax=USE_BRAX)
+        nodes_eval["supervisor"].set_init_method("downward")  # Set initialization method
+        params_eval = params_train.copy()
+        params_eval["supervisor"] = params_eval["supervisor"].replace(tmax=5.0)
+        graph_eval = rexv2.graph.Graph(nodes_eval, nodes_eval["controller"], graphs_gen)
+
+        # Initialize state
+        def evaluate(controller, _rng):
+            # Replace controller
+            _params = params_eval.copy()
+            _params["controller"] = controller
+            # Initialize graph state
+            _gs_init = graph_eval.init(_rng, params=_params, order=("supervisor", "actuator"))
+            # Evaluate
+            eps = jnp.arange(NUM_EPISODES) % graph_eval.max_eps
+            _gs_eval = jax.vmap(graph_eval.rollout, in_axes=(None, None, 0))(_gs_init, 0, eps)
+
+            # Replace buffer and timings_eps to save space
+            _params = _gs_eval.params.unfreeze()
+            _params.pop("controller")
+            _gs_eval = _gs_eval.replace(buffer=None, timings_eps=None, params=_params)
+            return _gs_eval
+
+        rng, rng_eval = jax.random.split(rng, num=2)
+        rngs_eval = jax.random.split(rng_eval, num=NUM_POLICIES)
+        eval_fn = jax.jit(jax.vmap(evaluate))
+        with timer("eval_fn", log_level=100):
+            gs_evals = eval_fn(controllers, rngs_eval)
+        # Save
+        if SAVE_FILES:
+            # Save params
+            with open(f"{EXP_DIR}/nodelay_controllers.pkl", "wb") as f:
+                pickle.dump(controllers, f)
+            print(f"Controller params saved to {EXP_DIR}/nodelay_controllers.pkl")
+            # Save ppo metrics
+            with open(f"{EXP_DIR}/nodelay_ppo_metrics.pkl", "wb") as f:
+                pickle.dump(ppo_out["metrics"], f)
+            print(f"PPO metrics saved to {EXP_DIR}/nodelay_ppo_metrics.pkl")
+            # Save
+            with open(f"{EXP_DIR}/nodelay_elapsed.pkl", "wb") as f:
+                pickle.dump(elapsed_ctrl, f)
+            print(f"Elapsed_ctrl saved to {EXP_DIR}/nodelay_elapsed.pkl")
+            # Save gs_evals
+            with open(f"{EXP_DIR}/nodelay_gs_evals.pkl", "wb") as f:
+                pickle.dump(gs_evals, f)
+            print(f"gs_evals saved to {EXP_DIR}/nodelay_gs_evals.pkl")
+    else:
+        print("NOT RUNNING RL_NODELAY")
+        with open(CONTROLLER_NO_DELAY_FILE, "rb") as f:
+            controllers_nodelay = pickle.load(f)
+        print(f"Controllers loaded from {CONTROLLER_NO_DELAY_FILE}")
+
+    def real_evaluate(_rng, _controllers, use_cam, use_pred, use_ukf):
         DELAYS_SIM = psys.load_distribution(f"{LOG_DIR}/dists.pkl")  # psys.get_default_distributions()
-        nodes_real = psys.real_system(DELAYS_SIM, DELAY_FN, RATES, cscheme=CSCHEME, order=ORDER, use_cam=USE_CAM,
-                                      include_image=False, use_openloop=False)
+        nodes_real = psys.real_system(DELAYS_SIM, DELAY_FN, RATES, cscheme=CSCHEME, order=ORDER,
+                                      use_cam=use_cam, use_pred=use_pred, use_ukf=use_ukf,
+                                      include_image=INCLUDE_IMAGES, use_openloop=False)
         nodes_real["supervisor"].set_init_method("downward")  # Set initialization method
-        graph_real = rexv2.asynchronous.AsyncGraph(nodes_real, supervisor=nodes_real["supervisor"], clock=Clock.WALL_CLOCK, real_time_factor=RealTimeFactor.REAL_TIME)
+        graph_real = rexv2.asynchronous.AsyncGraph(nodes_real, supervisor=nodes_real["supervisor"], clock=Clock.WALL_CLOCK,
+                                                   real_time_factor=RealTimeFactor.REAL_TIME)
         # Set record settings
         for n, node in graph_real.nodes.items():
             node.set_record_settings(params=True, rng=False, inputs=False, state=True, output=True)
             if n in ["camera", "controller"]:
                 node.set_record_settings(state=False)  # Avoid saving cummin, cummax, or network weights.
         # Prepare controllers
-        tree_flat, treedef = jax.tree_util.tree_flatten(controllers)
+        tree_flat, treedef = jax.tree_util.tree_flatten(_controllers)
         num_controllers = tree_flat[0].shape[0]
         controllers_lst = [jax.tree_util.tree_unflatten(treedef, [c[i] for c in tree_flat]) for i in range(num_controllers)]
         # Overwrite params
         params_real = params_sysid.copy()
         params_real["estimator"] = params_real["estimator"].replace(std_th=STD_TH_REAL)
-        detector = params_real["camera"].detector.replace(width=nodes_real["camera"]._width, height=nodes_real["camera"]._height)
+        detector = params_real["camera"].detector.replace(width=nodes_real["camera"]._width,
+                                                          height=nodes_real["camera"]._height)
         params_real["camera"] = params_real["camera"].replace(std_th=STD_TH_REAL, detector=detector)
         params_real["controller"] = controllers_lst[0]  # Take first policy
         print(f"[REAL] Overwriting std_th to {STD_TH_REAL}")
         # Init functions
-        rng, rng_init = jax.random.split(rng, num=2)
+        _rng, rng_init = jax.random.split(_rng, num=2)
         gs_base = graph_real.init(rng_init, params=params_real, order=("supervisor", "actuator"))
         # Jit
         cpu_devices = itertools.cycle(jax.devices('cpu'))
@@ -359,13 +691,86 @@ if __name__ == "__main__":
                 cam_state = gs.state["camera"]
                 init_cam_state = init_gs.state["camera"].replace(cummin=cam_state.cummin, cummax=cam_state.cummax)
                 init_gs = eqx.tree_at(lambda _tree: _tree.state["camera"], init_gs, init_cam_state)
+
         # Print mean success rate
         mean_success_rate = jnp.mean(jnp.array(success_rates))
         print(f"Mean success rate: {mean_success_rate:.2f} ({mean_success_rate * 100:.2f}%)")
         record = base.ExperimentRecord(episodes=episodes)
+        # Shutdown camera pipeline (so that we can reinitialize it later)
+        nodes_real["camera"]._shutdown()
+        return record
+
+    # REAL
+    if RUN_REAL:
+        rng, rng_real = jax.random.split(rng, num=2)
+        record = real_evaluate(rng_real, controllers, use_cam=True, use_pred=True, use_ukf=True)
         if SAVE_FILES:
             with open(f"{EXP_DIR}/real_data.pkl", "wb") as f:
                 pickle.dump(record, f)
             print(f"Real record saved to {EXP_DIR}/real_data.pkl")
     else:
         print("NOT RUNNING REAL")
+
+    # REAL STACKED
+    if RUN_REAL_STACKED:
+        rng, rng_real = jax.random.split(rng, num=2)
+        record = real_evaluate(rng_real, controllers_stacked, use_cam=True, use_pred=True, use_ukf=False)
+        if SAVE_FILES:
+            with open(f"{EXP_DIR}/stacked_real_data.pkl", "wb") as f:
+                pickle.dump(record, f)
+            print(f"Real record saved to {EXP_DIR}/stacked_real_data.pkl")
+    else:
+        print("NOT RUNNING RUN_REAL_STACKED")
+
+    # REAL RUN_REAL_STACKED_NODELAY
+    if RUN_REAL_STACKED_NODELAY:
+        rng, rng_real = jax.random.split(rng, num=2)
+        record = real_evaluate(rng_real, controllers_stacked_nodelay, use_cam=True, use_pred=True, use_ukf=False)
+        if SAVE_FILES:
+            with open(f"{EXP_DIR}/stacked_nodelay_real_data.pkl", "wb") as f:
+                pickle.dump(record, f)
+            print(f"Real record saved to {EXP_DIR}/stacked_nodelay_real_data.pkl")
+    else:
+        print("NOT RUNNING RUN_REAL_STACKED_NODELAY")
+
+    # REAL RUN_REAL_STACKED_NODELAY_NOCAM
+    if RUN_REAL_STACKED_NODELAY_NOCAM:
+        rng, rng_real = jax.random.split(rng, num=2)
+        record = real_evaluate(rng_real, controllers_stacked_nodelay, use_cam=False, use_pred=True, use_ukf=False)
+        if SAVE_FILES:
+            with open(f"{EXP_DIR}/stacked_nodelay_nocam_real_data.pkl", "wb") as f:
+                pickle.dump(record, f)
+            print(f"Real record saved to {EXP_DIR}/stacked_nodelay_nocam_real_data.pkl")
+    else:
+        print("NOT RUNNING RUN_REAL_STACKED_NODELAY_NOCAM")
+
+    # REAL RUN_REAL_NODELAY_NOCAM
+    if RUN_REAL_NODELAY_NOCAM:
+        rng, rng_real = jax.random.split(rng, num=2)
+        record = real_evaluate(rng_real, controllers_nodelay, use_cam=False, use_pred=True, use_ukf=True)
+        if SAVE_FILES:
+            with open(f"{EXP_DIR}/nodelay_nocam_real_data.pkl", "wb") as f:
+                pickle.dump(record, f)
+            print(f"Real record saved to {EXP_DIR}/nodelay_nocam_real_data.pkl")
+    else:
+        print("NOT RUNNING REAL")
+
+    # REAL RUN_REAL_NODELAY_CAM
+    if RUN_REAL_NODELAY_CAM:
+        rng, rng_real = jax.random.split(rng, num=2)
+        record = real_evaluate(rng_real, controllers_nodelay, use_cam=True, use_pred=True, use_ukf=True)
+        if SAVE_FILES:
+            with open(f"{EXP_DIR}/nodelay_cam_real_data.pkl", "wb") as f:
+                pickle.dump(record, f)
+            print(f"Real record saved to {EXP_DIR}/nodelay_cam_real_data.pkl")
+
+    # REAL RUN_REAL_NODELAY_CAM
+    if RUN_REAL_NODELAY_CAM_NOPRED:
+        rng, rng_real = jax.random.split(rng, num=2)
+        record = real_evaluate(rng_real, controllers_nodelay, use_cam=True, use_pred=False, use_ukf=True)
+        if SAVE_FILES:
+            with open(f"{EXP_DIR}/nodelay_cam_nopred_real_data.pkl", "wb") as f:
+                pickle.dump(record, f)
+            print(f"Real record saved to {EXP_DIR}/nodelay_cam_nopred_real_data.pkl")
+
+

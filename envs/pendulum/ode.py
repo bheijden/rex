@@ -106,7 +106,8 @@ class World(BaseNode):
         graph_state = graph_state or GraphState()
         params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
         inputs = super().init_inputs(rng, graph_state).unfreeze()
-        inputs["actuator"] = inputs["actuator"].replace(delay_dist=params.actuator_delay)
+        if isinstance(inputs["actuator"].delay_dist, TrainableDist):
+            inputs["actuator"] = inputs["actuator"].replace(delay_dist=params.actuator_delay)
         return FrozenDict(inputs)
 
     def step(self, step_state: StepState) -> Tuple[StepState, WorldState]:
@@ -214,7 +215,8 @@ class Sensor(BaseNode):
         graph_state = graph_state or GraphState()
         params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
         inputs = super().init_inputs(rng, graph_state).unfreeze()
-        inputs["world"] = inputs["world"].replace(delay_dist=params.sensor_delay)
+        if isinstance(inputs["world"].delay_dist, TrainableDist):
+            inputs["world"] = inputs["world"].replace(delay_dist=params.sensor_delay)
         return FrozenDict(inputs)
 
     def step(self, step_state: StepState) -> Tuple[StepState, SensorOutput]:

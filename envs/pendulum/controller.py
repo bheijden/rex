@@ -29,6 +29,7 @@ class PPOAgentParams(Base):
     output_activation: str = struct.field(pytree_node=False, default="gaussian")
     stochastic: bool = struct.field(pytree_node=False, default=False)
     incl_covariance: bool = struct.field(pytree_node=False, default=True)
+    incl_thdot: bool = struct.field(pytree_node=False, default=True)
 
     def apply_actor(self, x: jax.typing.ArrayLike, rng: jax.Array = None) -> jax.Array:
         # Get parameters
@@ -75,21 +76,21 @@ class PPOAgentParams(Base):
         if "estimator" in inputs:
             state_estimate = inputs["estimator"][-1].data
             th, thdot = state_estimate.mean.th, state_estimate.mean.thdot
-            obs = jnp.array([jnp.cos(th), jnp.sin(th), thdot])
+            obs = jnp.array([jnp.cos(th), jnp.sin(th), thdot]) if self.incl_thdot else jnp.array([jnp.cos(th), jnp.sin(th)])
             if self.incl_covariance:
                 var = state_estimate.cov.diagonal()
                 covar = state_estimate.cov[0, 1]
                 obs_covar = jnp.array([var[0], var[1], covar])
-                obs = jnp.concatenate([obs, obs_covar])
+                obs = jnp.concatenate([obs, obs_covar]) if self.incl_thdot else jnp.concatenate([obs, var[0]])
         elif "sensor" in inputs:
             assert self.incl_covariance is False, "Covariance not implemented for sensor input."
             th, thdot = inputs["sensor"][-1].data.th, inputs["sensor"][-1].data.thdot
-            obs = jnp.array([jnp.cos(th), jnp.sin(th), thdot])
+            obs = jnp.array([jnp.cos(th), jnp.sin(th), thdot]) if self.incl_thdot else jnp.array([jnp.cos(th), jnp.sin(th)])
         else:
             assert self.incl_covariance is False, "Covariance not implemented for sensor input."
             assert "world" in inputs, "Either 'estimator', 'sensor', or 'world' must be in the inputs."
             th, thdot = inputs["world"][-1].data.th, inputs["world"][-1].data.thdot
-            obs = jnp.array([jnp.cos(th), jnp.sin(th), thdot])
+            obs = jnp.array([jnp.cos(th), jnp.sin(th), thdot]) if self.incl_thdot else jnp.array([jnp.cos(th), jnp.sin(th)])
         return obs
 
     def get_observation(self, step_state: StepState) -> jax.Array:
@@ -164,8 +165,9 @@ class PPOAgent(BaseNode):
         """Default state of the node."""
         graph_state = graph_state or base.GraphState()
         params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
-        history_act = jnp.zeros((params.num_act, 0), dtype=jnp.float32)  # [torque]
-        history_obs = jnp.zeros((params.num_obs, 0), dtype=jnp.float32)  # [cos(th), sin(th), thdot]
+        history_act = jnp.zeros((params.num_act, 1), dtype=jnp.float32)  # [torque]
+        obs_dim = 3 if params.incl_thdot else 2
+        history_obs = jnp.zeros((params.num_obs, obs_dim), dtype=jnp.float32)  # [cos(th), sin(th), thdot]
         return PPOAgentState(history_act=history_act, history_obs=history_obs)
 
     def init_output(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> ActuatorOutput:
@@ -187,7 +189,7 @@ class PPOAgent(BaseNode):
 
         # Grab estimator output
         assert len(self.inputs) > 0, "No estimator connected to controller"
-        est_output = inputs["estimator"][-1].data
+        est_output = inputs["estimator"][-1].data if "estimator" in inputs else None
 
         # Get action from dataset or use passed through.
         if self._outputs is not None:
