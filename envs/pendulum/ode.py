@@ -221,6 +221,8 @@ class Sensor(BaseNode):
 
     def step(self, step_state: StepState) -> Tuple[StepState, SensorOutput]:
         """Step the node."""
+        rng = step_state.rng
+
         # Adjust ts_start (i.e. step_state.ts) to reflect the timestamp of the world state that generated the sensor output
         ts = step_state.ts - step_state.params.sensor_delay.mean()  # Should be equal to world_interp.ts_sent[-1]?
         data = step_state.inputs["world"][-1].data
@@ -230,6 +232,8 @@ class Sensor(BaseNode):
             recorded_output = tree_dynamic_slice(self._outputs, jnp.array([step_state.eps, step_state.seq]))
             output = recorded_output.replace(ts=ts)
         else:
+            # rng, rng_noise = jax.random.split(rng)
+            # th = data.th + jax.random.normal(rng_noise) * 0.02  # todo: IS HARDCODED
             output = SensorOutput(th=data.th, thdot=data.thdot, ts=ts)
 
         # Calculate loss
@@ -241,7 +245,7 @@ class Sensor(BaseNode):
 
         # Update state
         new_state = state.replace(loss_th=loss_th, loss_thdot=loss_thdot)
-        new_step_state = step_state.replace(state=new_state)
+        new_step_state = step_state.replace(rng=rng, state=new_state)
         return new_step_state, output
 
 

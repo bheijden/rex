@@ -84,6 +84,21 @@ class D435i(D435iBase):
         # Wait until dummy output is ready
         self._dummy_output = self._get_output(None)
 
+    def get_intrinsics(self):
+        profile = self._pipeline.get_active_profile()
+        color_stream = profile.get_stream(rs.stream.color)
+        color_intrinsics = color_stream.as_video_stream_profile().get_intrinsics()
+        # focal_length_x = color_intrinsics.fx
+        # focal_length_y = color_intrinsics.fy
+        # optical_center_x = color_intrinsics.ppx
+        # optical_center_y = color_intrinsics.ppy
+        # intrinsic_matrix = onp.array([
+        #     [focal_length_x, 0, optical_center_x],
+        #     [0, focal_length_y, optical_center_y],
+        #     [0, 0, 1]
+        # ])
+        return color_intrinsics
+
     def _shutdown(self):
         try:
             self._pipeline.stop()

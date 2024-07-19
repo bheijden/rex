@@ -171,6 +171,7 @@ class Actuator(BaseNode):
     def _to_downward(self, goal_th: float = 0.):
         """Set the pendulum to downward position."""
         self._controller.reset()
+        # goal_th = self._wrap_angle(goal_th - onp.pi + onp.random.uniform(low=-0.2, high=0.2))
         goal_th = self._wrap_angle(goal_th - onp.pi)
         goal = jnp.array([goal_th, 0.0])
         done = False

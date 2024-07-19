@@ -259,9 +259,8 @@ DISK_PENDULUM_XML = """
         <geom name="table" type="plane" pos="0 0.0 -0.1" size="1 1 0.1" contype="8" conaffinity="11" condim="3"/>
         <body name="disk" pos="0.0 0.0 0.0" euler="1.5708 0.0 0.0">
             <joint name="hinge_joint" type="hinge" axis="0 0 1" range="-180 180" armature="0.00022993" damping="0.0001" limited="false"/>
-            <geom name="disk_geom" type="cylinder" size="0.06 0.001" contype="0" conaffinity="0" condim="3" mass="0.0"/>
-            <geom name="mass_geom" type="cylinder" size="0.02 0.005" contype="0" conaffinity="0"  condim="3" rgba="0.04 0.04 0.04 1"
-                  pos="0.0 0.04 0." mass="0.05085817"/>
+            <geom name="disk_geom" type="cylinder" size="0.06 0.001" contype="0" conaffinity="0" condim="3" rgba="0.08 0.08 0.2 1" mass="0.0"/>
+            <geom name="mass_geom" type="cylinder" size="0.02 0.005" contype="0" conaffinity="0"  condim="3" rgba="0.3 0.08 0.08 1" pos="0.0 0.04 0." mass="0.05085817"/>
         </body>
     </worldbody>
 
@@ -270,3 +269,166 @@ DISK_PENDULUM_XML = """
     </actuator>
 </mujoco>
 """
+
+CAM_DISK_PENDULUM_XML = """
+<mujoco model="disk_pendulum">
+    <compiler inertiafromgeom="auto" angle="radian" coordinate="local" eulerseq="xyz" autolimits="true" meshdir="/home/r2ci/rex/envs/pendulum/assets"/>
+    <option gravity="0 0 -9.81" timestep="0.01" iterations="10"/>
+    <custom>
+        <numeric data="10" name="constraint_ang_damping"/> <!-- positional & spring -->
+        <numeric data="1" name="spring_inertia_scale"/>  <!-- positional & spring -->
+        <numeric data="0" name="ang_damping"/>  <!-- positional & spring -->
+        <numeric data="0" name="spring_mass_scale"/>  <!-- positional & spring -->
+        <numeric data="0.5" name="joint_scale_pos"/> <!-- positional -->
+        <numeric data="0.1" name="joint_scale_ang"/> <!-- positional -->
+        <numeric data="3000" name="constraint_stiffness"/>  <!-- spring -->
+        <numeric data="10000" name="constraint_limit_stiffness"/>  <!-- spring -->
+        <numeric data="50" name="constraint_vel_damping"/>  <!-- spring -->
+        <numeric data="10" name="solver_maxls"/>  <!-- generalized -->
+    </custom>
+
+    <asset>
+        <texture builtin="gradient" height="100" rgb1="1 1 1" rgb2="0 0 0" type="skybox" width="100"/>
+        <texture builtin="flat" height="1278" mark="cross" markrgb="1 1 1" name="texgeom" random="0.01" rgb1="0.8 0.6 0.4" rgb2="0.8 0.6 0.4" type="cube" width="127"/>
+        <texture builtin="checker" height="100" name="texplane" rgb1="0 0 0" rgb2="0.8 0.8 0.8" type="2d" width="100"/>
+        <material name="MatPlane" reflectance="0.5" shininess="1" specular="1" texrepeat="60 60" texture="texplane"/>
+        <material name="geom" texture="texgeom" texuniform="true" specular="1" shininess="1.0"/>
+        <material name="disk" reflectance="1.0" specular="1" shininess="1"/>
+        
+        <mesh file="d435i_0.obj"/>
+        <mesh file="d435i_1.obj"/>
+        <mesh file="d435i_2.obj"/>
+        <mesh file="d435i_3.obj"/>
+        <mesh file="d435i_4.obj"/>
+        <mesh file="d435i_5.obj"/>
+        <mesh file="d435i_6.obj"/>
+        <mesh file="d435i_7.obj"/>
+        <mesh file="d435i_8.obj"/>
+    </asset>
+
+    <default>
+        <geom contype="0" friction="1 0.1 0.1" material="disk"/>
+        
+        <default class="d435i">
+            <material specular="0" shininess="0.25"/>
+            <default class="visual">
+                <geom group="2" type="mesh" contype="0" conaffinity="0" mass="0"/>
+            </default>
+            <default class="collision">
+                <geom group="3" type="mesh" mass="0"/>
+            </default>
+        </default>
+    </default>
+
+    <worldbody>
+        <light cutoff="45" diffuse="1 1 1" dir="0 -1 -1" directional="true" exponent="1" pos="0. 1.0 1.0" specular="1 1 1"/>
+        <geom name="floor" type="plane" conaffinity="0" condim="3" pos="0 0 -0.095" rgba="0.79 0.79 0.79 1.0" size="1 1 1" />
+        <geom name="table" type="box" size="0.15 0.25 0.01" contype="0" conaffinity="0" condim="3" rgba="0.65 0.41 0.199 1.0" mass="0.0" pos="0. 0.0 -0.1"/>
+        <geom name="light_geom" type="cylinder" size="0.003 0.001" contype="0" conaffinity="0" condim="3" rgba="0.2 0.2 1.0 1" mass="0.0" pos="-0.06 0. 0.06" euler="1.5708 0.0 0.0"/>
+        <geom name="box_geom" type="box" size="0.08 0.12 0.08" contype="0" conaffinity="0" condim="3" rgba="0.8 0.8 0.8 1" mass="0.0" pos="0. -0.122 0."/>
+        <geom name="corner1_geom" type="cylinder" size="0.015 0.117" contype="0" conaffinity="0" condim="3" rgba="0.08 0.08 0.3 1" mass="0.0" pos="-0.075 -0.12 -0.075" euler="1.5708 0.0 0.0"/>
+        <geom name="corner2_geom" type="cylinder" size="0.015 0.117" contype="0" conaffinity="0" condim="3" rgba="0.08 0.08 0.3 1" mass="0.0" pos="0.075 -0.12 0.075" euler="1.5708 0.0 0.0"/>
+        <geom name="corner3_geom" type="cylinder" size="0.015 0.117" contype="0" conaffinity="0" condim="3" rgba="0.08 0.08 0.3 1" mass="0.0" pos="-0.075 -0.12 0.075" euler="1.5708 0.0 0.0"/>
+        <geom name="corner4_geom" type="cylinder" size="0.015 0.117" contype="0" conaffinity="0" condim="3" rgba="0.08 0.08 0.3 1" mass="0.0" pos="0.075 -0.12 -0.075" euler="1.5708 0.0 0.0"/>
+        <body name="disk" pos="0.0 0.0 0.0" euler="1.5708 0.0 0.0">
+            <joint name="hinge_joint" type="hinge" axis="0 0 1" range="-180 180" armature="0.00022993" damping="0.0001" limited="false"/>
+            <geom name="hinge_geom" type="cylinder" size="0.014 0.007" contype="0" conaffinity="0" condim="3" rgba="0.6 0.6 0.6 1" mass="0.0"/>
+            <geom name="screw_top_geom" type="cylinder" size="0.003 0.002" contype="0" conaffinity="0" condim="3" rgba="0.3 0.3 0.3 1" mass="0.0" pos="0.0 -0.005 -0.007"/>
+            <geom name="screw_right_geom" type="cylinder" size="0.003 0.002" contype="0" conaffinity="0" condim="3" rgba="0.3 0.3 0.3 1" mass="0.0" pos="0.005 0.004 -0.007"/>
+            <geom name="screw_left_geom" type="cylinder" size="0.003 0.002" contype="0" conaffinity="0" condim="3" rgba="0.3 0.3 0.3 1" mass="0.0" pos="-0.005 0.004 -0.007"/>
+            <geom name="disk_geom" type="cylinder" size="0.06 0.001" contype="0" conaffinity="0" condim="3" rgba="0.08 0.08 0.3 1" mass="0.0"/>
+            <geom name="mass_geom" type="cylinder" size="0.02 0.005" contype="0" conaffinity="0"  condim="3" rgba="0.5 0.08 0.08 1" pos="0.0 0.04 0." mass="0.05085817"/>
+            <geom name="hole_geom" type="cylinder" size="0.002 0.002" contype="0" conaffinity="0"  condim="3" rgba="0.8 0.8 0.8 1" pos="0.0 -0.04 0." mass="0.0"/>      
+        </body>
+        
+        <!--
+        <body name="world" pos="0.0 0.0 0.0" euler="0.0 0.0 0.0">
+            <geom name="x_axis_w" type="cylinder" size="0.001 0.01" pos="0.01 0.03 0" euler="0 1.5707963 0" rgba="1 0 0 1" contype="0" conaffinity="0" condim="3"/>
+            <geom name="y_axis_w" type="cylinder" size="0.001 0.01" pos="0 0.04 0" euler="1.5707963 0 0" rgba="0 1 0 1" contype="0" conaffinity="0" condim="3"/>
+            <geom name="z_axis_w" type="cylinder" size="0.001 0.01" pos="0 0.03 0.01" euler="0 0 0" rgba="0 0 1 1" contype="0" conaffinity="0" condim="3"/>
+        </body>
+        -->
+        
+        <body name="camera" pos="0.0 0.0 0.0" euler="0.0 0.0 0.0">
+            <camera name="d435i_render" mode="fixed" focalpixel="308.773 308.724" principalpixel="214.688 118.102" resolution="424 240" pos="0 0 0" sensorsize="0 0" euler="3.1413 0 0"/>
+            <geom name="x_axis" type="cylinder" size="0.001 0.01" pos="0.01 0 0" euler="0 1.5707963 0" rgba="1 0 0 1" contype="0" conaffinity="0" condim="3"/>
+            <geom name="y_axis" type="cylinder" size="0.001 0.01" pos="0 0.01 0" euler="1.5707963 0 0" rgba="0 1 0 1" contype="0" conaffinity="0" condim="3"/>
+            <geom name="z_axis" type="cylinder" size="0.001 0.01" pos="0 0 0.01" euler="0 0 0" rgba="0 0 1 1" contype="0" conaffinity="0" condim="3"/>
+            <joint name="camera_joint" type="free" damping="0.1" limited="false"/>
+            <inertial pos="0.0 0.0 0.0" mass="0.0001" diaginertia="0.0001 0.0001 0.0001"/>
+            <body name="d435i_" childclass="d435i">
+                <geom name="d435i_case" type="box" size="0.007 0.005 0.039" class="visual" rgba="0.05 0.05 0.05 1" pos="0.033 0.0 -0.009" euler="1.5708 1.5708 0.0"/>
+                <geom name="d435i_ball" type="sphere" size="0.005" class="visual" rgba="0.8 0.8 0.8 1" pos="0.033 0.005 -0.009" euler="0.0 0.0 0.0"/>
+                <geom name="d435i_leg1" type="cylinder" size="0.003 0.075" class="visual" rgba="0.8 0.8 0.8 1" pos="0.033 0.07 -0.009" euler="1.5708 0.0 0.0"/>
+            </body>
+            <body name="d435i" childclass="d435i" pos="0.0 0.0 0.0">
+                <geom mesh="d435i_0" rgba="0.035601 0.035601 0.035601 1" class="visual" pos="0.033 0.0 0.0" euler="0.0 0.0 0.0"/>
+                <geom mesh="d435i_1" rgba="0.287440 0.665387 0.327778 1" class="visual" pos="0.033 0.0 0.0" euler="0.0 0.0 0.0"/>
+                <geom mesh="d435i_2" rgba="0.799102 0.806952 0.799103 1" class="visual" pos="0.033 0.0 0.0" euler="0.0 0.0 0.0"/>
+                <geom mesh="d435i_3" rgba="0.035601 0.035601 0.035601 1" class="visual" pos="0.033 0.0 0.0" euler="0.0 0.0 0.0"/>
+                <geom mesh="d435i_5" rgba="0.070360 0.070360 0.070360 1" class="visual" pos="0.033 0.0 0.0" euler="0.0 0.0 0.0"/>
+                <geom mesh="d435i_6" rgba="0.070360 0.070360 0.070360 1" class="visual" pos="0.033 0.0 0.0" euler="0.0 0.0 0.0"/>
+                <geom mesh="d435i_7" rgba="0.087140 0.002866 0.009346 1" class="visual" pos="0.033 0.0 0.0" euler="0.0 0.0 0.0"/>
+            </body>
+        </body>
+    </worldbody>
+
+    <actuator>
+        <motor joint="hinge_joint" ctrllimited="false" ctrlrange="-3.0 3.0"  gear="0.01"/>
+    </actuator>
+</mujoco>
+"""
+
+
+def save(path, json_rollout):
+    """Saves trajectory as an HTML text file."""
+    from etils import epath
+
+    path = epath.Path(path)
+    if not path.parent.exists():
+        path.parent.mkdir(parents=True)
+    path.write_text(json_rollout)
+
+
+def get_pipeline_state(th: jax.typing.ArrayLike, dt: float, thdot: jax.typing.ArrayLike = None, cam_pos: jax.typing.ArrayLike = None, cam_orn: jax.typing.ArrayLike = None, sys=None):
+    thdot = jnp.zeros_like(th) if thdot is None else thdot
+    assert (cam_pos is None) == (cam_orn is None), "cam_pos and cam_orn must be both None or both not None"
+    if not (cam_pos is None or cam_orn is None):
+        XML = CAM_DISK_PENDULUM_XML
+    else:
+        XML = DISK_PENDULUM_XML
+    if not BRAX_INSTALLED:
+        raise ImportError("Brax not installed. Install it with `pip install brax`")
+    assert th.shape == thdot.shape, "th and thdot must have the same shape"
+    assert th.ndim == 1, "th and thdot must be 1D arrays"
+
+    # Initialize system
+    sys = mjcf.loads(XML) if sys is None else sys
+    sys = sys.replace(opt=sys.opt.replace(timestep=dt))
+
+    def _set_pipeline_state(_th, _thdot):
+        qpos = sys.init_q.at[0].set(_th)
+        if cam_pos is not None:
+            qpos = qpos.at[1:4].set(cam_pos)
+            qpos = qpos.at[4:9].set(cam_orn)
+        qvel = jnp.zeros((sys.qd_size()))
+        qvel = qvel.at[0].set(_thdot)
+        pipeline_state = gen_pipeline.init(sys, qpos, qvel)
+        return pipeline_state
+
+    jit_set_pipeline_state = jax.jit(_set_pipeline_state).lower(th[0], thdot[0]).compile()
+    pipeline_state_lst = []
+    for _th, _thdot in zip(th, thdot):
+        pipeline_state_i = jit_set_pipeline_state(_th, _thdot)
+        pipeline_state_lst.append(pipeline_state_i)
+    return sys, pipeline_state_lst
+
+
+def render(th: jax.typing.ArrayLike, dt: float, thdot: jax.typing.ArrayLike = None, cam_pos: jax.typing.ArrayLike = None, cam_orn: jax.typing.ArrayLike = None, sys=None):
+    """Render the rollout as an HTML file."""
+    if not BRAX_INSTALLED:
+        raise ImportError("Brax not installed. Install it with `pip install brax`")
+    from brax.io import html
+    sys, pipeline_state_lst = get_pipeline_state(th, dt, thdot, cam_pos, cam_orn, sys)
+    rollout_json = html.render(sys, pipeline_state_lst)
+    return rollout_json

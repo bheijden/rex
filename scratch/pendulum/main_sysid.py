@@ -51,11 +51,6 @@ matplotlib.use("TkAgg")
 
 
 if __name__ == "__main__":
-    # todo: evaluate RL without noise
-    #  - train with stacked observations W/O estimator
-    #  - train without R noise
-    #  -
-    #  -
     # todo: Methodology:
     #       0. Gather real-data and construct computation graph
     #       1. Estimate simulator parameters + delays (fit simulator to reconstruct real-data) (non-causal)
@@ -111,8 +106,8 @@ if __name__ == "__main__":
     SUPERVISOR = "actuator"
     SUPERGRAPH = Supergraph.MCS
     LOG_DIR = "/home/r2ci/rex/scratch/pendulum/logs"
-    RECORD_FILE = f"{LOG_DIR}/data_sysid.pkl"
-    PARAMS_FILE = f"{LOG_DIR}/sysid_params_brax.pkl"  # todo: change to brax
+    RECORD_FILE = f"{LOG_DIR}/data_sysid_pose2.pkl"
+    PARAMS_FILE = f"{LOG_DIR}/sysid_params_pose2.pkl"  # todo: change to brax
     # ORDER = ["camera", "sensor", "actuator", "controller", "estimator", "supervisor"]
     # CSCHEME = {"world": "gray", "sensor": "grape", "camera": "orange", "estimator": "violet", "controller": "lime",
     #            "actuator": "green", "supervisor": "indigo"}
@@ -126,12 +121,11 @@ if __name__ == "__main__":
     cam = jax.tree_util.tree_map(lambda x: x[EPS_IDX], outputs_sysid["camera"])
 
     # Visualize detection
-    if False:
+    if True:
         detector = jax.tree_util.tree_map(lambda x: x[0], record.nodes["camera"].params.detector)
-        bgr_ellipse = detector.draw_ellipse_on_image(cam.bgr)
-        bgr_ellipse = detector.draw_ellipse(bgr_ellipse, color=(255, 0, 0))
+        bgr_ellipse = detector.draw_ellipse(cam.bgr, color=(255, 0, 0))
         bgr_centroids = detector.draw_centroids(bgr_ellipse, cam.median)
-        detector.play_video(bgr_centroids, fps=30)
+        detector.play_video(bgr_centroids, fps=60)
 
     # Create nodes
     nodes_sysid = psys.simulated_system(record, outputs=outputs_sysid, world_rate=WORLD_RATE, use_cam=USE_CAM, id_cam=ID_CAM,

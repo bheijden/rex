@@ -27,7 +27,7 @@ import rexv2.utils as rutils
 from rexv2.jax_utils import same_structure
 from rexv2 import artificial
 import envs.pendulum.systems as psys
-import envs.pendulum.ppo as ppo_config
+import envs.pendulum.ppo as pend_ppo
 import rexv2.rl as rl
 
 # plotting
@@ -47,22 +47,28 @@ if __name__ == "__main__":
     # General settings
     LOG_DIR = "/home/r2ci/rex/scratch/pendulum/logs"
     # EXP_DIR = f"{LOG_DIR}/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_brax_images"
-    EXP_DIR = f"{LOG_DIR}/20240710_141737_brax_stacked_images"
+    EXP_DIR = f"{LOG_DIR}/20240710_141737_brax_norandomization_longerstack_v5_dark" # todo: CHANGE
+    # EXP_DIR = f"{LOG_DIR}/20240710_141737_brax_longerstack"
     # EXP_DIR = f"{LOG_DIR}/test_main_eval"
-    SEED = 6
+    SEED = 0  # todo: change to 6
     SAVE_FILES = True
+    # System identification
     RUN_SYSID = False
+    # Train policies
     RUN_RL = False
     RUN_RL_NODELAY = False
     RUN_RL_STACKED = False
     RUN_RL_STACKED_NODELAY = False
-    RUN_REAL = False
+    # Evaluate policies
+    RUN_REAL = True
+    # Trained on full state
+    RUN_REAL_NODELAY_NOCAM = True
+    RUN_REAL_NODELAY_CAM = True
+    RUN_REAL_NODELAY_CAM_NOPRED = True
+    # Stacked
     RUN_REAL_STACKED = True
     RUN_REAL_STACKED_NODELAY = True
     RUN_REAL_STACKED_NODELAY_NOCAM = True
-    RUN_REAL_NODELAY_NOCAM = False
-    RUN_REAL_NODELAY_CAM = False
-    RUN_REAL_NODELAY_CAM_NOPRED = False
 
     # Environment Settings
     USE_BRAX = True  # Use brax for simulation
@@ -74,7 +80,8 @@ if __name__ == "__main__":
     MAX_STEPS = 40
 
     # RL settings
-    TOTAL_TIMESTEPS = 1_500_000
+    RANDOMIZE_EPS = False
+    TOTAL_TIMESTEPS = 2_000_000
     EVAL_FREQ = 50  # Evaluate every 50 steps
     INCL_COVARIANCE = False
     DATA_CTRL_FILE = f"{LOG_DIR}/data_control.pkl"
@@ -83,8 +90,8 @@ if __name__ == "__main__":
     STD_TH_RL = 0.02  # Overwrite std_th in estimator and camera --> None to keep default
 
     # RL (stacked) settings
-    NUM_OBS = 2
-    NUM_ACT = 2
+    NUM_OBS = 3  # todo: used to be 2
+    NUM_ACT = 3  # todo: used to be 2
     CONTROLLER_STACKED_FILE = f"{EXP_DIR}/stacked_controllers.pkl"
 
     # RL (no delay) settings
@@ -94,8 +101,8 @@ if __name__ == "__main__":
     CONTROLLER_NO_DELAY_FILE = f"{EXP_DIR}/nodelay_controllers.pkl"
 
     # Real settings
-    NUM_EPISODES = 2  # todo: CHANGE BACK TO 10
-    INCLUDE_IMAGES = True  # todo: CHANGE BACK TO False
+    NUM_EPISODES = 10  # todo: CHANGE BACK TO 10
+    INCLUDE_IMAGES = False  # todo: CHANGE BACK TO False
     TS_MAX = 5.0
     STD_TH_REAL = 0.003  # Overwrite std_th in estimator and camera --> None to keep default
     DIST_FILE = f"{LOG_DIR}/dists.pkl"
@@ -215,10 +222,10 @@ if __name__ == "__main__":
         params_train["controller"] = params_train["controller"].replace(incl_covariance=INCL_COVARIANCE)
         # Create environment
         from envs.pendulum.env import Environment
-        env = Environment(graph_train, params=params_train, order=("supervisor", "actuator"), randomize_eps=True)
+        env = Environment(graph_train, params=params_train, order=("supervisor", "actuator"), randomize_eps=RANDOMIZE_EPS)
         # Create train function
         import rexv2.ppo as ppo
-        ppo_config = ppo_config.sweep_pmv2r1zf.replace(TOTAL_TIMESTEPS=TOTAL_TIMESTEPS, EVAL_FREQ=EVAL_FREQ)
+        ppo_config = pend_ppo.sweep_pmv2r1zf.replace(TOTAL_TIMESTEPS=TOTAL_TIMESTEPS, EVAL_FREQ=EVAL_FREQ)
         train = functools.partial(ppo.train, env)
         train_v = jax.vmap(train, in_axes=(None, 0))
         train_vjit = jax.jit(train_v)
@@ -332,13 +339,13 @@ if __name__ == "__main__":
                                                                         num_act=NUM_ACT, num_obs=NUM_OBS)
         # Create environment
         from envs.pendulum.env import Environment
-        env = Environment(graph_train, params=params_train, order=("supervisor", "actuator"), randomize_eps=True)
+        env = Environment(graph_train, params=params_train, order=("supervisor", "actuator"), randomize_eps=RANDOMIZE_EPS)
         # rng, rng_init = jax.random.split(rng)
         # gs = graph_train.init(rng_init, params=params_train, order=("supervisor", "actuator"))
         # print(f"obs_space | shape={env.observation_space(gs).shape}")  # Check observation space
         # Create train function
         import rexv2.ppo as ppo
-        ppo_config = ppo_config.sweep_pmv2r1zf.replace(TOTAL_TIMESTEPS=TOTAL_TIMESTEPS, EVAL_FREQ=EVAL_FREQ)
+        ppo_config = pend_ppo.sweep_pmv2r1zf.replace(TOTAL_TIMESTEPS=TOTAL_TIMESTEPS, EVAL_FREQ=EVAL_FREQ)
         train = functools.partial(ppo.train, env)
         train_v = jax.vmap(train, in_axes=(None, 0))
         train_vjit = jax.jit(train_v)
@@ -442,7 +449,7 @@ if __name__ == "__main__":
         env = Environment(graph_train, params=params_train, order=("supervisor", "actuator"), randomize_eps=False)
         # Create train function
         import rexv2.ppo as ppo
-        ppo_config = ppo_config.sweep_pmv2r1zf.replace(TOTAL_TIMESTEPS=TOTAL_TIMESTEPS, EVAL_FREQ=EVAL_FREQ)
+        ppo_config = pend_ppo.sweep_pmv2r1zf.replace(TOTAL_TIMESTEPS=TOTAL_TIMESTEPS, EVAL_FREQ=EVAL_FREQ)
         train = functools.partial(ppo.train, env)
         train_v = jax.vmap(train, in_axes=(None, 0))
         train_vjit = jax.jit(train_v)
@@ -534,10 +541,10 @@ if __name__ == "__main__":
         params_train["controller"] = params_train["controller"].replace(incl_covariance=INCL_COVARIANCE)
         # Create environment
         from envs.pendulum.env import Environment
-        env = Environment(graph_train, params=params_train, order=("supervisor", "actuator"), randomize_eps=True)
+        env = Environment(graph_train, params=params_train, order=("supervisor", "actuator"), randomize_eps=False)
         # Create train function
         import rexv2.ppo as ppo
-        ppo_config = ppo_config.sweep_pmv2r1zf.replace(TOTAL_TIMESTEPS=TOTAL_TIMESTEPS, EVAL_FREQ=EVAL_FREQ)
+        ppo_config = pend_ppo.sweep_pmv2r1zf.replace(TOTAL_TIMESTEPS=TOTAL_TIMESTEPS, EVAL_FREQ=EVAL_FREQ)
         train = functools.partial(ppo.train, env)
         train_v = jax.vmap(train, in_axes=(None, 0))
         train_vjit = jax.jit(train_v)
@@ -702,6 +709,7 @@ if __name__ == "__main__":
 
     # REAL
     if RUN_REAL:
+        print("RUNNING REAL")
         rng, rng_real = jax.random.split(rng, num=2)
         record = real_evaluate(rng_real, controllers, use_cam=True, use_pred=True, use_ukf=True)
         if SAVE_FILES:
@@ -713,6 +721,7 @@ if __name__ == "__main__":
 
     # REAL STACKED
     if RUN_REAL_STACKED:
+        print("RUNNING RUN_REAL_STACKED")
         rng, rng_real = jax.random.split(rng, num=2)
         record = real_evaluate(rng_real, controllers_stacked, use_cam=True, use_pred=True, use_ukf=False)
         if SAVE_FILES:
@@ -724,6 +733,7 @@ if __name__ == "__main__":
 
     # REAL RUN_REAL_STACKED_NODELAY
     if RUN_REAL_STACKED_NODELAY:
+        print("RUNNING RUN_REAL_STACKED_NODELAY")
         rng, rng_real = jax.random.split(rng, num=2)
         record = real_evaluate(rng_real, controllers_stacked_nodelay, use_cam=True, use_pred=True, use_ukf=False)
         if SAVE_FILES:
@@ -735,6 +745,7 @@ if __name__ == "__main__":
 
     # REAL RUN_REAL_STACKED_NODELAY_NOCAM
     if RUN_REAL_STACKED_NODELAY_NOCAM:
+        print("RUNNING RUN_REAL_STACKED_NODELAY_NOCAM")
         rng, rng_real = jax.random.split(rng, num=2)
         record = real_evaluate(rng_real, controllers_stacked_nodelay, use_cam=False, use_pred=True, use_ukf=False)
         if SAVE_FILES:
@@ -746,8 +757,9 @@ if __name__ == "__main__":
 
     # REAL RUN_REAL_NODELAY_NOCAM
     if RUN_REAL_NODELAY_NOCAM:
+        print("RUNNING RUN_REAL_NODELAY_NOCAM")
         rng, rng_real = jax.random.split(rng, num=2)
-        record = real_evaluate(rng_real, controllers_nodelay, use_cam=False, use_pred=True, use_ukf=True)
+        record = real_evaluate(rng_real, controllers_nodelay, use_cam=False, use_pred=False, use_ukf=False)
         if SAVE_FILES:
             with open(f"{EXP_DIR}/nodelay_nocam_real_data.pkl", "wb") as f:
                 pickle.dump(record, f)
@@ -757,6 +769,7 @@ if __name__ == "__main__":
 
     # REAL RUN_REAL_NODELAY_CAM
     if RUN_REAL_NODELAY_CAM:
+        print("RUNNING RUN_REAL_NODELAY_CAM")
         rng, rng_real = jax.random.split(rng, num=2)
         record = real_evaluate(rng_real, controllers_nodelay, use_cam=True, use_pred=True, use_ukf=True)
         if SAVE_FILES:
@@ -766,6 +779,7 @@ if __name__ == "__main__":
 
     # REAL RUN_REAL_NODELAY_CAM
     if RUN_REAL_NODELAY_CAM_NOPRED:
+        print("RUNNING RUN_REAL_NODELAY_CAM_NOPRED")
         rng, rng_real = jax.random.split(rng, num=2)
         record = real_evaluate(rng_real, controllers_nodelay, use_cam=True, use_pred=False, use_ukf=True)
         if SAVE_FILES:

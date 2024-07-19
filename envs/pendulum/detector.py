@@ -4,6 +4,7 @@ import jax
 from flax import struct
 from jax import numpy as jnp
 import numpy as onp
+from scipy.spatial.transform import Rotation as R
 
 from rexv2.base import GraphState, StepState, Base
 from rexv2.node import BaseNode
@@ -343,6 +344,50 @@ class DetectorParams(Base):
                 if cv2.waitKey(wait_time) & 0xFF == ord('q'):
                     cv2.destroyAllWindows()
                     return
+
+    def estimate_camera_pose(self, th: jax.typing.ArrayLike, centroid: jax.typing.ArrayLike, offset: float,
+                             intrinsic_matrix: jax.typing.ArrayLike = None, dist_coeffs: jax.typing.ArrayLike = None):
+        # Camera intrinsic matrix.
+        intrinsic_matrix = onp.array([[308.773, 0., 214.688],
+                                      [0., 308.724, 118.102],
+                                      [0., 0., 1.]]) if intrinsic_matrix is None else onp.array(intrinsic_matrix, dtype=onp.float32)
+        dist_coeffs = onp.zeros(5) if dist_coeffs is None else dist_coeffs
+
+        # calculate x, y coordinate from th (pendulum upward is 0 rad, and center is joint)
+        # We negate the angle to match the coordinate system in the XML file
+        x = offset * onp.sin(-th)
+        y = onp.zeros_like(-th)
+        z = offset * onp.cos(-th)
+
+        # Define 3D world points.
+        object_points = onp.column_stack([x, y, z]).astype("float32")
+
+        # Define 2D image points.
+        # Note: OpenCV uses (v, u) instead of (u, v) for image points.
+        # See: https://stackoverflow.com/questions/25642532/opencv-pointx-y-represent-column-row-or-row-column
+        u, v = centroid[:, 0], centroid[:, 1]
+        image_points = onp.column_stack([v, u])
+
+        # Solve PnP.
+        # See: https://docs.opencv.org/4.x/d9/d0c/group__calib3d.html#ga549c2075fac14829ff4a58bc931c033d
+        import cv2
+        success, rvec, tvec = cv2.solvePnP(
+            object_points, image_points, intrinsic_matrix, dist_coeffs
+        )
+        assert success, "PnP failed."
+
+        # Convert rotation vector to a rotation matrix.
+        rotation_matrix, _ = cv2.Rodrigues(rvec)
+
+        # Convert rotation matrix to quaternion (w, x, y, z) using scipy
+        rotation = R.from_matrix(rotation_matrix.T)
+        quaternion = rotation.as_quat()
+        wxyz = onp.roll(quaternion, shift=1)
+
+        # Camera position in world coordinates.
+        cam_pos = -onp.matrix(rotation_matrix).T * onp.matrix(tvec)
+        cam_pos = onp.array(cam_pos)[:, 0]
+        return wxyz, cam_pos
 
 
 @struct.dataclass

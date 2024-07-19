@@ -43,7 +43,7 @@ if __name__ == "__main__":
     CSCHEME = {"world": "gray", "sensor": "grape", "camera": "orange", "estimator": "violet", "controller": "lime",
                "actuator": "green", "supervisor": "indigo"}
     STD_TH = 0.003  # Overwrite std_th in estimator and camera --> None to keep default
-    MODE = "evaluate"  # "delay_only", "sysid", "control"
+    MODE = "sysid"  # "delay_only", "sysid", "control"
     if MODE == "delay_only":
         NUM_EPISODES = 10
         TSIM = 5
@@ -57,9 +57,9 @@ if __name__ == "__main__":
         WRAPPED = False
     elif MODE == "sysid":
         NUM_EPISODES = 1
-        TSIM = 21
-        PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"
-        RECORD_FILE = f"{LOG_DIR}/data_sysid.pkl"
+        TSIM = 19
+        PARAMS_FILE = f"{LOG_DIR}/sysid_params_pose2.pkl"
+        RECORD_FILE = f"{LOG_DIR}/data_sysid_pose2.pkl"
         CTRL_FILE = f"{LOG_DIR}/controller_params.pkl"
         # CTRL_FILE = f"{LOG_DIR}/controller_trained_params.pkl"  # Workng controller?
         INCL_COVARIANCE = False
@@ -70,9 +70,11 @@ if __name__ == "__main__":
     elif MODE == "control":
         TSIM = 5
         NUM_EPISODES = 10
-        PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"
+        # PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"
+        PARAMS_FILE = f"{LOG_DIR}/20240710_141737_brax/sysid_params.pkl"
         RECORD_FILE = f"{LOG_DIR}/data_control.pkl"
-        CTRL_FILE = f"{LOG_DIR}/controller_params_brax.pkl"  # todo: CHANGE BRAX
+        # CTRL_FILE = f"{LOG_DIR}/controller_params_brax.pkl"  # todo: CHANGE BRAX
+        CTRL_FILE = f"{LOG_DIR}/controller_trained_params_nodelay.pkl"  # todo: CHANGE BRAX
         INCL_COVARIANCE = False
         USE_CAM = True  # Use camera instead of sensor in estimator
         INCLUDE_IMAGE = False  # Include image in camera output
