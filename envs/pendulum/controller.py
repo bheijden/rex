@@ -172,14 +172,9 @@ class PPOAgent(BaseNode):
 
     def init_output(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> ActuatorOutput:
         """Default output of the node."""
-        if self._outputs is not None:
-            # In simulation, we never propagate the image
-            seq = graph_state.seq.get(self.name, 0)
-            output = tree_dynamic_slice(self._outputs, jnp.array([graph_state.eps, seq]))
-        else:
-            action = jnp.array([0.0], dtype=jnp.float32)
-            state_estimate = self.inputs["estimator"].output_node.init_output(rng, graph_state) if "estimator" in self.inputs else None
-            output = ActuatorOutput(action=action, state_estimate=state_estimate)
+        action = jnp.array([0.0], dtype=jnp.float32)
+        state_estimate = self.inputs["estimator"].output_node.init_output(rng, graph_state) if "estimator" in self.inputs else None
+        output = ActuatorOutput(action=action, state_estimate=state_estimate)
         return output
 
     def step(self, step_state: base.StepState) -> Tuple[base.StepState, ActuatorOutput]:

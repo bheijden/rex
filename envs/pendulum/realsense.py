@@ -326,20 +326,14 @@ class SimD435iDetector(D435iDetectorBase):
         """Default output of the node."""
         graph_state = graph_state or base.GraphState()
         params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
-        # Use recorded output if available
-        if self._outputs is not None:
-            # In simulation, we never propagate the image
-            seq = graph_state.seq.get(self.name, 0)
-            output = tree_dynamic_slice(self._outputs, jnp.array([graph_state.eps, seq])).replace(bgr=None)
-        else:
-            # Get default detector output
-            output_det = params.detector.init_output()
-            # Account for sensor delay
-            # To avoid division by zero and reflect that the measurement is not from before the start of the episode
-            sensor_delay = params.sensor_delay.mean()
-            ts = -1. / self.rate - sensor_delay
-            output_det = output_det.replace(ts=ts)
-            output = D435iDetectorOutput(**output_det.__dict__, bgr=None)
+        # Get default detector output
+        output_det = params.detector.init_output()
+        # Account for sensor delay
+        # To avoid division by zero and reflect that the measurement is not from before the start of the episode
+        sensor_delay = params.sensor_delay.mean()
+        ts = -1. / self.rate - sensor_delay
+        output_det = output_det.replace(ts=ts)
+        output = D435iDetectorOutput(**output_det.__dict__, bgr=None)
         return output
 
     def init_inputs(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> FrozenDict[str, Any]:
@@ -420,7 +414,8 @@ class SimD435i(D435iBase):
         """Default output of the node."""
         eps = graph_state.eps if graph_state else 0
         seq = 0
-        bgr = tree_dynamic_slice(self._outputs.bgr, jnp.array([eps, seq])) if self._outputs else None
+        # Not actually using bgr, but only using the shape for now. Else, strange this can happen in delay_dist interpolation.
+        bgr = jnp.zeros_like(tree_dynamic_slice(self._outputs.bgr, jnp.array([eps, seq]))) if self._outputs else None
         world = self.inputs["world"].output_node.init_output(rng, graph_state)  # Get world shape
         # Account for sensor delay
         params = graph_state.params.get(self.name, self.init_params(rng, graph_state))

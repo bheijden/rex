@@ -486,10 +486,7 @@ class SimDetector(Detector):
     def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> DetectorOutput:
         """Default output of the node."""
         graph_state = graph_state or GraphState()
-        if self._outputs is not None:
-            output = tree_dynamic_slice(self._outputs, jnp.array([graph_state.eps, 0]))
-        else:
-            output = super().init_output(rng, graph_state)
+        output = super().init_output(rng, graph_state)
         return output
 
     def init_state(self, rng: jax.Array = None, graph_state: GraphState = None) -> SimDetectorState:
