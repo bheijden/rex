@@ -41,7 +41,7 @@ if __name__ == "__main__":
     #   [DONE] Refactor PPO, evo, CEM, rl.py
     #   [DONE] Replace delay_dist in node.init_inputs.
     #   [DONE] Add Pendulum (ode, real)
-    #   - Refactor tfd to distrax
+    #   [DONE] Refactor tfd to distrax
     #   - Check weaktypes and recompilation & how to compile step function --> leads to more latency (maybe not if jit compiled)?
     #       - Check new graph_state format (especially in AsyncGraph updates of step_states)
     #   - Add Crazyflie (ode, real)

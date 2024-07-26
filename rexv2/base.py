@@ -26,6 +26,11 @@ class Base:
 
     *Note*: Credits to the authors of the brax library for this implementation.
     """
+    def __repr__(self):  # todo: this is not inherited by subclasses...
+        return eqx.tree_pformat(self, short_arrays=False)
+
+    def __str__(self):
+        return eqx.tree_pformat(self, short_arrays=False)
 
     def __add__(self, o: Any) -> Any:
         try:
@@ -206,6 +211,23 @@ class Graph:
             return self
         else:
             return jax.tree_util.tree_map(lambda v: v[val], self)
+
+    @staticmethod
+    def stack(graphs_raw: List["Graph"]) -> "Graph":
+        """Stack multiple graphs into a single graph."""
+        # Note: Vertex.seq=-1, .ts_start=-1., .ts_end=-1. for padded vertices
+        # Note: Edge.seq_out=-1, .seq_in=-1., .ts_recv=-1. for padded edges or edges that were never received.
+        # Convert to graphs
+
+        def _stack(*_graphs):
+            """Stack the vertices and edges of the graphs."""
+            _max_len = max(len(arr) for arr in _graphs)
+            # Pad with -1
+            _padded = tuple(onp.pad(arr, (0, _max_len - len(arr)), constant_values=-1) for arr in _graphs)
+            return onp.stack(_padded, axis=0)
+
+        graphs = jax.tree_util.tree_map(_stack, *graphs_raw)
+        return graphs
 
 
 @struct.dataclass
@@ -498,6 +520,10 @@ class DelayDistribution:
     def equivalent(self, other: "DelayDistribution") -> bool:
         return True
 
+    def apply_delay(self, rate_out: float, input: "InputState", ts_start: Union[float, jax.typing.ArrayLike]) -> "InputState":
+        return input
+
+
 @struct.dataclass
 class StaticDist(DelayDistribution):
     rng: jax.Array
@@ -576,6 +602,7 @@ class TrainableDist(DelayDistribution):
     alpha: Union[float, jax.typing.ArrayLike] = struct.field(default=0.5)  # Value between [0, 1]
     min: Union[float, jax.typing.ArrayLike] = struct.field(pytree_node=False, default=0.0)  # Minimum expected delay
     max: Union[float, jax.typing.ArrayLike] = struct.field(pytree_node=False, default=0.0)  # Maximum expected delay
+    interp: str = struct.field(pytree_node=False, default="zoh")  # "zoh", "linear", "linear_real"
 
     def reset(self, rng: jax.Array) -> "TrainableDist":
         # Not using the rng for now
@@ -624,6 +651,50 @@ class TrainableDist(DelayDistribution):
             return False  # Different min delay --> affects the window size & computation graph at compile time
         return True
 
+    def apply_delay(self, rate_out: float, input: "InputState", ts_start: Union[float, jax.typing.ArrayLike]) -> "InputState":
+        """Apply the delay to the input state.
+
+        The delay is determined by the delay distribution of the connection.
+        """
+        # If no window, return the same input state
+        window_delayed = self.window(rate_out)
+        if window_delayed == 0:  # Return the input state if the only possible shift is 0.
+            return input  # NOOP
+        cum_window = input.seq.shape[0]
+        window = cum_window - window_delayed
+        new_delay_dist, d = self.sample()
+        ts_recv = input.ts_sent + d
+        ts_recv = jnp.where(input.seq < 0, input.ts_recv, ts_recv)  # If seq < 0, then keep the original ts_recv
+        idx_max = jnp.argwhere(ts_recv > ts_start, size=1, fill_value=cum_window)[0, 0]
+        if self.interp == "zoh":
+            # Slice the input state
+            idx_min = idx_max - window
+            tb = [input.seq, input.ts_sent, ts_recv, input.data]
+            slice_sizes = jax.tree_map(lambda _tb: list(_tb.shape[1:]), tb)
+            tb_delayed = jax.tree_map(
+                lambda _tb, _size: jax.lax.dynamic_slice(_tb, [idx_min] + [0 * s for s in _size], [window] + _size), tb,
+                slice_sizes)
+            delayed_input_state = InputState(*tb_delayed, delay_dist=new_delay_dist)
+        elif self.interp in ["linear", "linear_real_only"]:
+            idx_min = idx_max - window
+            if self.interp == "linear_real_only":
+                # here, we only start interpolating between received messages (seq=>0).
+                # That is, in case of seq=-1, we take the message with seq=-1.
+                ts_recv_mask = jnp.where(input.seq < 0, -1e9, ts_recv)
+            else:  # linear
+                # Here, we also interpolate between real (seq=>0) and dummy messages (seq=-1).
+                ts_recv_mask = ts_recv
+
+            tb = [input.seq, input.ts_sent, ts_recv, input.data]
+            ts_recv_interp = jax.lax.dynamic_slice(ts_recv_mask, [idx_min], [window])
+            ts_recv_interp = ts_recv_interp + (ts_start - ts_recv_interp[-1])  # Now, ts_start == ts_recv_interp[-1] should hold.
+            interp_tb = jax.tree_map(lambda _tb: jnp.interp(ts_recv_interp, ts_recv_mask, _tb).astype(jax.dtypes.canonicalize_dtype(_tb.dtype)), tb)
+            delayed_input_state = InputState(*interp_tb, delay_dist=new_delay_dist)
+        else:
+            raise ValueError(f"Interpolation method {self.interp} not supported.")
+        return delayed_input_state
+
+
 @struct.dataclass
 class InputState:
     """A ring buffer that holds the inputs for a node's input channel.
@@ -645,7 +716,7 @@ class InputState:
 
     @classmethod
     def from_outputs(
-        cls, seq: ArrayLike, ts_sent: ArrayLike, ts_recv: ArrayLike, outputs: List[Any], delay_dist: DelayDistribution, is_data: bool = False
+        cls, seq: ArrayLike, ts_sent: ArrayLike, ts_recv: ArrayLike, outputs: Any, delay_dist: DelayDistribution, is_data: bool = False
     ) -> "InputState":
         """Create an InputState from a list of messages, timestamps, and sequence numbers.
 
@@ -688,31 +759,6 @@ class InputState:
         tb = [self.seq, self.ts_sent, self.ts_recv, self.data]
         return InputState(*jax.tree_map(lambda _tb: _tb[val], tb), delay_dist=self.delay_dist)
 
-    def apply_delay(self, rate_out: float, ts_start: Union[float, jax.typing.ArrayLike]) -> "InputState":
-        """Apply the delay to the input state.
-
-        The delay is determined by the delay distribution of the connection.
-        """
-        # If no window, return the same input state
-        window_delayed = self.delay_dist.window(rate_out)
-        if window_delayed == 0:  # Return the input state if the only possible shift is 0.
-            return self  # NOOP
-        cum_window = self.seq.shape[0]
-        window = cum_window - window_delayed
-        new_delay_dist, d = self.delay_dist.sample()
-        ts_recv = self.ts_sent + d
-        idx_max = jnp.argwhere(ts_recv > ts_start, size=1, fill_value=cum_window)[0, 0]
-        idx_min = idx_max - window
-
-        # Slice the input state
-        tb = [self.seq, self.ts_sent, ts_recv, self.data]
-        slice_sizes = jax.tree_map(lambda _tb: list(_tb.shape[1:]), tb)
-        tb_delayed = jax.tree_map(
-            lambda _tb, _size: jax.lax.dynamic_slice(_tb, [idx_min] + [0 * s for s in _size], [window] + _size), tb,
-            slice_sizes)
-        delayed_input_state = InputState(*tb_delayed, delay_dist=new_delay_dist)
-        return delayed_input_state
-
 
 @struct.dataclass
 class StepState:
@@ -748,17 +794,19 @@ class _StepStateDict:
 
     def __getitem__(self, item) -> StepState:
         rng = self.graph_state.rng.get(item, None) if self.graph_state.rng is not None else None
+        eps = self.graph_state.eps
         seq = self.graph_state.seq.get(item, None) if self.graph_state.seq is not None else None
         ts = self.graph_state.ts.get(item, None) if self.graph_state.ts is not None else None
         params = self.graph_state.params.get(item, None) if self.graph_state.params is not None else None
         state = self.graph_state.state.get(item, None) if self.graph_state.state is not None else None
         inputs = self.graph_state.inputs.get(item, None) if self.graph_state.inputs is not None else None
-        return StepState(rng=rng, seq=seq, ts=ts, params=params, state=state, inputs=inputs)
+        return StepState(rng=rng, seq=seq, eps=eps, ts=ts, params=params, state=state, inputs=inputs)
 
     def __len__(self):
         # get max len of all fields
         return max(
             len(self.graph_state.rng),
+            # len(self.graph_state.eps),
             len(self.graph_state.seq),
             len(self.graph_state.ts),
             len(self.graph_state.params),
@@ -773,6 +821,7 @@ class _StepStateDict:
         # Return union of all keys
         return set(
             list(self.graph_state.rng.keys())
+            # + list(self.graph_state.eps.keys())
             + list(self.graph_state.seq.keys())
             + list(self.graph_state.ts.keys())
             + list(self.graph_state.params.keys())
@@ -1039,16 +1088,7 @@ class ExperimentRecord:
         # Note: Edge.seq_out=-1, .seq_in=-1., .ts_recv=-1. for padded edges or edges that were never received.
         # Convert to graphs
         graphs_raw = [e.to_graph() for e in self.episodes]
-
-        def _stack(*_graphs):
-            """Stack the vertices and edges of the graphs."""
-            _max_len = max(len(arr) for arr in _graphs)
-            # Pad with -1
-            _padded = tuple(onp.pad(arr, (0, _max_len - len(arr)), constant_values=-1) for arr in _graphs)
-            return onp.stack(_padded, axis=0)
-
-        graphs = jax.tree_util.tree_map(_stack, *graphs_raw)
-        return graphs
+        return Graph.stack(graphs_raw)
 
     def stack(self, method: str = "padded") -> EpisodeRecord:
         if method == "padded":
@@ -1110,11 +1150,6 @@ class Identity(Transform):
 
     def inv(self, params: Params) -> Params:
         return params
-
-
-# @struct.dataclass
-# class Share(Transform):
-
 
 
 @struct.dataclass
@@ -1181,9 +1216,12 @@ class Denormalize(Transform):
         offset = jax.tree_util.tree_map(lambda _min, _max: (_min + _max) / 2., min_params, max_params)
         scale = jax.tree_util.tree_map(lambda _min, _max: (_max - _min) / 2, min_params, max_params)
         zero_filter = jax.tree_util.tree_map(lambda _scale: _scale == 0., scale)
-        if onp.array(jax.tree_util.tree_reduce(jnp.logical_or, zero_filter)).all():
-            raise ValueError("The scale cannot be zero. Hint: Check if there are leafs with 'True' in the following zero_filter: "
-                             f"{zero_filter}")
+        try:
+            if onp.array(jax.tree_util.tree_reduce(jnp.logical_or, zero_filter)).all():
+                raise ValueError("The scale cannot be zero. Hint: Check if there are leafs with 'True' in the following zero_filter: "
+                                 f"{zero_filter}")
+        except jax.errors.TracerArrayConversionError:
+            pass
         return cls(scale=scale, offset=offset)
 
     def normalize(self, params: Params) -> Params:

@@ -134,6 +134,7 @@ def same_structure(x1, x2, tag: str = None, raise_on_mismatch: bool = True):
 def promote_to_no_weak_type(_x):
     # Applies jnp.promote_types to itself to promote to no weak type
     # https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.promote_types.html#jax.numpy.promote_types
+    # https://github.com/google/jax/issues/4490   <--- not yet looked at, but perhaps jax.dtypes.canonicalize_dtype(onp.int64) is useful?
     _y = jnp.array(_x)
     _z = _y.astype(jnp.promote_types(_y.dtype, _y.dtype))
     return _z

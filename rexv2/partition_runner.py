@@ -86,7 +86,7 @@ def make_update_inputs(node: "BaseNode"):
                 raise ValueError(f"Delay distributions are not equivalent for input `{input_name}` of node `{node.name}`: "
                                  f"{c.delay_dist} != {_inputs_undelayed.delay_dist}. \n"
                                  f"Compare the delay distributions provided to .connect(dela_dist=...) with graph_state.inputs[{node.name}][{c.output_node.name}].delay_dist.")
-            _inputs = _inputs_undelayed.apply_delay(c.output_node.rate, ts_start)
+            _inputs = _inputs_undelayed.delay_dist.apply_delay(c.output_node.rate, _inputs_undelayed, ts_start)
             new_inputs[input_name] = _inputs
         return ss.replace(eps=eps, seq=seq, ts=ts_start, inputs=FrozenDict(new_inputs))
 
@@ -116,6 +116,8 @@ def make_run_partition_excl_supervisor(
     for key, value in kinds_to_slots.items():
         # sort value based on the generation they belong to.
         kinds_to_slots[key] = sorted(value, key=lambda x: timings.slots[x].generation)
+    if len(kinds_to_slots) == 0:
+        raise ValueError("There are no nodes in the partition (excl. supervisor).")
 
     # Determine which slots to skip
     skip_slots = [n for n, v in timings.slots.items() if v.kind in skip] if skip is not None else []

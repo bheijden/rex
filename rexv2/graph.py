@@ -25,6 +25,7 @@ class Graph:
         graphs_raw: base.Graph,
         skip: List[str] = None,
         supergraph: Supergraph = Supergraph.MCS,
+        prune: bool = True,
         S_init: nx.DiGraph = None,
         backtrack: int = 20,
         debug: bool = False,
@@ -51,6 +52,8 @@ class Graph:
         :param graphs_raw: Raw computation graphs. Must be acyclic.
         :param skip: List of nodes to skip during graph execution.
         :param supergraph: Supergraph mode. Options are MCS, TOPOLOGICAL, and GENERATIONAL.
+        :param prune: Prune nodes that are no ancestors of the supervisor node.
+                      Setting to False ensures that all nodes up until the time of the last supervisor node are included.
         :param S_init: Initial supergraph.
         :param backtrack: Backtrack parameter for MCS supergraph mode.
         :param debug: Debug mode. Validates the partitioning and supergraph and times various compilation steps.
@@ -81,11 +84,17 @@ class Graph:
             G = utils.to_networkx_graph(self._graphs[i], nodes=nodes, validate=debug)
             self._Gs.append(G)
 
+        # If prune is False, we need to include all nodes up until the last supervisor node
+        if not prune:
+            Gs_supergraph = [utils.to_connected_graph(G, supervisor, nodes, validate=debug) for G in self._Gs]
+        else:
+            Gs_supergraph = self._Gs
+
         # Grow supergraph
         self.supergraph = supergraph
         if supergraph is Supergraph.MCS:
             S, S_init_to_S, Gs_monomorphism = sg.grow_supergraph(
-                self._Gs,
+                Gs_supergraph,
                 supervisor.name,
                 S_init=S_init,
                 combination_mode="linear",
@@ -97,15 +106,15 @@ class Graph:
         elif supergraph is Supergraph.TOPOLOGICAL:
             from supergraph.evaluate import baselines_S
 
-            S, _ = baselines_S(self._Gs, supervisor.name)
+            S, _ = baselines_S(Gs_supergraph, supervisor.name)
             S_init_to_S = {n: n for n in S.nodes()}
-            Gs_monomorphism = sg.evaluate_supergraph(self._Gs, S, progress_bar=progress_bar)
+            Gs_monomorphism = sg.evaluate_supergraph(Gs_supergraph, S, progress_bar=progress_bar)
         elif supergraph is Supergraph.GENERATIONAL:
             from supergraph.evaluate import baselines_S
 
-            _, S = baselines_S(self._Gs, supervisor.name)
+            _, S = baselines_S(Gs_supergraph, supervisor.name)
             S_init_to_S = {n: n for n in S.nodes()}
-            Gs_monomorphism = sg.evaluate_supergraph(self._Gs, S, progress_bar=progress_bar)
+            Gs_monomorphism = sg.evaluate_supergraph(Gs_supergraph, S, progress_bar=progress_bar)
         else:
             raise ValueError(f"Unknown supergraph mode '{supergraph}'.")
         self._S = S
@@ -122,7 +131,7 @@ class Graph:
         if buffer_sizes is not None:
             for name, size in buffer_sizes.items():
                 size = [size] if isinstance(size, int) else size
-                assert len(_buffer_sizes) == 0 or max(size) >= max(
+                assert name not in _buffer_sizes or len(_buffer_sizes[name]) == 0 or max(size) >= max(
                     _buffer_sizes[name]
                 ), f"Buffer size for {name} is too small: {size} < {_buffer_sizes[name]}"
                 _buffer_sizes[name] = size
@@ -415,8 +424,6 @@ class Graph:
     def rollout(
         self,
         graph_state: base.GraphState,
-        starting_step: Union[int, jax.Array] = 0,
-        eps: Union[int, jax.Array] = 0,
         max_steps: int = None,
         carry_only: bool = False,
     ) -> base.GraphState:
@@ -428,15 +435,13 @@ class Graph:
         the supervisor node's step method is used during the rollout.
 
         :param graph_state: The initial graph state.
-        :param starting_step: The starting step for the rollout.
-        :param eps: The starting episode.
         :param max_steps: The maximum steps to execute, if None, runs until a stop condition is met.
         :param carry_only: If True, returns only the final graph state; otherwise returns all states.
         :return: The final or sequence of graph states post-execution.
         """
         # graph_state = self.init(starting_step=starting_step, starting_eps=eps, randomize_eps=False)
-        graph_state = graph_state.replace_eps(self._timings, eps=eps)
-        graph_state = graph_state.replace_step(self._timings, step=starting_step)
+        graph_state = graph_state.replace_eps(self._timings, eps=graph_state.eps)
+        graph_state = graph_state.replace_step(self._timings, step=graph_state.step)
         if max_steps is None:
             max_steps = self.max_steps
 

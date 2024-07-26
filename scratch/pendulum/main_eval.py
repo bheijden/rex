@@ -50,7 +50,7 @@ if __name__ == "__main__":
     EXP_DIR = f"{LOG_DIR}/20240710_141737_brax_norandomization_longerstack_v5_dark" # todo: CHANGE
     # EXP_DIR = f"{LOG_DIR}/20240710_141737_brax_longerstack"
     # EXP_DIR = f"{LOG_DIR}/test_main_eval"
-    SEED = 0  # todo: change to 6
+    SEED = 0
     SAVE_FILES = True
     # System identification
     RUN_SYSID = False
@@ -267,11 +267,12 @@ if __name__ == "__main__":
             # Replace controller
             _params = params_eval.copy()
             _params["controller"] = controller
-            # Initialize graph state
-            _gs_init = graph_eval.init(_rng, params=_params, order=("supervisor", "actuator"))
-            # Evaluate
+            # Initialize graph state todo: NOT TESTED AFTER graph.rollout REFACTOR
             eps = jnp.arange(NUM_EPISODES) % graph_eval.max_eps
-            _gs_eval = jax.vmap(graph_eval.rollout, in_axes=(None, None, 0))(_gs_init, 0, eps)
+            init_v = jax.vmap(functools.partial(graph_eval.init, rng=_rng, params=_params, order=("supervisor", "actuator")))
+            _gs_init = init_v(starting_eps=eps)
+            # Evaluate
+            _gs_eval = jax.vmap(graph_eval.rollout)(_gs_init)
 
             # Replace buffer and timings_eps to save space
             _params = _gs_eval.params.unfreeze()
@@ -387,11 +388,12 @@ if __name__ == "__main__":
             # Replace controller
             _params = params_eval.copy()
             _params["controller"] = controller
-            # Initialize graph state
-            _gs_init = graph_eval.init(_rng, params=_params, order=("supervisor", "actuator"))
-            # Evaluate
+            # Initialize graph state todo: NOT TESTED AFTER graph.rollout REFACTOR
             eps = jnp.arange(NUM_EPISODES) % graph_eval.max_eps
-            _gs_eval = jax.vmap(graph_eval.rollout, in_axes=(None, None, 0))(_gs_init, 0, eps)
+            init_v = jax.vmap(functools.partial(graph_eval.init, rng=_rng, params=_params, order=("supervisor", "actuator")))
+            _gs_init = init_v(starting_eps=eps)
+            # Evaluate
+            _gs_eval = jax.vmap(graph_eval.rollout)(_gs_init)
 
             # Replace buffer and timings_eps to save space
             _params = _gs_eval.params.unfreeze()
@@ -487,11 +489,12 @@ if __name__ == "__main__":
             # Replace controller
             _params = params_eval.copy()
             _params["controller"] = controller
-            # Initialize graph state
-            _gs_init = graph_eval.init(_rng, params=_params, order=("supervisor", "actuator"))
-            # Evaluate
+            # Initialize graph state todo: NOT TESTED AFTER graph.rollout REFACTOR
             eps = jnp.arange(NUM_EPISODES) % graph_eval.max_eps
-            _gs_eval = jax.vmap(graph_eval.rollout, in_axes=(None, None, 0))(_gs_init, 0, eps)
+            init_v = jax.vmap(functools.partial(graph_eval.init, rng=_rng, params=_params, order=("supervisor", "actuator")))
+            _gs_init = init_v(starting_eps=eps)
+            # Evaluate
+            _gs_eval = jax.vmap(graph_eval.rollout)(_gs_init)
 
             # Replace buffer and timings_eps to save space
             _params = _gs_eval.params.unfreeze()
@@ -582,11 +585,12 @@ if __name__ == "__main__":
             # Replace controller
             _params = params_eval.copy()
             _params["controller"] = controller
-            # Initialize graph state
-            _gs_init = graph_eval.init(_rng, params=_params, order=("supervisor", "actuator"))
-            # Evaluate
+            # Initialize graph state todo: NOT TESTED AFTER graph.rollout REFACTOR
             eps = jnp.arange(NUM_EPISODES) % graph_eval.max_eps
-            _gs_eval = jax.vmap(graph_eval.rollout, in_axes=(None, None, 0))(_gs_init, 0, eps)
+            init_v = jax.vmap(functools.partial(graph_eval.init, rng=_rng, params=_params, order=("supervisor", "actuator")))
+            _gs_init = init_v(starting_eps=eps)
+            # Evaluate
+            _gs_eval = jax.vmap(graph_eval.rollout)(_gs_init)
 
             # Replace buffer and timings_eps to save space
             _params = _gs_eval.params.unfreeze()

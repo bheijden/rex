@@ -98,7 +98,7 @@ class Task:
         graph_state = self.graph.init(rng, params, starting_eps=eps, order=("supervisor",))  # todo: specific to pendulum
 
         # Rollout
-        graph_states = self.graph.rollout(graph_state, eps=eps, max_steps=max_steps, carry_only=False)
+        graph_states = self.graph.rollout(graph_state, max_steps=max_steps, carry_only=False)
         return graph_states
 
 

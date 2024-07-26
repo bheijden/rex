@@ -140,7 +140,8 @@ def apply_window(nodes: Dict[str, "BaseNode"], graphs: Graph) -> WindowedGraph:
 def to_networkx_graph(graph: Graph, nodes: Dict[str, "BaseNode"] = None, validate: bool = False) -> nx.DiGraph:
     graph = jax.tree_util.tree_map(lambda x: onp.array(x), graph)
     order = {n: nodes[n].order for n in nodes} if nodes is not None else {n: None for n in enumerate(graph.vertices.keys())}
-    max_val = max(filter(None, order.values()))
+    order_filter = list(filter(None, order.values()))
+    max_val = max(order_filter) if len(order_filter) > 0 else 0
     increment = max_val + 1
     for key in order:
         if order[key] is None:
@@ -181,6 +182,30 @@ def to_networkx_graph(graph: Graph, nodes: Dict[str, "BaseNode"] = None, validat
                 assert v in G.nodes, f"Node {v} not found in graph"
             G.add_edge(u, v, ts_recv=ts_recv)
 
+    return G
+
+
+def to_connected_graph(G: nx.DiGraph, supervisor: "BaseNode", nodes: Dict[str, "BaseNode"] = None, validate: bool = False) -> nx.DiGraph:
+    # todo: Get all nodes that are not ancestors of a supervisor vertex
+    # todo: Determine ts_start for all supervisor vertices
+    # todo: Connect every non-ancestor to a supervisor vertex such that ts_end of the non-ancestor <= ts_start of the supervisor vertex
+    G = G.copy()
+    nodes_sup = {n: data for n, data in G.nodes(data=True) if data["kind"] == supervisor.name}
+    nodes_sup = sorted(nodes_sup, key=lambda x: G.nodes[x]["ts_start"])
+    ancestors = nx.ancestors(G, nodes_sup[-1])
+    ancestors.add(nodes_sup[-1])
+    non_ancestors = set(G.nodes) - ancestors
+    non_ancestors = sorted(non_ancestors, key=lambda x: G.nodes[x]["ts_end"])
+    for n_sup in nodes_sup:
+        if len(non_ancestors) == 0:
+            break
+        while len(non_ancestors) > 0:
+            n_non = G.nodes[non_ancestors[0]]
+            if n_non["ts_end"] <= G.nodes[n_sup]["ts_start"]:
+                G.add_edge(non_ancestors[0], n_sup)
+                non_ancestors.pop(0)
+            else:
+                break
     return G
 
 
