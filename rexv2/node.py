@@ -183,7 +183,7 @@ class BaseNode:
         """Phase shift of the node: max phase over all incoming blocking & non-skipped connections."""
         # Recalculate phase once per episode.
         try:
-            return max([0.0] + [i.phase * 1.002 for i in self.inputs.values() if not i.skip])
+            return max([0.0] + [i.phase * 1.00 for i in self.inputs.values() if not i.skip])
             # return max([0.] + [i.phase for i in self.inputs if i.blocking and not i.skip])
         except RecursionError as e:
             msg = (
@@ -376,12 +376,26 @@ class BaseNode:
         inputs[self.name] = graph_state.inputs.get(self.name, self.init_inputs(rng_inputs, graph_state))
         return graph_state.step_state[self.name]
 
-    def startup(self, graph_state: base.GraphState, timeout: float = None):
+    def startup(self, graph_state: base.GraphState, timeout: float = None) -> bool:
         """Starts the node in the state specified by graph_state.
 
         Only ran when running asynchronously.
         :param graph_state: The graph state.
         :param timeout: The timeout of the startup.
+        :return: Whether the node has started successfully.
+        """
+        return True
+
+    def stop(self, timeout: float = None) -> bool:
+        """Stopping routine that is called after the episode is done.
+
+        **IMPORTANT** It may happen that stop is called *before* the final step returns, which may cause unsafe behavior when
+        the final step undoes the work of the stop. This is a known issue and should be handled by the user.
+        For example, by stopping "longer" before returning here.
+
+        Only ran when running asynchronously.
+        :param timeout: The timeout of the stop
+        :return: Whether the node has stopped successfully.
         """
         return True
 

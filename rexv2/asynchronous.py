@@ -76,10 +76,6 @@ class _AsyncNodeWrapper:
                 LogLevel.WARN,
             )
 
-    # # provide proxy access to regular attributes of wrapped object
-    # def __getattr__(self, name):
-    #     return getattr(self._env, name)
-
     @property
     def max_records(self) -> int:
         # assert self.node.max_records >= 0, "max_records must be non-negative."
@@ -202,24 +198,39 @@ class _AsyncNodeWrapper:
         )
         return record
 
-    def warmup(self, graph_state: base.GraphState, device=None):
-        if device is None:
-            # gpu_devices = jax.devices('gpu')
-            cpu_device = jax.devices('cpu')[0]
-            device = cpu_device
-        # device = None
+    def warmup(self, graph_state: base.GraphState, device_step: jax.Device = None, device_dist: jax.Device = None, jit_step: bool = True, profile: bool = False):
+        device_step = device_step if device_step is not None else jax.devices('cpu')[0]
+        device_dist = device_dist if device_dist is not None else jax.devices('cpu')[0]
+
+        # Jit step function
+        ss = graph_state.step_state[self.node.name]
+        if jit_step:
+            self.async_step = jax.jit(self.async_step, device=device_step)
+
+            # AOT compilation
+            with utils.timer(f"{self.node.name}.step | pre-compile ", log_level=self.node.log_level):
+                self.async_step = self.async_step.lower(ss).compile()
+
+        # Time profile the pre-compiled function
+        if profile:
+            with utils.timer(f"{self.node.name}.step | time-profile", log_level=self.node.log_level, repeat=10):
+                for _ in range(10):
+                    ss, o = self.async_step(ss)
 
         # Warms-up jitted functions in the output (i.e. pre-compiles)
-        self._jit_reset = jax.jit(self.node.delay_dist.reset, device=device)
-        self._jit_sample = jax.jit(self.node.delay_dist.sample_pure, static_argnums=1, device=device)
+        self._jit_reset = jax.jit(self.node.delay_dist.reset, device=device_dist)
+        self._jit_sample = jax.jit(self.node.delay_dist.sample_pure, static_argnums=1, device=device_dist)
         dist_state = self._jit_reset(rnd.PRNGKey(0))
         new_dist_state, samples = self._jit_sample(dist_state, shape=self._num_buffer)
 
         # Warms-up jitted functions in the inputs (i.e. pre-compiles)
-        [i.warmup(graph_state, device=device) for i in self.inputs.values()]
+        [i.warmup(graph_state, device_step=device_step, device_dist=device_dist) for i in self.inputs.values()]
 
         # Warmup random number generators
         _ = [r for r in rnd.split(graph_state.rng[self.node.name], num=len(self.node.inputs))]
+
+        # Warmup phase
+        _ = float(self.node.phase)
 
         # Wait for the results to be ready
         samples.block_until_ready()  # Only to trigger jit compilation
@@ -252,7 +263,8 @@ class _AsyncNodeWrapper:
 
         # Warmup the node
         if not self._has_warmed_up:
-            self.warmup(graph_state)
+            raise RuntimeError(f"Node `{self.node.name}` must first be warmed up, before it can be reset. "
+                               f"Call graph.warmup() first.")
 
         # Save run configuration
         self._clock = clock  #: Simulate timesteps
@@ -264,7 +276,7 @@ class _AsyncNodeWrapper:
         # Reset every run
         self._tick = 0
         self._phase_scheduled = 0.0  #: Structural phase shift that the step scheduler takes into account
-        self._phase = self.node.phase
+        self._phase = float(self.node.phase)
         self._record = None
         self._record_steps = None
         self._step_state = graph_state.step_state[self.node.name]
@@ -338,9 +350,12 @@ class _AsyncNodeWrapper:
             # Stop all channels to receive all sent messages from their connected outputs
             [i.stop().result(timeout=timeout) for i in self.inputs.values()]
 
+            # Run the stop function of the node
+            success = self.node.stop()
+            if not success:
+                self.log("WARNING", f"Node {self.node.name} failed to stop.", log_level=LogLevel.WARN)
+
             # Record last step_state
-            # if self._step_state is not None and len(self._record_step_states) < self.max_records + 1:
-            #     self._record_step_states.append(self._step_state)
             self._step_state = None  # Reset step_state
 
             # Unset _async_now for the wrapped node
@@ -404,6 +419,15 @@ class _AsyncNodeWrapper:
         return _f
 
     def _async_step(self, step_state: base.StepState) -> Tuple[base.StepState, base.Output]:
+        """This function is internally called, and should not be jited.
+        If a node is the supervisor, this function is overwritten by the _Synchronizer._step
+
+        """
+        return self.async_step(step_state)
+
+    def async_step(self, step_state: base.StepState) -> Tuple[base.StepState, base.Output]:
+        """Async step function that is called when running asynchronously.
+        This function can be overridden/wrapped (e.g. jit) without affecting node.async_step() directly."""
         return self.node.async_step(step_state)
 
     def push_scheduled_ts(self):
@@ -482,7 +506,7 @@ class _AsyncNodeWrapper:
                     self.q_sample.extend(tuple(samples.tolist()))
 
                 # Sample delay
-                delay = self.q_sample.popleft()
+                delay = float(self.q_sample.popleft())
 
             # Create step record
             record_step = base.StepRecord(
@@ -558,6 +582,7 @@ class _AsyncNodeWrapper:
                 input_state = self._step_state.inputs[input_name]
                 grouped = i.q_grouped.popleft()
                 for seq, ts_sent, ts_recv, msg in grouped:
+                    # todo: The args to _jit_update_input_state may reside on different devices. This may cause issues.
                     input_state = i._jit_update_input_state(input_state, seq, ts_sent, ts_recv, msg)
                 inputs[input_name] = input_state
 
@@ -758,17 +783,20 @@ class _AsyncConnectionWrapper:
             self._record = self._record.replace(messages=messages)
         return self._record
 
-    def warmup(self, graph_state: base.GraphState, device):
+    def warmup(self, graph_state: base.GraphState, device_step, device_dist):
         # Warmup input update
-        self._jit_update_input_state = jax.jit(update_input_state, device=device)
+        self._jit_update_input_state = jax.jit(update_input_state, device=device_step)
         i = graph_state.inputs[self.connection.input_node.name][self.connection.input_name]
         new_i = self._jit_update_input_state(i, 0, 0., 0., i[0].data)
 
         # Warms-up jitted functions in the output (i.e. pre-compiles)
-        self._jit_reset = jax.jit(i.delay_dist.reset, device=device)
-        self._jit_sample = jax.jit(i.delay_dist.sample_pure, static_argnums=1, device=device)
+        self._jit_reset = jax.jit(i.delay_dist.reset, device=device_dist)
+        self._jit_sample = jax.jit(i.delay_dist.sample_pure, static_argnums=1, device=device_dist)
         dist_state = self._jit_reset(rnd.PRNGKey(0))
         new_dist_state, samples = self._jit_sample(dist_state, shape=self._num_buffer)
+
+        # Warmup phase
+        _ = float(self.connection.phase)
 
         # Wait for the results to be ready
         samples.block_until_ready()  # Only to trigger jit compilation
@@ -783,7 +811,7 @@ class _AsyncConnectionWrapper:
         # Empty queues
         self._tick = 0
         self._input_state = input_state
-        self._phase = self.connection.phase
+        self._phase = float(self.connection.phase)
         self._record = None
         self._record_messages = None  # Can be more than max_records if the output is high
         self._prev_recv_sc = 0.0  # Ensures the FIFO property for incoming messages.
@@ -973,7 +1001,7 @@ class _AsyncConnectionWrapper:
             if len(self.q_sample) == 0:  # Generate samples batch-wise if queue is empty
                 self._dist_state, samples = self._jit_sample(self._dist_state, shape=self._num_buffer)
                 self.q_sample.extend(tuple(samples.tolist()))
-            delay = self.q_sample.popleft()  # Sample delay from queue
+            delay = float(self.q_sample.popleft())  # Sample delay from queue
             # Enforce FIFO property
             recv_sc = round(max(sent_sc + delay, self._prev_recv_sc), 6)  # todo: 1e-9 required here?
             self._prev_recv_sc = recv_sc
@@ -1112,7 +1140,7 @@ def update_input_state(input_state: base.InputState, seq: int, ts_sent: float, t
 class _Synchronizer:
     def __init__(self, supervisor: _AsyncNodeWrapper):
         self._supervisor = supervisor
-        self._supervisor._async_step = self._step
+        self._supervisor._async_step = self._async_step  # Redirect supervisor's _async_step to this function
         self._must_reset: bool
         self._f_act: Future
         self._f_obs: Future
@@ -1134,7 +1162,8 @@ class _Synchronizer:
         self._f_obs = Future()
         self._q_obs.append(self._f_obs)
 
-    def _step(self, step_state: base.StepState) -> Tuple[base.StepState, base.Output]:
+    def _async_step(self, step_state: base.StepState) -> Tuple[base.StepState, base.Output]:
+        """Should not be jitted due to side-effects."""
         self._f_act = Future()
         self._q_act.append(self._f_act)
 
@@ -1252,15 +1281,38 @@ class AsyncGraph:
         new_gs = graph_state.replace(params=FrozenDict(params), state=FrozenDict(state), inputs=FrozenDict(inputs))
         return new_gs
 
-    def warmup(self, graph_state: base.GraphState, device: Union[Dict[str, jax.Device], jax.Device] = None):
-        """Warm-up (i.e. pre-compile) necessary functions in the graph to avoid latency during runtime.
+    def warmup(self, graph_state: base.GraphState,
+               device_step: Union[Dict[str, jax.Device], jax.Device] = None,
+               device_dist: Union[Dict[str, jax.Device], jax.Device] = None,
+               jit_step: Union[Dict[str, bool], bool] = True,
+               profile: Union[Dict[str, bool], bool] = False,
+               ):
+        """Ahead-of-time compilation of step and I/O functions to avoid latency at runtime.
 
         :param graph_state: The graph state that is expected to be used during runtime.
-        :param device: The device to compile the functions on. If None, the default device is used.
+        :param device_step: The device to compile the step functions on. It's also the device used to prepare the input states.
+                            If None, the default device is used.
+        :param device_dist: The device to compile the sampling of the delay distribution functions on. If None, the default device is used.
+                             Only relevant when using a simulated clock.
+        :param jit_step: Whether to compile the step functions with JIT. If True, the step functions are compiled with JIT.
+                         Step functions with jit are faster, but may not have side-effects by default.
+                         Either wrap the side-effecting code in a jax callback wrapper, or set jit=False for those nodes.
+                         See https://jax.readthedocs.io/en/latest/notebooks/external_callbacks.html for more info.
+        :param profile: Whether to compile the step functions with time profiling. If True, the step functions are compiled with time profiling.
+                        *IMPORTANT*: This will test-run the step functions, which may lead to unexpected side-effects.
+        :param
         """
-        device = device if device is not None else {}
-        device = device if isinstance(device, dict) else {k: device for k in self._async_nodes.keys()}
-        [n.warmup(graph_state, device.get(k, None)) for k, n in self._async_nodes.items()]
+        device_step = device_step if device_step is not None else {}
+        device_dist = device_dist if device_dist is not None else {}
+        jit_step = jit_step if isinstance(jit_step, dict) else {k: jit_step for k in self._async_nodes.keys()}
+        profile = profile if isinstance(profile, dict) else {k: profile for k in self._async_nodes.keys()}
+        device_step = device_step if isinstance(device_step, dict) else {k: device_step for k in self._async_nodes.keys()}
+        device_dist = device_dist if isinstance(device_dist, dict) else {k: device_dist for k in self._async_nodes.keys()}
+        [n.warmup(graph_state,
+                  device_step=device_step.get(k, None),
+                  device_dist=device_dist.get(k, None),
+                  jit_step=jit_step.get(k, True),
+                  profile=profile.get(k, False)) for k, n in self._async_nodes.items()]
 
     def start(self, graph_state: base.GraphState, timeout: float = None) -> base.GraphState:
         # Stop first, if we were previously running.
@@ -1333,16 +1385,15 @@ class AsyncGraph:
         # Get next step state and output from root node
         if step_state is None and output is None:  # Run root node
             ss = graph_state.step_state[self.supervisor.name]
-            new_ss, new_output = self.supervisor.step(ss)
+            next_step_state, new_output = self._async_nodes[self.supervisor.name].async_step(ss)
         else:  # Override step_state and output
-            new_ss, new_output = step_state, output
-
-        # Update step_state (increment sequence number)
-        next_step_state = new_ss.replace(seq=new_ss.seq + 1)
+            next_step_state, new_output = step_state, output
+            # Update step_state (increment sequence number)
+            next_step_state = next_step_state.replace(seq=next_step_state.seq + 1)
 
         # Set the result to be the step_state and output (action)  of the root.
         # print(f"[SET] run_root: seq={new_ss.seq}, ts={new_ss.ts:.2f}")
-        self._synchronizer.action[-1].set_result((new_ss, new_output))
+        self._synchronizer.action[-1].set_result((next_step_state, new_output))
 
         # Get graph_state
         step_states = {name: node._step_state for name, node in self._async_nodes.items()}

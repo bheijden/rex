@@ -412,6 +412,7 @@ class Timings:
         node_buffer_sizes = {n: [] for n in masked_timings.keys()}
         for n, inputs in name_mapping.items():
             t = masked_timings[n]
+            # t.windows["pid"].seq[0, -1, :, :, :]
             for input_name, output_name in inputs.items():
                 # Determine min input sequence per generation (i.e. we reduce over all slots within a generation & window)
                 seq_in = onp.amin(t.windows[input_name].seq, axis=(2, 4))
@@ -602,20 +603,21 @@ class TrainableDist(DelayDistribution):
     alpha: Union[float, jax.typing.ArrayLike] = struct.field(default=0.5)  # Value between [0, 1]
     min: Union[float, jax.typing.ArrayLike] = struct.field(pytree_node=False, default=0.0)  # Minimum expected delay
     max: Union[float, jax.typing.ArrayLike] = struct.field(pytree_node=False, default=0.0)  # Maximum expected delay
-    interp: str = struct.field(pytree_node=False, default="zoh")  # "zoh", "linear", "linear_real"
+    interp: str = struct.field(pytree_node=False, default="zoh")  # "zoh", "linear", "linear_real_only"
 
     def reset(self, rng: jax.Array) -> "TrainableDist":
         # Not using the rng for now
         return self
 
     @classmethod
-    def create(cls, alpha: Union[float, jax.typing.ArrayLike], min: Union[float, jax.typing.ArrayLike], max: Union[float, jax.typing.ArrayLike]) -> "TrainableDist":
+    def create(cls, alpha: Union[float, jax.typing.ArrayLike], min: Union[float, jax.typing.ArrayLike], max: Union[float, jax.typing.ArrayLike], interp: str = "zoh") -> "TrainableDist":
         min = float(min)
         max = float(max)
         assert 0.0 <= alpha <= 1.0, f"alpha should be between [0, 1], but got {alpha}."
         assert min < max, f"min should be less than max, but got min={min} and max={max}."
         assert 0.0 <= min, f"min should be greater than or equal to 0, but got {min}."
-        return cls(alpha=alpha, min=min, max=max)
+        assert interp in ["zoh", "linear", "linear_real_only"], f"Interpolation method {interp} not supported."
+        return cls(alpha=alpha, min=min, max=max, interp=interp)
 
     def sample(self, shape: Union[int, Tuple] = None) -> Tuple["TrainableDist", jax.Array]:
         if shape is None:

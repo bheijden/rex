@@ -164,9 +164,9 @@ def _generate_graphs(
                 continue
             # Check if node settings are supported
             if nodes[n].advance is True:
-                raise NotImplementedError("node.advance=True is not supported yet.")
+                raise NotImplementedError("node.advance=True is not supported yet. As a workaround, you can generate graphs via AsyncGraph.")
             if nodes[n].scheduling is constants.Scheduling.PHASE:
-                raise NotImplementedError("node.scheduling=PHASE is not supported yet.")
+                raise NotImplementedError("node.scheduling=PHASE is not supported yet. As a workaround, you can generate graphs via AsyncGraph.")
             # Generate timestamps
             node_step = functools.partial(step, n, _ts_max)
             ts_max_all = float(ts_max.max())  # Maxmimum ts across all episodes (needed to match static shapes).
@@ -182,17 +182,20 @@ def _generate_graphs(
                 continue  # Skip if edge already exists
             # Check if connection settings are supported
             if c.blocking is True:
-                raise NotImplementedError("connection.blocking=True is not supported yet.")
+                raise NotImplementedError("connection.blocking=True is not supported yet. As a workaround, you can generate graphs via AsyncGraph.")
             if c.blocking is True and isinstance(c.delay_dist, TrainableDist):
-                raise NotImplementedError("connection.blocking=True and connection.delay_dist is TrainableDist is not supported yet.")
+                raise NotImplementedError("connection.blocking=True and connection.delay_dist is TrainableDist is not supported yet. As a workaround, you can generate graphs via AsyncGraph.")
             if c.jitter is constants.Jitter.BUFFER:
-                raise NotImplementedError("connection.jitter=BUFFER is not supported yet.")
+                raise NotImplementedError("connection.jitter=BUFFER is not supported yet. As a workaround, you can generate graphs via AsyncGraph.")
             seq_out = vertices[output_name].seq
-            ts_end = vertices[output_name].ts_end
+            ts_end = jnp.where(seq_out == -1, jnp.inf, vertices[output_name].ts_end)
             ts_recv = ts_end + communication_delays[(output_name, input_name)].replace(rng=_rng).sample(shape=ts_end.shape)[1]
             ts_start = vertices[input_name].ts_start
             scan_body_seq = functools.partial(_scan_body_seq, c.skip, ts_start)
             last_seq, seqs_clipped = jax.lax.scan(scan_body_seq, 0, ts_recv)
+
+            # Replace ts_recv with -1 if ts_end == -1 (i.e., the message was never sent, so it will never be received)
+            ts_recv = jnp.where(seq_out == -1, -1, ts_recv)
 
             # Overwrite seq_out and seq_in if ts_end is larger than ts_max
             seq_out = jnp.where(ts_end > _ts_max, -1, seq_out)

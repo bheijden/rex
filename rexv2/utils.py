@@ -67,11 +67,12 @@ def apply_window(nodes: Dict[str, "BaseNode"], graphs: Graph) -> WindowedGraph:
             return Window(seq=self.seq, ts_sent=self.ts_sent, ts_recv=self.ts_recv)
 
     def _scan_body(vertex: Vertex, window: Window, edge: Edge):
-        ts_sent = vertex.ts_end[edge.seq_out]
+        ts_sent = jnp.take(vertex.ts_end, edge.seq_out)  # vertex.ts_end[edge.seq_out]
         ts_recv = edge.ts_recv
         seq = edge.seq_out
+        seq_in = jnp.where(edge.seq_out == -1, -1, edge.seq_in)
         new_window = window.push(seq, ts_sent, ts_recv)
-        return new_window, IndexedWindow(new_window.seq, new_window.ts_sent, new_window.ts_recv, edge.seq_in)
+        return new_window, IndexedWindow(new_window.seq, new_window.ts_sent, new_window.ts_recv, seq_in)
 
     def _apply_window(graph):
         windows = dict()
