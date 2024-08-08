@@ -122,7 +122,6 @@ class Estimator(BaseNode):
         state = graph_state.state.get("supervisor", None)
         th = state.init_th if state is not None else jnp.pi
         thdot = state.init_thdot if state is not None else 0.
-        graph_state = graph_state or GraphState()
         std_init = graph_state.params.get(self.name, self.init_params(rng, graph_state)).std_init
         prior = UKFState(mu=jnp.array([th, thdot]),
                          sigma=jnp.eye(2) * std_init**2)

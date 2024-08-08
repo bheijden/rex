@@ -808,8 +808,8 @@ if __name__ == "__main__":
     jnp.set_printoptions(precision=3, suppress=True)
     onp.set_printoptions(precision=3, suppress=True)
     # todo: plot results
-    #  - Delay distributions
-    #  - System identification
+    #   - Delay distributions
+    #   [D] System identification
     #   - detection pipeline.
     #   - pixels
     #   - Brax setup
@@ -818,10 +818,10 @@ if __name__ == "__main__":
     #   - CMA-ES loss
     #   - MSE
     #   - timings
-    #  - Reinforcement learning (rwd learning curves, sim2real evaluation, timings)
-    #  - Appendix: computation graph with jittery camera (with and without world)
-    #  - Videos of experiments
-    #  -
+    #   [D] Reinforcement learning (rwd learning curves, sim2real evaluation, timings)
+    #   [D] Videos of experiments
+    #   - Appendix: computation graph with jittery camera (with and without world)
+    #   -
 
     # EXP_DIR = "/home/r2ci/rex/scratch/pendulum/logs/20240710_141737_brax"
     # EXP_DIR = "/home/r2ci/rex/scratch/pendulum/logs/20240710_141737_brax_norandomization_longerstack_dark"
@@ -829,7 +829,7 @@ if __name__ == "__main__":
     # EXP_DIR = "/home/r2ci/rex/scratch/pendulum/logs/20240710_141737_brax_norandomization_longerstack_v3_dark"
     # EXP_DIR = "/home/r2ci/rex/scratch/pendulum/logs/20240710_141737_brax_longerstack_dark"
     EXP_DIR_PENDULUM = "/home/r2ci/rex/scratch/pendulum/logs/20240710_141737_brax_norandomization_longerstack_v4_dark"
-    EXP_DIR_ABSTRACT = "/home/r2ci/rex/scratch/abstract/logs/main_4-6-12Nodes_0.05Jitter_0sup"
+    EXP_DIR_ABSTRACT = "/home/r2ci/rex/scratch/abstract/logs/main_4-6-12Nodes_0.05Jitter_0sup"  # todo: _cem
     REGENERATE_CACHE = False
     print(f"Pendulum experiment directory: {EXP_DIR_PENDULUM}")
     print(f"Abstract experiment directory: {EXP_DIR_ABSTRACT}")
@@ -844,8 +844,8 @@ if __name__ == "__main__":
     # print(f"Cache directory: {CACHE_DIR}")
 
     # Plot
-    # figs = plot_abstract(exp_dir=EXP_DIR_ABSTRACT, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
-    figs = plot_system_identification(exp_dir=EXP_DIR_PENDULUM, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
+    figs = plot_abstract(exp_dir=EXP_DIR_ABSTRACT, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
+    # figs = plot_system_identification(exp_dir=EXP_DIR_PENDULUM, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
     # figs = plot_reinforcement_learning(exp_dir=EXP_DIR_PENDULUM, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
 
     # plot_delay_distributions(...)

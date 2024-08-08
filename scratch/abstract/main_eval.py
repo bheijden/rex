@@ -32,6 +32,7 @@ import rexv2.utils as rutils
 from rexv2.jax_utils import same_structure
 from rexv2 import artificial
 import rexv2.evo as evo
+import rexv2.cem as cem
 import envs.abstract.systems as systems
 
 
@@ -88,30 +89,12 @@ def rollout_fn(_graph: rexv2.graph.Graph, params: Dict[str, base.Params], rng: j
 
 
 if __name__ == "__main__":
-    # todo: Rerun experiments without pruned leaf nodes.
-    # todo: Run with 6 nodes (chain-->5, tree--> 5, spares-->6 connections)
-    # todo: Record reconstruction error when true parameters are used
-    # todo: Reduce jitter to 0.05
-    # todo: what to evaluate:
-    #   - Repeat 5 times  --> can be done in the same vmap
-    #   - DATA GENERATION
-    #      - Different topologies (linear, tree, sparse)
-    #      - Different dynamics (linear, harmonic)
-    #      [OPTIONAL] Stochasticity in delays
-    #   - SYSID
-    #       - Delays + dynamics, delays only
-    #       - All data, only leaf data (different masks --> can be done in the same vmap)
-    #   - Record
-    #       - Computation graph (generator + sysid)
-    #       - Loss curve
-    #       - Generated data (last gs with large buffer)
-    #       - Sysid reconstruction (last gs with large buffer)
     onp.set_printoptions(precision=3, suppress=True)
     jnp.set_printoptions(precision=3, suppress=True)
 
     # General settings
     LOG_DIR = "/home/r2ci/rex/scratch/abstract/logs"
-    EXP_DIR = f"{LOG_DIR}/main_4-6-12Nodes_0.05Jitter_0sup"
+    EXP_DIR = f"{LOG_DIR}/main_4-6-12Nodes_0.05Jitter_0sup_cem"
     # EXP_DIR = f"{LOG_DIR}/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_abstract"
     SAVE_FILES = True
     SEED = 0
@@ -128,15 +111,18 @@ if __name__ == "__main__":
     # SYSID PARAMS
     SYSID_PARAMS = "delay"  # "delay" or "delay_dynamics"  # todo: iterate over
     # MASK = "all"  # "all" or "leaf"  # not used, as both are evaluated in parallel with the same vmap call
+    STRATEGY = "CEM"  # "CEM" or "CMA_ES"  # todo: iterate over
     # CMA_ES
     MAX_STEPS = 300  # todo: CHANGE
     POPSIZE = 300
     ELITE_RATIO = 0.2
     SIGMA_INIT = 0.5
     MEAN_DECAY = 0.0
+    # CEM
+    EVOLUTION_SMOOTHING = 0.1
 
     for STD_JITTER in [0.0, 0.05]:
-        for NUM_NODES in [12, 4, 6]:
+        for NUM_NODES in [4, 12, 6]:
             for TOPOLOGY in ["sparse", "linear", "tree"]:
                 for PARAM_CLS in ["linear", "harmonic"]:
                     # # TODO: DEBUG BEGIN
@@ -306,17 +292,33 @@ if __name__ == "__main__":
                             # Make loss_fn
                             loss_fn = make_loss(graph_sysid, rollout_fn, _loss_mask, _eps)
 
-                            # Initialize solver & logger
-                            strategy_kwargs = dict(popsize=POPSIZE, elite_ratio=ELITE_RATIO, sigma_init=SIGMA_INIT, mean_decay=MEAN_DECAY)
-                            solver = evo.EvoSolver.init(denorm.normalize(min_params), denorm.normalize(max_params), "CMA_ES", strategy_kwargs)
-                            init_sol_state = solver.init_state(jax.tree_util.tree_map(lambda x: jnp.zeros_like(x), min_params))
-                            logger = solver.init_logger(num_generations=MAX_STEPS)
+                            # Solve
+                            if STRATEGY == "CEM":
+                                # Initialize solver & logger
+                                solver = cem.CEMSolver.init(denorm.normalize(min_params), denorm.normalize(max_params),
+                                                            num_samples=POPSIZE, evolution_smoothing=EVOLUTION_SMOOTHING, elite_portion=ELITE_RATIO)
+                                init_sol_state = solver.init_state(jax.tree_util.tree_map(lambda x: jnp.zeros_like(x), min_params))
 
-                            # Run solver
-                            _rng, rng_solver = jax.random.split(_rng)
-                            sol_state, log_state, losses = evo.evo(loss_fn, solver, init_sol_state, (denorm_extend,),
-                                                                   max_steps=MAX_STEPS, rng=rng_solver, verbose=False, logger=logger)
-                            opt_params = solver.unflatten(sol_state.best_member)
+                                # Run solver
+                                _rng, rng_solver = jax.random.split(_rng)
+                                sol_state, losses = cem.cem(loss_fn, solver, init_sol_state, (denorm_extend,),
+                                                            max_steps=MAX_STEPS, rng=rng_solver, verbose=False)
+                                opt_params = sol_state.bestsofar
+                                log_state = sol_state
+                            elif STRATEGY == "CMA_ES":
+                                # Initialize solver & logger
+                                strategy_kwargs = dict(popsize=POPSIZE, elite_ratio=ELITE_RATIO, sigma_init=SIGMA_INIT, mean_decay=MEAN_DECAY)
+                                solver = evo.EvoSolver.init(denorm.normalize(min_params), denorm.normalize(max_params), "CMA_ES", strategy_kwargs)
+                                init_sol_state = solver.init_state(jax.tree_util.tree_map(lambda x: jnp.zeros_like(x), min_params))
+                                logger = solver.init_logger(num_generations=MAX_STEPS)
+
+                                # Run solver
+                                _rng, rng_solver = jax.random.split(_rng)
+                                sol_state, log_state, losses = evo.evo(loss_fn, solver, init_sol_state, (denorm_extend,),
+                                                                       max_steps=MAX_STEPS, rng=rng_solver, verbose=False, logger=logger)
+                                opt_params = solver.unflatten(sol_state.best_member)
+                            else:
+                                raise ValueError(f"Unknown STRATEGY: {STRATEGY}")
                             opt_params_extend = denorm_extend.apply(opt_params)
 
                             # Print results
@@ -391,8 +393,13 @@ if __name__ == "__main__":
                         t_solve = timer("solve", log_level=100)
                         with t_solve:
                             mask_all, mask_leaf = solve_jv(rngs, true_params, starting_eps)
-                        print(mask_all["log_state"].state["log_top_1"][..., -1])
-                        print(mask_leaf["log_state"].state["log_top_1"][..., -1])
+                        # Print results
+                        if STRATEGY == "CEM":
+                            print(mask_all["log_state"].bestsofar_loss)
+                            print(mask_leaf["log_state"].bestsofar_loss)
+                        else:
+                            print(mask_all["log_state"].state["log_top_1"][..., -1])
+                            print(mask_leaf["log_state"].state["log_top_1"][..., -1])
                         # Store timings
                         elapsed = dict(solve=t_solve.duration, solve_jit=t_solve_jit.duration)
                         print(elapsed)

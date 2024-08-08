@@ -628,7 +628,7 @@ if __name__ == "__main__":
         print(f"Controllers loaded from {CONTROLLER_NO_DELAY_FILE}")
 
     def real_evaluate(_rng, _controllers, use_cam, use_pred, use_ukf):
-        DELAYS_SIM = psys.load_distribution(f"{LOG_DIR}/dists.pkl")  # psys.get_default_distributions()
+        DELAYS_SIM = psys.load_distribution(DIST_FILE)  # psys.get_default_distributions()
         nodes_real = psys.real_system(DELAYS_SIM, DELAY_FN, RATES, cscheme=CSCHEME, order=ORDER,
                                       use_cam=use_cam, use_pred=use_pred, use_ukf=use_ukf,
                                       include_image=INCLUDE_IMAGES, use_openloop=False)

@@ -42,9 +42,10 @@ if __name__ == "__main__":
     #   [DONE] Replace delay_dist in node.init_inputs.
     #   [DONE] Add Pendulum (ode, real)
     #   [DONE] Refactor tfd to distrax
+    #   - Strip GraphState of timings_eps, buffer?
     #   - Check weaktypes and recompilation & how to compile step function --> leads to more latency (maybe not if jit compiled)?
     #       - Check new graph_state format (especially in AsyncGraph updates of step_states)
-    #   - Add Crazyflie (ode, real)
+    #       - Args to _jit_update_input_state may reside on different devices. May cause issues. Properly handle this.
     #   [DONE] flax.serialization.to_bytes does not save static fields. Use pickle instead?
     #   [DONE] Delay identification
     #       [DONE] Change delay_dist to base.StaticDelay

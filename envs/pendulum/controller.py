@@ -14,8 +14,7 @@ from rexv2.base import GraphState, StepState, Base, InputState
 from rexv2.node import BaseNode
 from rexv2.rl import NormalizeVec, SquashState
 from rexv2.jax_utils import tree_dynamic_slice
-from envs.pendulum.base import ActuatorOutput, WorldState
-from envs.pendulum.estimator import EstimatorOutput
+from envs.pendulum.base import ActuatorOutput
 
 
 @struct.dataclass

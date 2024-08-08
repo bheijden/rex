@@ -81,6 +81,12 @@ if __name__ == "__main__":
     #   - ts_recv for world is not correct. Set delay to rate.
     #   - Computation delay of world is equal to the rate of the world (currently set to 99% of the rate, should be 100%)
     # todo: Refactor:
+    #   - Define PPO return value as struct.dataclass and save best policy + final policy.
+    #   - Strip GraphState of timings_eps, buffer?
+    #   - Add delays via init_inputs
+    #       - rexv2.artificial.augment_graphs is called before rexv2.graph.Graph.init is called
+    #       - Computation delays are set when initializing a node
+    #       - What if you want to change the delays? Annoying to change via graph_state...
     #   - partition_runner.py
     #       - INTERMEDIATE_UPDATE
     #       - only update params? Speed comparison
@@ -89,7 +95,6 @@ if __name__ == "__main__":
     #       - Essentially, how to model "polling" nodes? They run as_fast_as_possible in the real_world, but not in the simulator.
     #   - Redefine ukf with pytrees (and use flatten/unflatten), and define cov as a pytree at the leaf of the pytree state.
     #   - Add .throttle method to BaseNode
-    #   - Check weaktypes and recompilation & how to compile step function --> leads to more latency (maybe not if jit compiled)?
 
     # Make sysid nodes
     onp.set_printoptions(precision=3, suppress=True)
