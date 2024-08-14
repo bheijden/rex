@@ -1069,6 +1069,10 @@ class NodeRecord:
 class EpisodeRecord:
     nodes: Dict[str, NodeRecord]
 
+    def __getitem__(self, val):
+        return jax.tree_util.tree_map(lambda x: x[val], self)
+
+
     def to_graph(self) -> Graph:
         vertices = {n: Vertex(seq=v.steps.seq, ts_start=v.steps.ts_start, ts_end=v.steps.ts_end) for n, v in self.nodes.items()}
         edges = dict()

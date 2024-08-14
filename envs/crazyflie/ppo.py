@@ -13,6 +13,7 @@ class PathFollowingConfig(ppo.Config):
         info = eval_transitions.info
         metrics["eval/vel_on"] = (jnp.roll(info["vel_on"], shift=1, axis=-2) * done).sum() / total_done
         metrics["eval/pos_off"] = (jnp.roll(info["pos_off"], shift=1, axis=-2) * done).sum() / total_done
+        metrics["eval/z"] = (jnp.roll(info["z"], shift=1, axis=-2) * done).sum() / total_done
         metrics["eval/vel_off"] = (jnp.roll(info["vel_off"], shift=1, axis=-2) * done).sum() / total_done
         metrics["eval/rwd_vel_on"] = (jnp.roll(info["rwd_vel_on"], shift=1, axis=-2) * done).sum() / total_done
         return metrics
@@ -31,13 +32,14 @@ class PathFollowingConfig(ppo.Config):
         # if "eval/vel_on" in metrics:
         vel_on = metrics["eval/vel_on"]
         pos_off = metrics["eval/pos_off"]
+        z = metrics["eval/z"]
         vel_off = metrics["eval/vel_off"]
         rwd_vel_on = metrics["eval/rwd_vel_on"]
 
         if self.VERBOSE:
             print(f"train_steps={global_step:.0f} | eval_eps={total_episodes} | return={mean_return:.1f}+-{std_return:.1f} | "
                   f"length={int(mean_length)}+-{std_length:.1f} | approxkl={mean_approxkl:.4f} | "
-                  f"vel_on={vel_on:.2f} | pos_off={pos_off:.2f} | "
+                  f"vel_on={vel_on:.2f} | pos_off={pos_off:.2f} | z={z:.2f} | "
                   f"vel_off={vel_off:.2f} | rwd_vel_on={rwd_vel_on:.2f}"
                   )
 

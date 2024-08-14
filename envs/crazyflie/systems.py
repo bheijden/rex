@@ -52,7 +52,7 @@ def simulated_system(record: base.EpisodeRecord,
 
     # Create pid
     from envs.crazyflie.pid import PID
-    pid = PID.from_info(record.nodes["pid"].info, outputs=outputs.get("pid", None))
+    pid = PID.from_info(record.nodes["pid"].info)#, outputs=outputs.get("pid", None))
 
     # Create supervisor
     from envs.crazyflie.supervisor import Supervisor

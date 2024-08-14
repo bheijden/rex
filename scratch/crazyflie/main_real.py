@@ -1,3 +1,4 @@
+import datetime
 from typing import Dict, Union, Callable, Any
 import dill as pickle
 import tqdm
@@ -44,91 +45,104 @@ if __name__ == "__main__":
     # todo: Save best policy
     # todo: Properly handle truncated episodes (record terminal observation)
 
-    # todo: NEW
-    #   - Z oscillations probably due to steady-state offset and penalty on (z-z_ref)?
-    #   - Why is circle origin not working--> crazyflie/ode.py clipping in World.step
-    #   - Fix vel_on reference?
-    #   - Fix z_ref to desired z height? PIDParams.to_command for testing.
-    #   - Implement real system.
-    #   - If pre-loading params, make sure they match dtype of dtypes returned by .step. Else recompilation....
-    #   - crazyflie.ode
-    #       - Mocap noise off when sysid'ing
-    #   - crazyflie.supervisor
-    #       - Make sure to use fixed state (set it to recorded initial position).
-    #       - turn off noise when sysid'ing
-    #       - add (mapping, pwm_range, mass, pwm_constants, hover_pwm, ...)
-    #   - crazyflie.pid
-    #       - pwm_constants instead of pwm_base as params
-    #   - crazyflie.estimator
+    # todo:
+    #   - Reference tracking controller (how to deal with yaw offset?)
+    #   - Single device (to increase latency), no domain randomization
+    # todo: Real
+    # todo: RL
+    #   - Turn off Domain randomization and increase latency (single device?)
+    #   - Reduce training time
+    #   - If pre-loading params, ensure that supervisor params are changed in main_rl.py etc...
+    #   - Reduce max phi/theta ref? --> 0.5 seems to work ok'ish
+    #   - Reference tracking instead of path following? Track path variable instead of tangent speed? Then psi matters...
+    # todo: Sysid
+    #   - Enable yaw in dynamics
 
     GPU_DEVICE = jax.devices('gpu')[0]
     CPU_DEVICES = itertools.cycle(jax.devices('cpu'))
     CPU_DEVICE = next(CPU_DEVICES)
     RNG = jax.random.PRNGKey(0)
-    LOG_DIR = "/home/r2ci/rex/scratch/crazyflie/logs"
     ORDER = ["mocap", "world", "pid", "agent", "estimator", "supervisor"]
     CSCHEME = {"world": "gray", "mocap": "grape", "estimator": "violet", "agent": "lime", "pid": "green", "actuator": "indigo", "supervisor": "gray"}
-    MOCK = "ode"  # "ode", "copilot, or "real" else todo: "real"
-    CLOCK = Clock.SIMULATED  # todo: WALL_CLOCK?
-    REAL_TIME_FACTOR = RealTimeFactor.REAL_TIME  # todo: REAL_TIME?
-    CENTER = onp.array([0.0, 0.0, 1.5])
-    RADIUS = 1.5
-    MODE = "sysid"  # "delay_only", "sysid", "rl"
+    RATES = dict(mocap=50, world=100, pid=50, agent=25, estimator=25, supervisor=10)
+    POSITION = onp.array([0.0, 0.0, 1.0])
+    CENTER = onp.array([0.0, 0.0, 1.0])
+    RADIUS = 1.25
+    SKIP_SEC = 3.0
+    # Settings
+    MOCK = "real"  # "ode", "copilot, or "real" else todo: "real"
+    LOG_DIR = "/home/r2ci/rex/scratch/crazyflie/logs"
+    # EXP_DIR = f"{LOG_DIR}/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_10Hz"
+    EXP_DIR = f"{LOG_DIR}/20240813_142721_no_zref"  # todo: CHANGE
+    # DELAYS_SIM = csys.load_distribution(f"{EXP_DIR}/dists.pkl") # TODO: CHANGE
+    DELAYS_SIM = csys.load_distribution(f"{LOG_DIR}/dists.pkl")
+    # DELAYS_SIM = csys.get_default_distributions(nodes=ORDER)
+    DELAY_FN = lambda d: d.quantile(0.85)  # lambda d: 0.0
+    MODE = "evaluate"  # todo: CHANGE
     if MODE == "delay_only":
         NUM_EPISODES = 5
         TSIM = 10
         PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"
-        RECORD_FILE = f"{LOG_DIR}/data_delay_only.pkl"
         AGENT_FILE = f"{LOG_DIR}/agent_params.pkl"
+        RECORD_FILE = f"{EXP_DIR}/data_delay_only.pkl"
+        FIG_FILE = None
         FEEDTHROUGH = False
         # USE_OPENLOOP = False
     elif MODE == "sysid":
         NUM_EPISODES = 1
-        TSIM = 19
-        PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"
-        RECORD_FILE = f"{LOG_DIR}/data_sysid.pkl"
-        AGENT_FILE = f"{LOG_DIR}/agent_params.pkl"
+        TSIM = 15
+        PARAMS_FILE = f"{LOG_DIR}/no_zref/sysid_params.pkl"
+        AGENT_FILE = f"{LOG_DIR}/no_zref/agent_params.pkl"
+        RECORD_FILE = f"{EXP_DIR}/sysid_data.pkl"
+        FIG_FILE = f"{EXP_DIR}/sysid_fig.png"
         FEEDTHROUGH = True
         # USE_OPENLOOP = True
-    elif MODE == "rl":
-        TSIM = 10
-        NUM_EPISODES = 1
-        PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"
-        RECORD_FILE = f"{LOG_DIR}/data_rl.pkl"
-        AGENT_FILE = f"{LOG_DIR}/agent_params.pkl"
-        FEEDTHROUGH = True
-        # USE_OPENLOOP = False
+    # elif MODE == "rl":
+    #     TSIM = 10
+    #     NUM_EPISODES = 1
+    #     PARAMS_FILE = f"{LOG_DIR}/0.60A_10s/sysid_params.pkl"
+    #     AGENT_FILE = f"{LOG_DIR}/0.60A_10s/agent_params.pkl"
+    #     RECORD_FILE = f"{EXP_DIR}/rl_data.pkl"
+    #     FIG_FILE = f"{EXP_DIR}/rl_fig.png"
+    #     FEEDTHROUGH = True
+    #     # USE_OPENLOOP = False
     elif MODE == "evaluate":
-        TSIM = 5
-        NUM_EPISODES = 10
-        PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"
-        RECORD_FILE = f"{LOG_DIR}/data_evaluate.pkl"
-        AGENT_FILE = f"{LOG_DIR}/agent_params.pkl"
+        TSIM = 15
+        NUM_EPISODES = 1
+        PARAMS_FILE = f"{EXP_DIR}/sysid_params.pkl"
+        AGENT_FILE = f"{EXP_DIR}/agent_params.pkl"
+        RECORD_FILE = f"{EXP_DIR}/eval_data.pkl"
+        FIG_FILE = f"{EXP_DIR}/eval_fig.png"
         FEEDTHROUGH = True
         # USE_OPENLOOP = False
     else:
         raise ValueError(f"Invalid mode: {MODE}")
 
-    DELAYS_SIM = csys.load_distribution(f"{LOG_DIR}/dists.pkl")  # csys.get_default_distributions(nodes=ORDER)
-    # DELAYS_SIM = csys.get_default_distributions(nodes=ORDER)  # csys.get_default_distributions(nodes=ORDER)
-    DELAY_FN = lambda d: d.quantile(0.85)  # lambda d: 0.0
-    RATES = dict(mocap=50, world=50, pid=50, agent=25, estimator=25, supervisor=10)
+    # Make directory if it doesn't exist
+    if os.path.exists(EXP_DIR):
+        print(f"Directory {EXP_DIR} already exists.")
+    os.makedirs(EXP_DIR, exist_ok=True)
 
     # Create graph
-    if MOCK =="ode":
+    if MOCK == "ode":
         CLOCK = Clock.SIMULATED
         REAL_TIME_FACTOR = RealTimeFactor.FAST_AS_POSSIBLE
         nodes = csys.mock_system(DELAYS_SIM, DELAY_FN, RATES, cscheme=CSCHEME, order=ORDER)
     else:
         if MOCK == "real":
             MOCK_COPILOT = False
+            CLOCK = Clock.WALL_CLOCK
+            REAL_TIME_FACTOR = RealTimeFactor.REAL_TIME
         elif MOCK == "copilot":
             MOCK_COPILOT = True
+            CLOCK = Clock.WALL_CLOCK
+            REAL_TIME_FACTOR = RealTimeFactor.REAL_TIME
         else:
             raise ValueError(f"Invalid mock system: {MOCK}")
         nodes = csys.real_system(DELAYS_SIM, DELAY_FN, RATES, cscheme=CSCHEME, order=ORDER, mock_copilot=MOCK_COPILOT, feedthrough=FEEDTHROUGH)
 
     # Create graph
+    print(f"MOCK={MOCK}, CLOCK={CLOCK}, REAL_TIME_FACTOR={REAL_TIME_FACTOR}")
     graph = rexv2.asynchronous.AsyncGraph(nodes, supervisor=nodes["supervisor"], clock=CLOCK, real_time_factor=REAL_TIME_FACTOR)
 
     # Initialize graph state
@@ -137,7 +151,6 @@ if __name__ == "__main__":
 
     # Load params (if file exists)
     if os.path.exists(PARAMS_FILE):
-        raise NotImplementedError("Make sure they match dtype of dtypes returned by .step. Else recompilation....")
         with open(PARAMS_FILE, "rb") as f:
             params: Dict[str, Any] = pickle.load(f)
         print(f"Params loaded from {PARAMS_FILE}")
@@ -148,6 +161,7 @@ if __name__ == "__main__":
     # Modify supervisor params
     params["supervisor"] = params["supervisor"].replace(
         init_cf="fixed",
+        fixed_position=POSITION,
         init_path="fixed",
         fixed_radius=RADIUS,
         center=CENTER,
@@ -170,7 +184,7 @@ if __name__ == "__main__":
     [rutils.set_log_level(LogLevel.WARN, n) for n in graph.nodes.values()]  # Set log level
     devices_step = {k: next(CPU_DEVICES) if k != "agent" else GPU_DEVICE for k in ORDER}
     devices_dist = devices_step.copy()
-    graph.warmup(gs_init, devices_step, devices_dist, jit_step=True, profile=True)
+    graph.warmup(gs_init, devices_step, devices_dist, jit_step=True, profile=False)
 
     # Set record settings
     for n, node in graph.nodes.items():
@@ -181,6 +195,16 @@ if __name__ == "__main__":
     # Warmup & get initial graph state
     import logging
     logging.getLogger("jax").setLevel(logging.INFO)
+
+    # Evaluate
+    from envs.crazyflie.ode import metrics
+
+    start_eval = int(SKIP_SEC * RATES["mocap"])
+    end_eval = start_eval + int((TSIM - SKIP_SEC) * RATES["mocap"] * 0.95)
+    dummy_mocap = jax.vmap(nodes["mocap"].init_output, in_axes=(0, None))(jax.random.split(RNG, end_eval - start_eval), gs_init)
+    metrics_jv = jax.jit(jax.vmap(metrics, in_axes=(0, None, None))).lower(dummy_mocap, RADIUS, CENTER).compile()
+    vel_on, vel_off, pos_on, pos_off = metrics_jv(dummy_mocap, RADIUS, CENTER)
+    vel_on.mean(), vel_off.mean(), pos_on.mean(), pos_off.mean()
 
     # Simulate
     episodes = []
@@ -207,8 +231,12 @@ if __name__ == "__main__":
                 # Append record
                 episodes.append(r)
 
+                # Calculate statistics
+                mocap = r.nodes["mocap"].steps.output[start_eval:end_eval]
+                vel_on, vel_off, pos_on, pos_off = metrics_jv(mocap, RADIUS, CENTER)
+
                 # Print upright percentage
-                print(f"Episode {i}: <todo: print statistics>")
+                print(f"Episode {i} | vel_on={vel_on.mean():.2f} | vel_off={vel_off.mean():.2f} | pos_off={pos_off.mean():.2f}")
 
     # Save record
     record = base.ExperimentRecord(episodes=episodes)
@@ -227,27 +255,42 @@ if __name__ == "__main__":
 
     # Plot
     mocap = record.episodes[0].nodes["mocap"].steps
+    mocap_ia = jax.vmap(mocap.output.static_in_agent_frame, in_axes=(0, None))(mocap.output, CENTER)
     estimator = record.episodes[0].nodes["estimator"].steps
     agent = record.episodes[0].nodes["agent"].steps
     pid = record.episodes[0].nodes["pid"].steps
 
     fig, axes = plot_data(output={"att": mocap.output.att,
                                   "pos": mocap.output.pos,
+                                  "pos_ia": mocap_ia.pos,
+                                  "vel_ia": mocap_ia.vel,
                                   "pwm_ref": pid.output.pwm_ref,
                                   "phi_ref": pid.output.phi_ref,
                                   "theta_ref": pid.output.theta_ref,
                                   "z_ref": pid.output.z_ref},
                           ts={"att": mocap.ts_start,
                               "pos": mocap.ts_start,
+                              "pos_ia": mocap.ts_start,
+                              "vel_ia": mocap.ts_start,
                               "pwm_ref": pid.ts_end,
                               "phi_ref": pid.ts_end,
                               "theta_ref": pid.ts_end,
                               "z_ref": pid.ts_end},
                           # ts_max=3.0,
                           )
-    plt.show()
-    # Save data
+    plt.show()    # Save data
+
+    # Save
     stacked = record.stack("padded")
     with open(RECORD_FILE, "wb") as f:
         pickle.dump(stacked, f)
     print(f"Data saved to {RECORD_FILE}")
+    # with open(f"{EXP_DIR}/eval_params.pkl", "wb") as f:
+    #     pickle.dump(params, f)
+    # print(f"Params saved to {EXP_DIR}/sysid_params.pkl")
+    # with open(f"{EXP_DIR}/sysid_agent_params.pkl", "wb") as f:
+    #     pickle.dump(agent_params, f)
+    # print(f"Agent params saved to {EXP_DIR}/agent_params.pkl")
+    if FIG_FILE is not None:
+        fig.savefig(FIG_FILE)
+        print(f"Fig saved to {FIG_FILE}")

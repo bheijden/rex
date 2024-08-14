@@ -140,6 +140,13 @@ def in_agent_frame(pos: jax.typing.ArrayLike, att: jax.typing.ArrayLike, vel: ja
     return new_pos, new_vel, rp_q2a
 
 
+def in_body_frame(att: jax.typing.ArrayLike, vel: jax.typing.ArrayLike):
+    R_q2w = rpy_to_R(att)
+    vel_qiw = vel
+    vel_qib = jnp.dot(R_q2w.T, vel_qiw)
+    return vel_qib
+
+
 @struct.dataclass
 class WorldState(Base):
     """Pendulum state definition"""
@@ -168,9 +175,11 @@ class WorldParams(Base):
     gain_constant: Union[float, jax.typing.ArrayLike]  # 1.1094
     time_constant: Union[float, jax.typing.ArrayLike]  # 0.183806
     state_space: jax.typing.ArrayLike  # [-15.4666, 1, 3.5616e-5, 7.2345e-8]  # [A,B,C,D]
+    init_thrust_scale: Union[float, jax.typing.ArrayLike]  # 1.0  # scales the initial thrust (for sysid)
     pwm_constants: jax.typing.ArrayLike  # [2.130295e-11, 1.032633e-6, 5.485e-4] # [a,b,c]
-    dragxy_constants: jax.typing.ArrayLike  # [9.1785e-7, 0.04076521, 380.8359] # Fa,x
-    dragz_constants: jax.typing.ArrayLike  # [10.311e-7, 0.04076521, 380.8359] # Fa,z
+    rotor_constants: jax.typing.ArrayLike  # [0.04076521, 380.8359]
+    dragxy: jax.typing.ArrayLike  # 9.1785e-7 # Fa,x
+    dragz: jax.typing.ArrayLike  # 10.311e-7 # Fa,z
     clip_rad: jax.typing.ArrayLike  # 2.0
     clip_vel: jax.typing.ArrayLike  # [-10.0, 10.0]
 
@@ -207,10 +216,11 @@ class WorldParams(Base):
         mass = self.mass
         gain_c = self.gain_constant
         time_c = self.time_constant
-        A, B, C, D = self.state_space
+        A, B, C = self.state_space
         pwm_constants = self.pwm_constants
-        dragxy_c = self.dragxy_constants  # [9.1785e-7, 0.04076521, 380.8359] # Fa,x
-        dragz_c = self.dragz_constants  # [10.311e-7, 0.04076521, 380.8359] # Fa,z
+        rotor_constants = self.rotor_constants
+        dragxy_c = self.dragxy  # [9.1785e-7, 0.04076521, 380.8359] # Fa,x
+        dragz_c = self.dragz  # [10.311e-7, 0.04076521, 380.8359] # Fa,z
         # Unpack state
         x, y, z = state.pos
         xdot, ydot, zdot = state.vel
@@ -232,30 +242,35 @@ class WorldParams(Base):
 
         # Steady state thrust_state for the given pwm
         ss_thrust_state = B / (-A) * hover_pwm  # steady-state with eq (3.16)
-        ss_force = 4 * (C * ss_thrust_state + D * hover_pwm)  # Thrust force at steady state
+        ss_force = 4 * (C * ss_thrust_state)  # Thrust force at steady state
         force_offset = ss_force - hover_force  # Offset from hover
 
         # Calculate forces
-        force_thrust = 4 * (C * thrust_state + D * pwm)  # Thrust force
+        force_thrust = 4 * (C * thrust_state)  # Thrust force
         force_thrust = jnp.clip(force_thrust - force_offset, 0, None)  # Correct for offset
 
         # Calculate rotation matrix
-        R = rpy_to_R(jnp.array([phi, theta, psi]))
+        R = rpy_to_R(jnp.array([phi, theta, psi]))  # R_q2w
 
-        # Calculate drag matrix
-        # pwm_drag = force_to_pwm(pwm_constants, force_thrust)  # Symbolic PWM to approximate rotor drag
-        # dragxy = dragxy_c[0] * 4 * (dragxy_c[1] * pwm_drag + dragxy_c[2])  # Fa,x
-        # dragz = dragz_c[0] * 4 * (dragz_c[1] * pwm_drag + dragz_c[2])  # Fa,z
-        # drag_matrix = jnp.array([
-        #     [dragxy, 0, 0],
-        #     [0, dragxy, 0],
-        #     [0, 0, dragz]
-        # ])
-        # force_drag = drag_matrix @ jnp.array([xdot, ydot, zdot]) # todo: should be vel in body frame...
+        # Calculate drag
+        vel_qiw = state.vel
+        vel_qib = jnp.dot(R.T, vel_qiw)
+        pwm_drag = force_to_pwm(pwm_constants, force_thrust)  # Symbolic PWM to approximate rotor drag
+        rotor_speed = 4 * (rotor_constants[0]*pwm_drag + rotor_constants[1]) # Rotor speed
+
+        # dragxy_constants: [9.1785e-7, 0.04076521, 380.8359] # Fa,x
+        # dragz_constants: [10.311e-7, 0.04076521, 380.8359] # Fa,z
+        kappa = jnp.array([
+            [dragxy_c, 0, 0],
+            [0, dragxy_c, 0],
+            [0, 0, dragz_c]
+        ])
+        force_drag = jnp.dot(kappa, -vel_qib) * rotor_speed
 
         # Calculate dstate
         dpos = jnp.array([xdot, ydot, zdot])
-        dvel = R @ jnp.array([0, 0, force_thrust / mass]) - jnp.array([0, 0, 9.81])
+
+        dvel = R @ ((jnp.array([0, 0, force_thrust]) + force_drag) / mass) - jnp.array([0, 0, 9.81])
         datt = jnp.array([
             (gain_c * phi_ref - phi) / time_c,  # phi_dot
             (gain_c * theta_ref - theta) / time_c,  # theta_dot
@@ -269,6 +284,41 @@ class WorldParams(Base):
         dstate = WorldState(mass=dmass, pos=dpos, vel=dvel, att=datt, ang_vel=dang_vel, thrust_state=dthrust_state, radius=dradius, center=dcenter)
         return dstate
 
+    def sysid_range(self):
+        actuator_delay = None #self.actuator_delay.replace(alpha=onp.array([0., 1.0]))
+        # Domain randomization
+        use_dr = None
+        mass_var = None
+        # Parameters
+        mass = onp.array([0.02, 0.04])
+        gain_constant = onp.array([0.2, 2])  # 1.1094
+        time_constant = onp.array([0.02, 0.3]) # 0.183806
+        state_space = None  # onp.array([[-100.4666, 0.5, 1e-6],
+        #                          [-5.4666, 1.5, 1e-4]])
+        init_thrust_scale = None  # onp.array([0.3, 3.0])
+        pwm_constants = None
+        rotor_constants = None  # [0.04076521, 380.8359]
+        dragxy = onp.array([0.5*9.1785e-7, 3.*9.1785e-7])
+        dragz = onp.array([0.5*10.311e-7, 1.*10.311e-7])
+        clip_rad = None
+        clip_vel = None
+        return self.replace(
+            actuator_delay=actuator_delay,
+            use_dr=use_dr,
+            mass_var=mass_var,
+            mass=mass,
+            gain_constant=gain_constant,
+            time_constant=time_constant,
+            state_space=state_space,
+            init_thrust_scale=init_thrust_scale,
+            pwm_constants=pwm_constants,
+            rotor_constants=rotor_constants,
+            dragxy=dragxy,
+            dragz=dragz,
+            clip_rad=clip_rad,
+            clip_vel=clip_vel,
+        )
+
 
 @struct.dataclass
 class WorldOutput(Base):
@@ -279,6 +329,11 @@ class WorldOutput(Base):
     thrust_state: Union[float, jax.typing.ArrayLike]  # Thrust state
 
     def in_agent_frame(self, center: jax.typing.ArrayLike):
+        new_pos, new_vel, new_att = in_agent_frame(self.pos, self.att, self.vel, center)
+        return self.replace(pos=new_pos, att=new_att, vel=new_vel)
+
+    @staticmethod
+    def static_in_agent_frame(self, center: jax.typing.ArrayLike):
         new_pos, new_vel, new_att = in_agent_frame(self.pos, self.att, self.vel, center)
         return self.replace(pos=new_pos, att=new_att, vel=new_vel)
 
@@ -297,13 +352,15 @@ class World(BaseNode):
             actuator_delay=graph_state.params.get("pid").actuator_delay,
             use_dr=params.use_dr,  # Whether to perform domain randomization
             mass_var=0.02,
-            mass=params.mass,
-            gain_constant=1.1094,
-            time_constant=0.183806,
-            state_space=onp.array([-15.4666, 1, 3.5616e-5, 7.2345e-8]),  # [A,B,C,D]
-            pwm_constants=params.pwm_constants,
-            dragxy_constants=onp.array([9.1785e-7, 0.04076521, 380.8359]),
-            dragz_constants=onp.array([10.311e-7, 0.04076521, 380.8359]),
+            mass=0.033,
+            gain_constant=1.1094,  # Attitude gain constant
+            time_constant=0.183806,  # Attitude time constant
+            state_space=onp.array([-15.4666, 1, 3.5616e-5]),  # [A,B,C,D]
+            init_thrust_scale=1.0,
+            pwm_constants=onp.array([2.130295e-11, 1.032633e-6, 5.485e-4]),
+            rotor_constants=onp.array([0.04076521, 380.8359]),
+            dragxy=9.1785e-7,
+            dragz=10.311e-7,
             clip_rad=2.0,
             clip_vel=jnp.array([20., 20., 20.]),
         )
@@ -318,8 +375,8 @@ class World(BaseNode):
         dmass = use_dr*params.mass*params.mass_var*jax.random.uniform(rng_mass, shape=(), minval=-1, maxval=1)
         mass = params.mass + dmass
         # Determine initial state
-        A, B, C, D = params.state_space
-        init_thrust_state = B * params.pwm_hover / (-A)  # Assumes dthrust = 0.
+        A, B, C = params.state_space
+        init_thrust_state = params.init_thrust_scale * B * params.pwm_hover / (-A)  # Assumes dthrust = 0.
         # Get radius & radius of path from supervisor
         state_sup = graph_state.state.get("supervisor")
         params_sup = graph_state.params.get("supervisor")
@@ -413,7 +470,6 @@ class MoCapState:
     loss_pos: Union[float, jax.typing.ArrayLike]
     loss_vel: Union[float, jax.typing.ArrayLike]
     loss_att: Union[float, jax.typing.ArrayLike]
-    loss_ang_vel: Union[float, jax.typing.ArrayLike]
 
 
 @struct.dataclass
@@ -425,6 +481,11 @@ class MoCapOutput(Base):
     ts: Union[float, jax.typing.ArrayLike]
 
     def in_agent_frame(self, center: jax.typing.ArrayLike):
+        new_pos, new_vel, new_att = in_agent_frame(self.pos, self.att, self.vel, center)
+        return self.replace(pos=new_pos, att=new_att, vel=new_vel)
+
+    @staticmethod
+    def static_in_agent_frame(self, center: jax.typing.ArrayLike):
         new_pos, new_vel, new_att = in_agent_frame(self.pos, self.att, self.vel, center)
         return self.replace(pos=new_pos, att=new_att, vel=new_vel)
 
@@ -454,7 +515,7 @@ class MoCap(BaseNode):
 
     def init_state(self, rng: jax.Array = None, graph_state: GraphState = None) -> MoCapState:
         """Default state of the node."""
-        return MoCapState(loss_pos=0.0, loss_vel=0.0, loss_att=0.0, loss_ang_vel=0.0)
+        return MoCapState(loss_pos=0.0, loss_vel=0.0, loss_att=0.0)
 
     def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> MoCapOutput:
         """Default output of the node."""
@@ -486,32 +547,60 @@ class MoCap(BaseNode):
 
     def step(self, step_state: StepState) -> Tuple[StepState, MoCapOutput]:
         """Step the node."""
-        world = step_state.inputs["world"][-1].data
-        use_noise = step_state.params.use_noise
+        rng = step_state.rng
+        state: MoCapState = step_state.state
         params: MoCapParams = step_state.params
+        world = step_state.inputs["world"][-1].data
 
         # Adjust ts_start (i.e. step_state.ts) to reflect the timestamp of the world state that generated the sensor output
         ts = step_state.ts - step_state.params.sensor_delay.mean()  # Should be equal to world_interp.ts_sent[-1]?
 
-        # Sample small amount of noise to pos, vel (std=0.05), pos(std=0.005)
-        rngs = jax.random.split(step_state.rng, 8)
-        new_rng = rngs[0]
-        pos_noise = params.pos_std*jax.random.normal(rngs[1], world.pos.shape)
-        vel_noise = params.vel_std*jax.random.normal(rngs[2], world.vel.shape)
-        att_noise = params.att_std*jax.random.normal(rngs[3], world.att.shape)
-        ang_vel_noise = params.ang_vel_std*jax.random.normal(rngs[4], world.ang_vel.shape)
+        # Determine output
+        if self._outputs is not None:
+            recorded_output = tree_dynamic_slice(self._outputs, jnp.array([step_state.eps, step_state.seq]))
+            output = recorded_output.replace(ts=ts)
+        else:
+            # Sample small amount of noise to pos, vel (std=0.05), pos(std=0.005)
+            rngs = jax.random.split(rng, 8)
+            rng = rngs[0]
+            pos_noise = params.pos_std*jax.random.normal(rngs[1], world.pos.shape)
+            vel_noise = params.vel_std*jax.random.normal(rngs[2], world.vel.shape)
+            att_noise = params.att_std*jax.random.normal(rngs[3], world.att.shape)
+            ang_vel_noise = params.ang_vel_std*jax.random.normal(rngs[4], world.ang_vel.shape)
 
-        # Prepare output
-        output = MoCapOutput(
-            pos=world.pos + use_noise*pos_noise,
-            vel=world.vel + use_noise*vel_noise,
-            att=world.att + use_noise*att_noise,
-            ang_vel=world.ang_vel + use_noise*ang_vel_noise,
-            ts=ts,
-        )
+            # Prepare output
+            output = MoCapOutput(
+                pos=world.pos + params.use_noise*pos_noise,
+                vel=world.vel + params.use_noise*vel_noise,
+                att=world.att + params.use_noise*att_noise,
+                ang_vel=world.ang_vel + params.use_noise*ang_vel_noise,
+                ts=ts,
+            )
+
+        vel_v = jnp.stack([world.vel, output.vel], axis=0)
+        att_v = jnp.stack([world.att, output.att], axis=0)
+        vel_qib = jax.vmap(in_body_frame)(att_v, vel_v)
+        vel_qib_world = vel_qib[1]
+        vel_qib_out = vel_qib[1]
+
+        # Calculate velocity in-body frame
+        # R_q2w = rpy_to_R(world.att)
+        # vel_qiw = world.vel
+        # vel_qib = jnp.dot(R_q2w.T, vel_qiw)
+        # R_q2w_out = rpy_to_R(output.att)
+        # vel_qiw_out = output.vel
+        # vel_qib_out = jnp.dot(R_q2w_out.T, vel_qiw_out)
+
+        # Calculate loss
+        # until_ts = (ts < 3.0).astype(int)
+        until_ts = True
+        loss_pos = state.loss_pos + until_ts * jnp.linalg.norm(world.pos - output.pos)**2
+        loss_att = state.loss_att + until_ts * jnp.linalg.norm(world.att - output.att)**2
+        loss_vel = state.loss_vel + until_ts * jnp.linalg.norm(vel_qib_world - vel_qib_out)**2
+        new_state = state.replace(loss_pos=loss_pos, loss_att=loss_att, loss_vel=loss_vel)
 
         # Update state
-        new_step_state = step_state.replace(rng=new_rng)
+        new_step_state = step_state.replace(rng=rng, state=new_state)
 
         return new_step_state, output
 
@@ -657,39 +746,64 @@ def plot_data(output, ts, ts_max=None):
     axes[0, 1].set_title("X-Y Position (color: time)")
     axes[0, 1].set_xlabel("X")
     axes[0, 1].set_ylabel("Y")
-    # scatter = axes[0, 1].scatter(output["pos"][:, 0], output["pos"][:, 1], c=ts["pos"], cmap="viridis")
-    # plt.colorbar(scatter, ax=axes[0, 1])
-    # axes[0, 1].set_title("X-Y Position (color: time)")
-    # axes[0, 1].set_xlabel("X")
-    # axes[0, 1].set_ylabel("Y")
 
-    axes[0, 2].axis("off")  # Empty plot
+    # Plot Z
+    axes[0, 2].plot(ts["pos"], output["pos"][:, 2], label="z", color="blue", linestyle="-")
+    axes[0, 2].plot(ts["z_ref"], output["z_ref"], label="z_ref", color="green", linestyle="-")
+    axes[0, 2].legend()
+    axes[0, 2].set_title("Z Position")
 
-    # Second row: Phi and Theta
+    # Second row: Phi, Theta, Psi
     axes[1, 0].plot(ts["att"], output["att"][:, 0], label="phi", color="blue", linestyle="-")
     axes[1, 0].plot(ts["phi_ref"], output["phi_ref"], label="phi_ref", color="green", linestyle="-")
+    axes[1, 0].set_ylim([-onp.pi / 5, onp.pi / 5])
     axes[1, 0].legend()
     axes[1, 0].set_title("Phi")
 
     axes[1, 1].plot(ts["att"], output["att"][:, 1], label="theta", color="blue", linestyle="-")
     axes[1, 1].plot(ts["theta_ref"], output["theta_ref"], label="theta_ref", color="green", linestyle="-")
+    axes[1, 1].set_ylim([-onp.pi / 5, onp.pi / 5])
     axes[1, 1].legend()
     axes[1, 1].set_title("Theta")
 
-    axes[1, 2].axis("off")  # Empty plot
+    axes[1, 2].plot(ts["att"], output["att"][:, 2], label="psi", color="blue", linestyle="-")
+    # axes[1, 2].plot(ts["psi_ref"], output["psi_ref"], label="psi_ref", color="green", linestyle="-")
+    axes[1, 2].set_ylim([-onp.pi / 5, onp.pi / 5])
+    axes[1, 2].legend()
+    axes[1, 2].set_title("Psi")
 
-    # Third row: X, Y, and Z
-    axes[2, 0].plot(ts["pos"], output["pos"][:, 0], label="x", color="blue", linestyle="-")
-    axes[2, 0].legend()
-    axes[2, 0].set_title("X Position")
+    # Plot off-center position
+    if "pos_ia" in output:
+        pos_off = jnp.linalg.norm(jnp.concatenate([output["pos_ia"][:, [0]], output["pos_ia"][:, [2]]], axis=-1), axis=-1)
+        axes[2, 0].plot(ts["pos_ia"], pos_off, label="pos_off", color="blue", linestyle="-")
+        axes[2, 0].legend()
+        axes[2, 0].set_title("Radial Position")
+    else:
+        axes[2, 0].axis("off")  # Empty plot
 
-    axes[2, 1].plot(ts["pos"], output["pos"][:, 1], label="y", color="blue", linestyle="-")
-    axes[2, 1].legend()
-    axes[2, 1].set_title("Y Position")
+    # Plot velocities in agent frame
+    if "vel_ia" in output:
+        vel_on = output["vel_ia"][:, 1]
+        vel_off = jnp.linalg.norm(jnp.concatenate([output["vel_ia"][:, [0]], output["vel_ia"][:, [2]]], axis=-1), axis=-1)
+        axes[2, 1].plot(ts["vel_ia"], vel_off, label="vel_off", color="blue", linestyle="-")
+        axes[2, 1].legend()
+        axes[2, 1].set_title("Velocity (off-path)")
+        axes[2, 2].plot(ts["vel_ia"], vel_on, label="vel_on", color="blue", linestyle="-")
+        axes[2, 2].legend()
+        axes[2, 2].set_title("Velocity (on-path)")
+    else:
+        axes[2, 1].axis("off")  # Empty plot
+        axes[2, 2].axis("off")  # Empty plot
 
-    axes[2, 2].plot(ts["pos"], output["pos"][:, 2], label="z", color="blue", linestyle="-")
-    axes[2, 2].plot(ts["z_ref"], output["z_ref"], label="z_ref", color="green", linestyle="-")
-    axes[2, 2].legend()
-    axes[2, 2].set_title("Z Position")
     fig.tight_layout()
     return fig, axes
+
+
+def metrics(mocap: MoCapOutput, radius: jax.typing.ArrayLike, center: jax.typing.ArrayLike):
+    mocap_ia = mocap.in_agent_frame(center)
+    vel_on = mocap_ia.vel[1]
+    pos_on = mocap_ia.pos[1]
+    vel_off = jnp.linalg.norm(jnp.array([mocap_ia.vel[0], mocap_ia.vel[2]]))
+    pos_off = jnp.linalg.norm(jnp.array([mocap_ia.pos[0] - radius, mocap_ia.pos[2]]))
+    pos_on = (pos_on + onp.pi) / (2 * onp.pi) * radius  # Convert to meters
+    return vel_on, vel_off, pos_on, pos_off

@@ -66,7 +66,11 @@ class Task:
 
                     def __repr__(self):
                         """Relative to the transformed value."""
-                        return f"{self.xt} Rel({self.x:.2f})"
+                        try:
+                            msg = f"{self.xt} Rel({self.x:.2f})"
+                        except TypeError:
+                            msg = f"{self.xt} Rel({self.x})"
+                        return msg
 
                 pp = jax.tree_util.tree_map(lambda _xt, _x: _PrettyPrint(_xt, _x), _opt_params_trans_inv, _opt_params)
                 _ = eqx.tree_pprint(pp)
@@ -100,6 +104,18 @@ class Task:
         # Rollout
         graph_states = self.graph.rollout(graph_state, max_steps=max_steps, carry_only=False)
         return graph_states
+
+    def loss(self, params: Dict[str, base.Params], rng: jax.Array = None):
+        if rng is None:
+            rng = jax.random.PRNGKey(0)
+
+        # Make loss function
+        loss_fn = make_loss(self.graph, self.rollout, self.loss_filter)
+
+        # Call loss function
+        loss = loss_fn(params, (base.Identity.init(),), rng)
+        return loss
+
 
 
 def make_loss(graph: Graph, rollout: Callable, loss_filter: base.Filter) -> base.Loss:

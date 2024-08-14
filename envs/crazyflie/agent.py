@@ -121,7 +121,11 @@ class PPOAgentParams(base.Base):
         actions_mapped["theta_ref"] = actions_mapped.get("theta_ref", 0.0)
         actions_mapped["phi_ref"] = actions_mapped.get("phi_ref", 0.0)
         actions_mapped["psi_ref"] = actions_mapped.get("psi_ref", 0.0)
-        actions_mapped["z_ref"] = actions_mapped.get("z_ref", 0.0)
+        # Determine z_ref (if not provided)
+        z_ref = step_state.state.center[2]
+        z = step_state.inputs["estimator"][-1].data.pos[2]
+        z_ref_clip = jnp.clip(z_ref, z-0.75, z+0.75)
+        actions_mapped["z_ref"] = actions_mapped.get("z_ref", z_ref_clip)
         # Get estimator output
         inputs = step_state.inputs
         if "estimator" in inputs:
@@ -158,13 +162,15 @@ class PPOAgent(BaseNode):
         graph_state = graph_state or GraphState()
         params_sup = graph_state.params.get("supervisor")
         mapping = params_sup.ctrl_mapping
+        action_dim = params_sup.action_dim
         return PPOAgentParams(
             num_act=0,
             num_obs=0,
             act_scaling=None,
             obs_scaling=None,
             model=None,
-            mapping=mapping
+            mapping=mapping,
+            action_dim=action_dim,
         )
 
     def init_state(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> PPOAgentState:
@@ -213,7 +219,6 @@ class PPOAgent(BaseNode):
             action = params.get_action(obs)
         else:
             action = jax.random.uniform(rng_policy, shape=(params.action_dim,), dtype=jnp.float32, minval=-1.0, maxval=1.0)  # Random action
-            # action = action*0  # Fixed action
         # Update step_state (observation and action history)
         new_state = params.update_state(step_state, action)
         new_step_state = step_state.replace(rng=rng, state=new_state)

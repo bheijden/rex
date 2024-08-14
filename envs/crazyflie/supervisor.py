@@ -12,10 +12,8 @@ from rexv2.jax_utils import tree_dynamic_slice
 
 @struct.dataclass
 class SupervisorParams(Base):
-    # Dynamics
-    mass: Union[float, jax.typing.ArrayLike]
-    pwm_constants: jax.typing.ArrayLike
     # Ctrl limits
+    action_dim: Union[int, jax.typing.ArrayLike]
     pwm_from_hover: Union[float, jax.typing.ArrayLike]
     pwm_range: jax.typing.ArrayLike
     phi_max: Union[float, jax.typing.ArrayLike]
@@ -57,20 +55,18 @@ class Supervisor(BaseNode):
 
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> SupervisorParams:
         params = SupervisorParams(
-            # Dynamics
-            mass=0.033,  # kg
-            pwm_constants=onp.array([2.130295e-11, 1.032633e-6, 5.485e-4]),
             # ctrl
-            ctrl_mapping=["z_ref", "theta_ref", "phi_ref", "psi_ref"],
+            ctrl_mapping=["theta_ref", "phi_ref", "z_ref", "psi_ref"],
+            action_dim=2,
             pwm_from_hover=15000,
-            pwm_range=jnp.array([20000, 60000]),
+            pwm_range=jnp.array([20000, 60000]),  # Not used by PID controller.
             phi_max=onp.pi / 6,
             theta_max=onp.pi / 6,
             psi_max=0.,  # No yaw (or onp.pi?)
             z_max=2.0,
             # init crazyflie
             init_cf="random",  # random, fixed
-            fixed_position=jnp.array([0.0, 0.0, 2.0]),  # Above the platform
+            fixed_position=jnp.array([0.0, 0.0, 1.75]),  # Above the platform
             x_range=jnp.array([-4.0, 4.0]),
             y_range=jnp.array([-4.0, 4.0]),
             z_range=jnp.array([0.0, 2.0]),
@@ -101,7 +97,7 @@ class Supervisor(BaseNode):
             init_z = jax.random.uniform(rngs[3], shape=(), minval=params.z_range[0], maxval=params.z_range[1])
             init_pos = jnp.array([init_x, init_y, init_z])
         elif params.init_cf == "fixed":
-            init_pos = jnp.array([0.0, 0.0, 2.0])
+            init_pos = params.fixed_position
         else:
             raise ValueError(f"Unknown start position method: {params.init_cf}")
         # Circular path

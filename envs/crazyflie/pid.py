@@ -317,10 +317,6 @@ class PID(BaseNode):
         # Get sentinel params
         params_sup = graph_state.params.get("supervisor")
         mapping = params_sup.ctrl_mapping # if params_sup is not None else ["z_ref", "theta_ref", "phi_ref"]  # noqa
-        pwm_range = params_sup.pwm_range #  if params_sup is not None else [20000, 60000]  # noqa
-        # Get mass
-        mass = params_sup.mass #if params_world is not None else 0.03303  # noqa
-        pwm_constants = params_sup.pwm_constants # if params_world is not None else onp.array([2.130295e-11, 1.032633e-6, 5.485e-4])  # noqa
         # Initialize PID controllers
         UINT16_MAX = 65_535
         zvel_max = 1.0
@@ -339,8 +335,8 @@ class PID(BaseNode):
             sensor_delay=sensor_delay,
             UINT16_MAX=UINT16_MAX,
             pwm_scale=pwm_scale,
-            pwm_base=force_to_pwm(pwm_constants, 9.81 * mass),
-            pwm_range=pwm_range,
+            pwm_base=40_000.,  # 42_000
+            pwm_range=onp.array([20_000, 60_000]),
             vel_max_overhead=vel_max_overhead,
             zvel_max=zvel_max,
             # PID
@@ -366,10 +362,9 @@ class PID(BaseNode):
         graph_state = graph_state or GraphState()
         # Get base output
         output = self.inputs["agent"].output_node.init_output(rng, graph_state)
-        # Fill pwm_ref with default hover_pwm
-        params_sup = graph_state.params.get("supervisor")
-        pwm_hover = force_to_pwm(params_sup.pwm_constants, params_sup.mass * 9.81)
-        output = output.replace(pwm_ref=pwm_hover)
+        # Fill initial pwm_ref with pwm_base
+        params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
+        output = output.replace(pwm_ref=params.pwm_base)
         return output
 
     def init_inputs(self, rng: jax.Array = None, graph_state: GraphState = None) -> FrozenDict[str, Any]:

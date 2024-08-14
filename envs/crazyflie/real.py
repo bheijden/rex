@@ -180,10 +180,10 @@ class PID(BaseNode):
         while True:
             self.log("Starting", "Waiting for feedthrough to be enabled...")
             self._client.wait_for_feedthrough()  # This blocks until feedthrough is enabled
-            self.log("Starting", "Going to position...")
+            # self.log("Starting", "Going to position...")
             success = self._client.go_to(x, y, z, yaw, timeout=10)
             if success:
-                self.log("Starting", "Success!")
+                # self.log("Starting", "Success!")
                 break
             self.log("Starting", "Failed to reach the position. Retrying...")
         return True
@@ -202,10 +202,10 @@ class PID(BaseNode):
         # self._client.send_position_setpoint(x, y, 1.75, yaw)
 
         # Apply command
-        # if output.state_estimate.ts > 1.5: # Skip the first 1.5 seconds
-        phi_ref, theta_ref, psi_ref, z_ref = output.phi_ref, output.theta_ref, output.psi_ref, output.z_ref
-        if self._feedthrough:
-            self._client.send_rpyz_setpoint(phi_ref, theta_ref, psi_ref, z_ref)
+        if True:#output.state_estimate.ts > 1.5:  # Skip the first 1.5 seconds
+            phi_ref, theta_ref, psi_ref, z_ref = output.phi_ref, output.theta_ref, output.psi_ref, output.z_ref
+            if self._feedthrough:
+                self._client.send_rpyz_setpoint(phi_ref, theta_ref, psi_ref, z_ref)
 
         return jnp.array(1.0, dtype=onp.float32)
 

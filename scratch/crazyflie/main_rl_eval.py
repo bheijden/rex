@@ -46,6 +46,7 @@ from rexv2 import artificial
 import envs.crazyflie.systems as psys
 import envs.crazyflie.ppo as ppo_config
 import rexv2.rl as rl
+from envs.crazyflie.ode import metrics
 
 # plotting
 import matplotlib.pyplot as plt
@@ -67,20 +68,118 @@ if __name__ == "__main__":
     WORLD_RATE = 100.
     STD_TH = 0.02  # Overwrite std_th in estimator and camera --> None to keep default
     SUPERVISOR = "agent"
+    # Input files
     LOG_DIR = "/home/r2ci/rex/scratch/crazyflie/logs"
-    RECORD_FILE = f"{LOG_DIR}/ctrl_data.pkl"
-    PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"
-    METRICS_FILE = f"{LOG_DIR}/metrics.pkl"
-    CTRL_FILE = f"{LOG_DIR}/ctrl_params.pkl"
+    RECORD_FILE = f"{LOG_DIR}/data_rl.pkl"  # todo:  change
+    PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"  # todo:  change
     ROLLOUT_FILE = f"{LOG_DIR}/rollout.pkl"
+    AGENT_FILE = f"{LOG_DIR}/agent_params.pkl"
+    # Output files
+    METRICS_FILE = f"{LOG_DIR}/metrics.pkl"
     HTML_FILE = f"{LOG_DIR}/rollout.html"
     SAVE_FILE = True
+    # Evaluation settings
+    POSITION = onp.array([0.0, 0.0, 1.75])
+    CENTER = onp.array([0.0, 0.0, 1.75])
+    RADIUS = 1.25
+    SKIP_SEC = 3.0
 
-    # OPen rollout file
-    with open(ROLLOUT_FILE, "rb") as f:
-        rollout = pickle.load(f)
-    gs = rollout.next_gs
-    model = gs.params["agent"].model
+    # Get rollout
+    if False:
+        # Open rollout file
+        with open(ROLLOUT_FILE, "rb") as f:
+            rollout = pickle.load(f)
+        gs = rollout.next_gs
+        model = gs.params["agent"].model
+        # todo: not doing anything with
+
+    # Seed
+    rng = jax.random.PRNGKey(SEED)
+
+    # Load record
+    with open(RECORD_FILE, "rb") as f:
+        record: base.EpisodeRecord = pickle.load(f)
+
+    # Create nodes
+    nodes = psys.simulated_system(record, world_rate=WORLD_RATE)
+
+    # Get graph
+    graphs_real = record.to_graph()
+
+    # Generate computation graph
+    rng, rng_graph = jax.random.split(rng)
+    graphs_aug = rexv2.artificial.augment_graphs(graphs_real, nodes, rng_graph)
+
+    # Create graph
+    graph = rexv2.graph.Graph(nodes, nodes[SUPERVISOR], graphs_aug, supergraph=Supergraph.MCS)
+
+    # Get initial graph state
+    rng, rng_init = jax.random.split(rng)
+    gs_init = graph.init(rng_init, order=("supervisor", "pid"))
+
+    # Load params (if file exists)
+    if os.path.exists(PARAMS_FILE):
+        raise NotImplementedError("Make sure they match dtype of dtypes returned by .step. Else recompilation....")
+        with open(PARAMS_FILE, "rb") as f:
+            params: Dict[str, Any] = pickle.load(f)
+        print(f"Params loaded from {PARAMS_FILE}")
+    else:
+        params = gs_init.params.unfreeze()
+        print(f"Params not found at {PARAMS_FILE}")
+
+    # Modify supervisor params
+    params["supervisor"] = params["supervisor"].replace(
+        init_cf="fixed",
+        fixed_position=POSITION,
+        init_path="fixed",
+        fixed_radius=RADIUS,
+        center=CENTER,
+    )
+
+    # Load trained params (if file exists)
+    with open(AGENT_FILE, "rb") as f:
+        agent_params = pickle.load(f)
+    print(f"Agent params loaded from {AGENT_FILE}")
+    params["agent"] = gs_init.params["agent"].replace(**agent_params.__dict__)
+
+    # Evaluate
+    from envs.crazyflie.env import Environment
+    from envs.crazyflie.ode import env_rollout, render, save
+    env_eval = Environment(graph, params=params, order=("supervisor", "pid"), randomize_eps=False)  # No randomization.
+    rng, rng_rollout = jax.random.split(rng)
+    res = env_rollout(env_eval, rng_rollout)
+    gs = res.next_gs
+
+    if True:
+        # Plot results
+        from envs.crazyflie.ode import plot_data
+        pid = gs.inputs["world"]["pid"][:, -1]
+        fig, axes = plot_data(output={"att": gs.state["world"].att,
+                                      "pos": gs.state["world"].pos,
+                                      "pwm": pid.data.pwm_ref,
+                                      "pwm_ref": pid.data.pwm_ref,
+                                      "phi_ref": pid.data.phi_ref,
+                                      "theta_ref": pid.data.theta_ref,
+                                      "z_ref": pid.data.z_ref},
+                              ts={"att": gs.ts["world"],
+                                  "pos": gs.ts["world"],
+                                  "pwm": pid.ts_recv,
+                                  "pwm_ref": pid.ts_recv,
+                                  "phi_ref": pid.ts_recv,
+                                  "theta_ref": pid.ts_recv,
+                                  "z_ref": pid.ts_recv},
+                              # ts_max=3.0,
+                              )
+
+    if False:
+        json_rollout = render(gs.ts["world"], gs.state["world"].pos, gs.state["world"].att, gs.state["world"].radius, gs.state["world"].center)
+        save(HTML_FILE, json_rollout)
+        print(f"Render saved to {HTML_FILE}")
+
+    plt.show()
+
+
+
 
 
 

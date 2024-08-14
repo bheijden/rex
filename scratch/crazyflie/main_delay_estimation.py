@@ -187,7 +187,14 @@ if __name__ == "__main__":
     jnp.set_printoptions(precision=5, suppress=True)
     RNG = jax.random.PRNGKey(6)
     LOG_DIR = "/home/r2ci/rex/scratch/crazyflie/logs"
-    RECORD_FILE = f"{LOG_DIR}/data_delay_only.pkl"
+    EXP_DIR = f"{LOG_DIR}/0.8A_10s_third"  # todo: CHANGE
+    # Input files
+    RECORD_FILE = f"{EXP_DIR}/sysid_data.pkl"
+    # RECORD_FILE = f"{LOG_DIR}/data_delay_only.pkl"
+    # RECORD_FILE = f"{LOG_DIR}/data_first_runs/data_evaluate_0.80A_6s_nocrash.pkl"
+    # Output files
+    DISTS_FILE = f"{EXP_DIR}/dists.pkl"
+    FIG_FILE = f"{EXP_DIR}/fig"
 
     # Load record
     with open(RECORD_FILE, "rb") as f:
@@ -201,10 +208,10 @@ if __name__ == "__main__":
     plt.show()
 
     # Save
-    fig_step.savefig(f"{LOG_DIR}/step_dists.png")
-    fig_inputs.savefig(f"{LOG_DIR}/inputs_dists.png")
-    print(f"Saved to {LOG_DIR}/step_dists.png")
-    print(f"Saved to {LOG_DIR}/inputs_dists.png")
-    with open(f"{LOG_DIR}/dists.pkl", "wb") as f:
+    fig_step.savefig(f"{FIG_FILE}_step_dists.png")
+    fig_inputs.savefig(f"{FIG_FILE}_inputs_dists.png")
+    print(f"Saved to {FIG_FILE}_step_dists.png")
+    print(f"Saved to {FIG_FILE}_inputs_dists.png")
+    with open(DISTS_FILE, "wb") as f:
         pickle.dump(dist, f)
-    print(f"Saved to {LOG_DIR}/dists.pkl")
+    print(f"Saved to {DISTS_FILE}")

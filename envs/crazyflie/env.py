@@ -79,19 +79,18 @@ class Environment(rl.Environment):
         dpsi_ref = output.psi_ref - prev_output.psi_ref
 
         # Reward for following the path (higher when closer to the path)
-        # rwd_vel_on = 0.01*jnp.clip(vel_on / jnp.clip(pos_off, 0.001, None), 0., None)
-        rwd_vel_on = 0.1*jnp.clip(vel_on / jnp.clip(pos_off, 0.001, None), None, None)
+        rwd_vel_on = 0.1*vel_on / jnp.clip(pos_off, 0.001, None)
 
         # Control cost
-        cost_dangle = jnp.sqrt(dphi_ref**2 + dtheta_ref**2 + dpsi_ref**2)
+        # cost_dangle = jnp.sqrt(dphi_ref**2 + dtheta_ref**2 + dpsi_ref**2)
+        cost_dangle = dphi_ref**2 + dtheta_ref**2 + dpsi_ref**2
         cost_decouple = jnp.abs(dphi_ref) * jnp.abs(dtheta_ref)
         cost_dz_ref = jnp.sqrt(dz_ref**2)
-        cost_z_ref = jnp.abs(output.z_ref - z)
+        cost_z_ref = jnp.abs(output.z_ref - center[2])
 
         # Calculate rewards
-        # rwd_eps = 0.4*rwd_vel_on - 0.4*vel_off - pos_off - 0.*cost_dangle - 0.*cost_decouple - 0.6*cost_dz_ref #- 0.5*cost_z_ref
-        # rwd_eps = 0.4*rwd_vel_on - 0.4*vel_off - pos_off - 0.05*cost_dangle - 0.*cost_decouple - 0.4*cost_dz_ref
-        rwd_eps = 0.4*rwd_vel_on - 0.4*vel_off - pos_off - 0.2*cost_dangle - 0.*cost_decouple - 0.2*cost_dz_ref
+        # rwd_eps = 0.4*rwd_vel_on - 0.4*vel_off - pos_off - 10.0*cost_dangle - 0.*cost_decouple - 0.2*cost_dz_ref - 5*cost_z_ref
+        rwd_eps = 0.4*rwd_vel_on - 0.4*vel_off - pos_off - 10.0*cost_dangle - 0.*cost_decouple - 0.2*cost_dz_ref - 5*cost_z_ref
         rwd_term = 0.0
         rwd_final = rwd_eps
 
@@ -128,6 +127,7 @@ class Environment(rl.Environment):
             "pos_off": pos_off,
             "vel_off": vel_off,
             "rwd_vel_on": rwd_vel_on,
+            "z": z,
         }
 
     def get_output(self, graph_state: base.GraphState, action: jax.Array) -> PIDOutput:

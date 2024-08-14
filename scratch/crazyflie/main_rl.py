@@ -63,17 +63,22 @@ if __name__ == "__main__":
     GPU_DEVICE = jax.devices('gpu')[0]
     CPU_DEVICE = jax.devices('cpu')[0]
     CPU_DEVICES = itertools.cycle(jax.devices('cpu')[1:])
-    TS_MAX = 9.0
     WORLD_RATE = 100.
-    STD_TH = 0.02  # Overwrite std_th in estimator and camera --> None to keep default
+    MAX_ANGLE = onp.pi / 6
+    ACTION_DIM = 2
+    # MAPPING = ["theta_ref", "phi_ref"]
     SUPERVISOR = "agent"
     LOG_DIR = "/home/r2ci/rex/scratch/crazyflie/logs"
-    RECORD_FILE = f"{LOG_DIR}/data_rl.pkl"
-    PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"
-    METRICS_FILE = f"{LOG_DIR}/metrics.pkl"
-    AGENT_FILE = f"{LOG_DIR}/agent_params.pkl"
-    ROLLOUT_FILE = f"{LOG_DIR}/rollout.pkl"
-    HTML_FILE = f"{LOG_DIR}/rollout.html"
+    EXP_DIR = f"{LOG_DIR}/20240813_142721_no_zref_eval_sysid"  # todo:  change
+    # Input files
+    RECORD_FILE = f"{EXP_DIR}/sysid_data.pkl"  # todo:  change
+    PARAMS_FILE = f"{EXP_DIR}/sysid_params.pkl"  # todo:  change
+    # Output files
+    FIG_FILE = f"{EXP_DIR}/rl_fig.png"
+    METRICS_FILE = f"{EXP_DIR}/rl_metrics.pkl"
+    AGENT_FILE = f"{EXP_DIR}/agent_params.pkl"
+    ROLLOUT_FILE = f"{EXP_DIR}/rl_rollout.pkl"
+    HTML_FILE = f"{EXP_DIR}/rl_rollout.html"
     SAVE_FILE = True
 
     # Seed
@@ -116,13 +121,25 @@ if __name__ == "__main__":
 
     # Load params (if file exists)
     if os.path.exists(PARAMS_FILE):
-        raise NotImplementedError("Make sure they match dtype of dtypes returned by .step. Else recompilation....")
         with open(PARAMS_FILE, "rb") as f:
             params: Dict[str, Any] = pickle.load(f)
         print(f"Params loaded from {PARAMS_FILE}")
     else:
         params = gs_init.params.unfreeze()
         print(f"Params not found at {PARAMS_FILE}")
+
+    # Modify supervisor params
+    params["supervisor"] = params["supervisor"].replace(
+        init_cf="random",
+        init_path="random",
+        # center=CENTER,
+        phi_max=MAX_ANGLE,
+        theta_max=MAX_ANGLE,
+        action_dim=ACTION_DIM,
+        # ctrl_mapping=MAPPING,
+        use_noise=True,
+        use_dr=True,
+    )
 
     # Make environment
     from envs.crazyflie.env import Environment
@@ -140,7 +157,7 @@ if __name__ == "__main__":
     # _ = env.update_graph_state_pre_step(gs_init, jnp.zeros(act_space.low.shape))
     # gs, obs, info = jax.jit(env.reset)()
 
-    config = ppo_config.path_following#.replace(FIXED_INIT=True, VERBOSE=True, NUM_ENVS=16,)  # todo: Set to True...
+    config = ppo_config.path_following.replace(FIXED_INIT=True, VERBOSE=True, TOTAL_TIMESTEPS=20e6, UPDATE_EPOCHS=16, NUM_MINIBATCHES=8, NUM_STEPS=64)
     train = functools.partial(rexv2.ppo.train, env)
     rng, rng_train = jax.random.split(rng)
     with timer("train | jit"):
@@ -174,6 +191,7 @@ if __name__ == "__main__":
     rng, rng_rollout = jax.random.split(rng)
     res = env_rollout(env_eval, rng_rollout)
     print("Rollout done!")
+
     gs_rollout = res.next_gs
     json_rollout = render(gs_rollout.ts["world"], gs_rollout.state["world"].pos, gs_rollout.state["world"].att, gs_rollout.state["world"].radius, gs_rollout.state["world"].center)
     save(HTML_FILE, json_rollout)
@@ -209,3 +227,6 @@ if __name__ == "__main__":
                           )
     plt.show()
 
+    # Save
+    fig.savefig(FIG_FILE)
+    print(f"Fig saved to {FIG_FILE}")
