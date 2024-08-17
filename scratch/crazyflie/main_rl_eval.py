@@ -105,6 +105,7 @@ if __name__ == "__main__":
 
     # Get graph
     graphs_real = record.to_graph()
+    graphs_real = graphs_real.filter(nodes)  # Filter nodes
 
     # Generate computation graph
     rng, rng_graph = jax.random.split(rng)
@@ -115,7 +116,7 @@ if __name__ == "__main__":
 
     # Get initial graph state
     rng, rng_init = jax.random.split(rng)
-    gs_init = graph.init(rng_init, order=("supervisor", "pid"))
+    gs_init = graph.init(rng_init, order=("agent", "pid"))
 
     # Load params (if file exists)
     if os.path.exists(PARAMS_FILE):
@@ -128,7 +129,7 @@ if __name__ == "__main__":
         print(f"Params not found at {PARAMS_FILE}")
 
     # Modify supervisor params
-    params["supervisor"] = params["supervisor"].replace(
+    params["agent"] = params["agent"].replace(
         init_cf="fixed",
         fixed_position=POSITION,
         init_path="fixed",
@@ -143,9 +144,9 @@ if __name__ == "__main__":
     params["agent"] = gs_init.params["agent"].replace(**agent_params.__dict__)
 
     # Evaluate
-    from envs.crazyflie.env import Environment
+    from envs.crazyflie.path_following import Environment
     from envs.crazyflie.ode import env_rollout, render, save
-    env_eval = Environment(graph, params=params, order=("supervisor", "pid"), randomize_eps=False)  # No randomization.
+    env_eval = Environment(graph, params=params, order=("agent", "pid"), randomize_eps=False)  # No randomization.
     rng, rng_rollout = jax.random.split(rng)
     res = env_rollout(env_eval, rng_rollout)
     gs = res.next_gs

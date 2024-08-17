@@ -67,7 +67,7 @@ if __name__ == "__main__":
     SUPERVISOR = "pid"
     SUPERGRAPH = Supergraph.MCS
     LOG_DIR = "/home/r2ci/rex/scratch/crazyflie/logs"
-    EXP_DIR = f"{LOG_DIR}/20240813_142721_no_zref_eval_sysid"
+    EXP_DIR = f"{LOG_DIR}/20240813_142721_no_zref_eval_sysid_retry"
     # Input files
     RECORD_FILE = f"{EXP_DIR}/sysid_data.pkl"
     # RECORD_FILE = f"{LOG_DIR}/data_first_runs/data_evaluate_0.5A_6s_nocrash.pkl"
@@ -100,9 +100,10 @@ if __name__ == "__main__":
     graphs_real = record.to_graph()
     rng, rng_art = jax.random.split(rng)
     graphs_aug = rexv2.artificial.augment_graphs(graphs_real, nodes, rng_art)
+    graphs_aug = graphs_aug.filter(nodes)
 
     # Create compiled graph
-    graph = rexv2.graph.Graph(nodes, nodes[SUPERVISOR], graphs_aug, supergraph=SUPERGRAPH, skip=["supervisor"])
+    graph = rexv2.graph.Graph(nodes, nodes[SUPERVISOR], graphs_aug, supergraph=SUPERGRAPH)
 
     # Visualize graph
     if False:
@@ -117,7 +118,7 @@ if __name__ == "__main__":
         plt.show()
 
     # Make sure params are correctly set.
-    params_sup = nodes["supervisor"].init_params().replace(
+    params_sup = nodes["agent"].init_params().replace(
         init_cf="fixed",
         use_noise=False,
         use_dr=False,
@@ -125,7 +126,7 @@ if __name__ == "__main__":
 
     # Get initial state
     rng, rng_init = jax.random.split(rng)
-    gs = graph.init(rng_init, params={"supervisor": params_sup}, order=("supervisor", "pid"))
+    gs = graph.init(rng_init, params={"agent": params_sup}, order=("agent", "pid"))
 
     # System identification
     import envs.crazyflie.tasks as tasks
@@ -133,7 +134,7 @@ if __name__ == "__main__":
     task = tasks.create_sysid_task(graph, gs).replace(max_steps=MAX_STEPS)
     # Evaluate initial
     rng, rng_eval_init = jax.random.split(rng, num=2)
-    gs_eval_init = task.evaluate(gs.params, rng_eval_init, -1)
+    gs_eval_init = task.evaluate(gs.params, rng_eval_init, -1, order=("agent", "pid"))
     figs += task.plot(gs_eval_init, identifier="init")
     init_loss = task.loss(gs.params)
     print(f"Initial loss: {init_loss}")
@@ -154,7 +155,7 @@ if __name__ == "__main__":
     elapsed_sysid = dict(solve=t_solve.duration, solve_jit=t_solve_jit.duration)
     # Evaluate
     rng, rng_eval = jax.random.split(rng, num=2)
-    gs_eval = task.evaluate(params_sysid, rng_eval, -1)
+    gs_eval = task.evaluate(params_sysid, rng_eval, -1, order=("agent", "pid"))
     figs += task.plot(gs_eval, identifier="opt")
     # Reduce size
     gs_eval = gs_eval.replace(buffer=None, timings_eps=None)
@@ -162,7 +163,7 @@ if __name__ == "__main__":
     # Save
     if SAVE_FILES:
         # Save params
-        # todo: note that this will also save the supervisor settings (use_noise=False, use_dr=False, etc...)
+        # todo: note that this will also save the Agent settings (use_noise=False, use_dr=False, etc...)
         # todo: make sure to correct in main_rl, main_real, etc...
         with open(PARAMS_FILE, "wb") as f:
             pickle.dump(params_sysid, f)

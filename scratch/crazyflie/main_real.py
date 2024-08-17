@@ -38,9 +38,6 @@ matplotlib.use("TkAgg")
 
 if __name__ == "__main__":
     # todo: OLD
-    # todo: CF is unstable when pitching & rolling simultaneously
-    #  - Penalize abrupt changes in both roll & pitch behavior
-    #  - LPF Roll/pitch references.
     # todo: stream vicon quaternions?
     # todo: Save best policy
     # todo: Properly handle truncated episodes (record terminal observation)
@@ -49,11 +46,12 @@ if __name__ == "__main__":
     #   - Reference tracking controller (how to deal with yaw offset?)
     #   - Single device (to increase latency), no domain randomization
     # todo: Real
+    #   - Platform KF
     # todo: RL
     #   - Turn off Domain randomization and increase latency (single device?)
     #   - Reduce training time
     #   - If pre-loading params, ensure that supervisor params are changed in main_rl.py etc...
-    #   - Reduce max phi/theta ref? --> 0.5 seems to work ok'ish
+    #       - use_noise=False, use_dr=False are copied from sysid_params, while they should be True.
     #   - Reference tracking instead of path following? Track path variable instead of tangent speed? Then psi matters...
     # todo: Sysid
     #   - Enable yaw in dynamics
@@ -62,59 +60,57 @@ if __name__ == "__main__":
     CPU_DEVICES = itertools.cycle(jax.devices('cpu'))
     CPU_DEVICE = next(CPU_DEVICES)
     RNG = jax.random.PRNGKey(0)
-    ORDER = ["mocap", "world", "pid", "agent", "estimator", "supervisor"]
-    CSCHEME = {"world": "gray", "mocap": "grape", "estimator": "violet", "agent": "lime", "pid": "green", "actuator": "indigo", "supervisor": "gray"}
-    RATES = dict(mocap=50, world=100, pid=50, agent=25, estimator=25, supervisor=10)
+    ORDER = ["mocap", "world", "pid", "agent", "estimator", "platform"]
+    CSCHEME = {"world": "gray", "mocap": "grape", "estimator": "violet", "agent": "lime", "pid": "green", "actuator": "indigo", "platform": "grape"}
+    RATES = dict(mocap=50, world=100, pid=50, agent=25, estimator=25, supervisor=10, platform=25)
     POSITION = onp.array([0.0, 0.0, 1.0])
     CENTER = onp.array([0.0, 0.0, 1.0])
-    RADIUS = 1.25
+    RADIUS = 1.0
     SKIP_SEC = 3.0
     # Settings
     MOCK = "real"  # "ode", "copilot, or "real" else todo: "real"
     LOG_DIR = "/home/r2ci/rex/scratch/crazyflie/logs"
     # EXP_DIR = f"{LOG_DIR}/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_10Hz"
-    EXP_DIR = f"{LOG_DIR}/20240813_142721_no_zref"  # todo: CHANGE
+    EXP_DIR = f"{LOG_DIR}/20240813_142721_no_zref_eval_sysid_retry_eval"  # todo: CHANGE
     # DELAYS_SIM = csys.load_distribution(f"{EXP_DIR}/dists.pkl") # TODO: CHANGE
     DELAYS_SIM = csys.load_distribution(f"{LOG_DIR}/dists.pkl")
     # DELAYS_SIM = csys.get_default_distributions(nodes=ORDER)
     DELAY_FN = lambda d: d.quantile(0.85)  # lambda d: 0.0
-    MODE = "evaluate"  # todo: CHANGE
+    MODE = "sysid"  # todo: CHANGE
     if MODE == "delay_only":
         NUM_EPISODES = 5
         TSIM = 10
+        # INPUT
         PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"
         AGENT_FILE = f"{LOG_DIR}/agent_params.pkl"
+        # OUTPUT
         RECORD_FILE = f"{EXP_DIR}/data_delay_only.pkl"
+        SAVE_AGENT_FILE = f"{EXP_DIR}/delay_only_agent_params.pkl"
         FIG_FILE = None
         FEEDTHROUGH = False
-        # USE_OPENLOOP = False
     elif MODE == "sysid":
         NUM_EPISODES = 1
         TSIM = 15
-        PARAMS_FILE = f"{LOG_DIR}/no_zref/sysid_params.pkl"
-        AGENT_FILE = f"{LOG_DIR}/no_zref/agent_params.pkl"
+        # INPUT
+        PARAMS_FILE = f"{EXP_DIR}/sysid_params.pkl"
+        AGENT_FILE = f"{EXP_DIR}/delay_agent_params.pkl"  # todo: CHANGE
+        # AGENT_FILE = f"{EXP_DIR}/nodelay_agent_params.pkl" # todo: CHANGE
+        # OUTPUT
         RECORD_FILE = f"{EXP_DIR}/sysid_data.pkl"
         FIG_FILE = f"{EXP_DIR}/sysid_fig.png"
+        SAVE_AGENT_FILE = f"{EXP_DIR}/sysid_agent_params.pkl"
         FEEDTHROUGH = True
-        # USE_OPENLOOP = True
-    # elif MODE == "rl":
-    #     TSIM = 10
-    #     NUM_EPISODES = 1
-    #     PARAMS_FILE = f"{LOG_DIR}/0.60A_10s/sysid_params.pkl"
-    #     AGENT_FILE = f"{LOG_DIR}/0.60A_10s/agent_params.pkl"
-    #     RECORD_FILE = f"{EXP_DIR}/rl_data.pkl"
-    #     FIG_FILE = f"{EXP_DIR}/rl_fig.png"
-    #     FEEDTHROUGH = True
-    #     # USE_OPENLOOP = False
     elif MODE == "evaluate":
         TSIM = 15
         NUM_EPISODES = 1
+        # INPUT
         PARAMS_FILE = f"{EXP_DIR}/sysid_params.pkl"
-        AGENT_FILE = f"{EXP_DIR}/agent_params.pkl"
+        AGENT_FILE = f"{EXP_DIR}/eval_agent_params.pkl" # todo: CHANGE
+        # OUTPUT
         RECORD_FILE = f"{EXP_DIR}/eval_data.pkl"
         FIG_FILE = f"{EXP_DIR}/eval_fig.png"
+        SAVE_AGENT_FILE = f"{EXP_DIR}/eval_agent_params.pkl"
         FEEDTHROUGH = True
-        # USE_OPENLOOP = False
     else:
         raise ValueError(f"Invalid mode: {MODE}")
 
@@ -143,11 +139,11 @@ if __name__ == "__main__":
 
     # Create graph
     print(f"MOCK={MOCK}, CLOCK={CLOCK}, REAL_TIME_FACTOR={REAL_TIME_FACTOR}")
-    graph = rexv2.asynchronous.AsyncGraph(nodes, supervisor=nodes["supervisor"], clock=CLOCK, real_time_factor=REAL_TIME_FACTOR)
+    graph = rexv2.asynchronous.AsyncGraph(nodes, supervisor=nodes["agent"], clock=CLOCK, real_time_factor=REAL_TIME_FACTOR)
 
     # Initialize graph state
     with timer(f"warmup[graph_state]", log_level=LogLevel.WARN):
-        gs_init = graph.init(RNG, order=("supervisor", "pid"))
+        gs_init = graph.init(RNG, order=("agent", "pid"))
 
     # Load params (if file exists)
     if os.path.exists(PARAMS_FILE):
@@ -158,15 +154,6 @@ if __name__ == "__main__":
         params = gs_init.params.unfreeze()
         print(f"Params not found at {PARAMS_FILE}")
 
-    # Modify supervisor params
-    params["supervisor"] = params["supervisor"].replace(
-        init_cf="fixed",
-        fixed_position=POSITION,
-        init_path="fixed",
-        fixed_radius=RADIUS,
-        center=CENTER,
-    )
-
     # Load trained params (if file exists)
     if os.path.exists(AGENT_FILE):
         with open(AGENT_FILE, "rb") as f:
@@ -174,10 +161,20 @@ if __name__ == "__main__":
         print(f"Agent params loaded from {AGENT_FILE}")
         params["agent"] = gs_init.params["agent"].replace(**agent_params.__dict__)
     else:
-        print(f"Agent params not found at {AGENT_FILE}")
+        # print(f"Agent params not found at {AGENT_FILE}")
+        raise FileNotFoundError(f"Agent params not found at {AGENT_FILE}")
+
+    # Modify supervisor params
+    params["agent"] = params["agent"].replace(
+        init_cf="fixed",
+        fixed_position=POSITION,
+        init_path="fixed",
+        fixed_radius=RADIUS,
+        center=CENTER,
+    )
 
     # Replace params in gs
-    gs_init = graph.init(RNG, order=("supervisor", "pid"), params=params)
+    gs_init = graph.init(RNG, order=("agent", "pid"), params=params)
 
     # Warmup devices
     rutils.set_log_level(LogLevel.WARN)
@@ -211,7 +208,7 @@ if __name__ == "__main__":
     with jax.log_compiles():
         for i in range(NUM_EPISODES + 1):
             gs, _ss = graph.reset(gs_init)
-            num_steps = int(RATES["supervisor"]*TSIM)if i > 0 else 1  # Warmup
+            num_steps = int(RATES["agent"]*TSIM)if i > 0 else 1  # Warmup
             for j in tqdm.tqdm(range(num_steps), disable=True):
                 gs, _ss = graph.step(gs)
             graph.stop()  # Stop environment
@@ -288,9 +285,9 @@ if __name__ == "__main__":
     # with open(f"{EXP_DIR}/eval_params.pkl", "wb") as f:
     #     pickle.dump(params, f)
     # print(f"Params saved to {EXP_DIR}/sysid_params.pkl")
-    # with open(f"{EXP_DIR}/sysid_agent_params.pkl", "wb") as f:
-    #     pickle.dump(agent_params, f)
-    # print(f"Agent params saved to {EXP_DIR}/agent_params.pkl")
+    with open(SAVE_AGENT_FILE, "wb") as f:
+        pickle.dump(agent_params, f)
+    print(f"Agent params saved to {SAVE_AGENT_FILE}")
     if FIG_FILE is not None:
         fig.savefig(FIG_FILE)
         print(f"Fig saved to {FIG_FILE}")

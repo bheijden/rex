@@ -94,12 +94,13 @@ class Task:
         extend_params = extend.apply(opt_params)
         return extend_params
 
-    def evaluate(self, params: Dict[str, base.Params], rng: jax.Array = None, eps: int = 0, max_steps: int = None) -> base.GraphState:
+    def evaluate(self, params: Dict[str, base.Params], rng: jax.Array = None, eps: int = 0, max_steps: int = None, order: Tuple[str] = None) -> base.GraphState:
+        order = order or ("supervisor",) # todo: specific to pendulum
         if rng is None:
             rng = jax.random.PRNGKey(0)
 
         # Initialize
-        graph_state = self.graph.init(rng, params, starting_eps=eps, order=("supervisor",))  # todo: specific to pendulum
+        graph_state = self.graph.init(rng, params, starting_eps=eps, order=order)
 
         # Rollout
         graph_states = self.graph.rollout(graph_state, max_steps=max_steps, carry_only=False)

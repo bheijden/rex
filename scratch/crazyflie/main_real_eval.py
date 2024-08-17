@@ -62,8 +62,8 @@ if __name__ == "__main__":
     # Select first episode
     record = record[EPS_INDEX]
 
-    CENTER = record.nodes["supervisor"].params.center
-    RADIUS = record.nodes["supervisor"].params.fixed_radius
+    CENTER = record.nodes["agent"].params.center
+    RADIUS = record.nodes["agent"].params.fixed_radius
 
     # Plot
     mocap = record.nodes["mocap"].steps

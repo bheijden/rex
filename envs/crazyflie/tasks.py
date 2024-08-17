@@ -39,11 +39,11 @@ def create_sysid_task(graph: Graph, graph_state: base.GraphState, strategy: str 
     shared.append(base.Shared.init(where=lambda _p: _p["world"].actuator_delay,
                                    replace_fn=lambda _p: _p["pid"].actuator_delay))
 
-    # Supervisor
+    # Agent
     pass  # todo: optimize over fixed initial state?
 
     # Mocap
-    init_params["mocap"] = base_params["mocap"].replace(use_noise=None, pos_std=None, vel_std=None, att_std=None, ang_vel_std=None)
+    init_params["mocap"] = base_params["mocap"].replace(pos_std=None, vel_std=None, att_std=None, ang_vel_std=None)
     u_min["mocap"] = jax.tree_util.tree_map(lambda x: x * MIN, init_params["mocap"])
     u_max["mocap"] = jax.tree_util.tree_map(lambda x: x * MAX, init_params["mocap"])
     u_min["mocap"] = eqx.tree_at(lambda _min: _min.sensor_delay.alpha, u_min["mocap"], 0.)
@@ -64,7 +64,7 @@ def create_sysid_task(graph: Graph, graph_state: base.GraphState, strategy: str 
 
     def rollout_fn(graph: Graph, params: Dict[str, base.Params], rng: jax.Array = None) -> base.GraphState:
         # Initialize graph state
-        gs = graph.init(rng=rng, params=params, order=("supervisor", "pid"))
+        gs = graph.init(rng=rng, params=params, order=("agent", "pid"))
 
         # Rollout graph
         final_gs = graph.rollout(gs, carry_only=True)
@@ -78,8 +78,8 @@ def create_sysid_task(graph: Graph, graph_state: base.GraphState, strategy: str 
         inputs = graph_states.inputs
         params = graph_states.params
 
-        center = params["supervisor"][0].center
-        radius = params["supervisor"][0].fixed_radius
+        center = params["agent"][0].center
+        radius = params["agent"][0].fixed_radius
         mocap = inputs["estimator"]["mocap"][:, -1]
         world = inputs["mocap"]["world"][:, -1]
 

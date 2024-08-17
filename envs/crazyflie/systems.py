@@ -33,11 +33,11 @@ def simulated_system(record: base.EpisodeRecord,
                      outputs: Dict[str, Any] = None,
                      world_rate: float = 100.,
                      use_ukf: bool = True,
+                     inclined_landing: bool = False,
                      ):
     outputs = outputs or {}
 
-    # Make pendulum
-    from envs.crazyflie.ode import World, MoCap
+    from envs.crazyflie.ode import MoCap, Platform
 
     # Create sensor
     mocap = MoCap.from_info(record.nodes["mocap"].info, outputs=outputs.get("mocap", None))
@@ -47,21 +47,32 @@ def simulated_system(record: base.EpisodeRecord,
     estimator = Estimator.from_info(record.nodes["estimator"].info, use_ukf=use_ukf)
 
     # Create controller
-    from envs.crazyflie.agent import PPOAgent
+    if inclined_landing:
+        from envs.crazyflie.inclined_landing import PPOAgent
+    else:
+        from envs.crazyflie.path_following import PPOAgent
     agent = PPOAgent.from_info(record.nodes["agent"].info, outputs=outputs.get("agent", None))
 
     # Create pid
     from envs.crazyflie.pid import PID
     pid = PID.from_info(record.nodes["pid"].info)#, outputs=outputs.get("pid", None))
 
-    # Create supervisor
-    from envs.crazyflie.supervisor import Supervisor
-    supervisor = Supervisor.from_info(record.nodes["supervisor"].info)
+    nodes = dict(mocap=mocap, estimator=estimator, agent=agent, pid=pid)
 
-    nodes = dict(mocap=mocap, estimator=estimator, agent=agent, pid=pid, supervisor=supervisor)
-
-    # Connect from info
-    [n.connect_from_info(record.nodes[name].info.inputs, nodes) for name, n in nodes.items()]
+    # Create platform (if inclined landing)
+    if inclined_landing and "platform" in record.nodes:
+        platform = Platform.from_info(record.nodes["platform"].info)
+        nodes["platform"] = platform
+    elif inclined_landing and "platform" not in record.nodes:
+        platform = Platform(name="platform", color="grape", order=5,
+                            rate=25, scheduling=Scheduling.FREQUENCY, advance=False)
+        agent.connect(platform, window=1, blocking=False, jitter=Jitter.LATEST,
+                      delay_dist=base.StaticDist.create(distrax.Deterministic(0.)),
+                      delay=0.0)
+        nodes["platform"] = platform
+    elif not inclined_landing and "platform" in record.nodes:
+        # Not sure if this is supported...
+        raise NotImplementedError("Platform node is present in record, but use_platform is False.")
 
     # Create world
     from envs.crazyflie.ode import World
@@ -86,6 +97,32 @@ def simulated_system(record: base.EpisodeRecord,
     mocap.connect(world, window=1, blocking=False, jitter=Jitter.LATEST,
                   delay_dist=mocap_delay,
                   delay=0.)
+
+    # Connect from info
+    [n.connect_from_info(record.nodes[name].info.inputs, nodes) for name, n in nodes.items() if name in record.nodes]
+    return nodes
+
+
+def nodelay_simulated_system(record: base.EpisodeRecord,
+                             world_rate: float = 100.,
+                             use_ukf: bool = True,
+                             inclined_landing: bool = False,):
+    nodes = simulated_system(record, world_rate=world_rate, use_ukf=use_ukf, inclined_landing=inclined_landing)
+
+    # Set all delays to zero etc...
+    for n in nodes.values():
+        for i in n.inputs.values():
+            i.blocking = False
+            i.jitter = Jitter.LATEST
+            i.delay = 0.
+            i.delay_dist = base.StaticDist.create(distrax.Deterministic(0.))
+        if n.name == "world":
+            continue
+        n.delay = 0.
+        n.delay_dist = base.StaticDist.create(distrax.Deterministic(0.))
+        n.scheduling = Scheduling.FREQUENCY
+        n.advance = False
+        n.jitter = Jitter.LATEST
     return nodes
 
 
@@ -96,12 +133,13 @@ def mock_system(delays_sim: DelaySim,
                 order: list = None,
                 use_pred: bool = True,
                 use_ukf: bool = True,
+                inclined_landing: bool = False,
                 ):
     """Make a real pendulum system."""
     delays = jax.tree_util.tree_map(delay_fn, delays_sim, is_leaf=lambda x: isinstance(x, base.DelayDistribution))
 
     # Create mocap
-    from envs.crazyflie.ode import MoCap
+    from envs.crazyflie.ode import MoCap, Platform
     mocap = MoCap(name="mocap", color=cscheme["mocap"], order=order.index("mocap"),
                   rate=rates["mocap"], scheduling=Scheduling.FREQUENCY, advance=False,
                   delay=delays["step"]["mocap"], delay_dist=delays_sim["step"]["mocap"])
@@ -116,7 +154,10 @@ def mock_system(delays_sim: DelaySim,
                       delay_dist=delays_sim["inputs"]["estimator"]["mocap"], delay=delays["inputs"]["estimator"]["mocap"])
 
     # Create agent
-    from envs.crazyflie.agent import PPOAgent
+    if inclined_landing:
+        from envs.crazyflie.inclined_landing import PPOAgent
+    else:
+        from envs.crazyflie.path_following import PPOAgent
     agent = PPOAgent(name="agent", color=cscheme["agent"], order=order.index("agent"),
                      rate=rates["agent"], scheduling=Scheduling.FREQUENCY, advance=True,
                      delay=delays["step"]["agent"], delay_dist=delays_sim["step"]["agent"])
@@ -132,14 +173,6 @@ def mock_system(delays_sim: DelaySim,
               delay=delays["step"]["pid"], delay_dist=delays_sim["step"]["pid"])
     pid.connect(agent, window=1, blocking=False,
                 delay_dist=delays_sim["inputs"]["pid"]["agent"], delay=delays["inputs"]["pid"]["agent"])
-
-    # Create supervisor
-    from envs.crazyflie.supervisor import Supervisor
-    supervisor = Supervisor(name="supervisor", color=cscheme["supervisor"], order=order.index("supervisor"),
-                            rate=rates["supervisor"], scheduling=Scheduling.FREQUENCY, advance=False,
-                            delay=delays["step"]["supervisor"], delay_dist=delays_sim["step"]["supervisor"])
-    supervisor.connect(estimator, window=1, blocking=False,
-                       delay_dist=delays_sim["inputs"]["supervisor"]["estimator"], delay=delays["inputs"]["supervisor"]["estimator"])
 
     # Create world
     from envs.crazyflie.ode import World
@@ -166,9 +199,22 @@ def mock_system(delays_sim: DelaySim,
                  estimator=estimator,
                  agent=agent,
                  pid=pid,
-                 supervisor=supervisor,
                  world=world,
                  )
+
+    # Create platform (if inclined landing)
+    if inclined_landing:
+        platform = Platform(name="platform", color=cscheme["platform"], order=order.index("platform"),
+                            rate=rates["platform"], scheduling=Scheduling.FREQUENCY, advance=False)
+        agent.connect(platform, window=1, blocking=False, jitter=Jitter.LATEST,
+                      delay_dist=base.StaticDist.create(distrax.Deterministic(0.)),
+                      delay=0.0)
+        platform.connect(world, window=1, blocking=False, jitter=Jitter.LATEST,
+                      # delay_dist=mocap_delay,
+                      # delay_dist=delays_sim["inputs"]["mocap"]["world"],
+                      delay=0.)
+        nodes["platform"] = platform
+
     return nodes
 
 
@@ -182,6 +228,7 @@ def real_system(delays_sim: DelaySim,
                 mock_copilot: bool = False,
                 use_pred: bool = True,
                 use_ukf: bool = True,
+                inclined_landing: bool = False,
                 ):
     delays = jax.tree_util.tree_map(delay_fn, delays_sim, is_leaf=lambda x: isinstance(x, base.DelayDistribution))
 
@@ -202,7 +249,10 @@ def real_system(delays_sim: DelaySim,
                       delay_dist=delays_sim["inputs"]["estimator"]["mocap"], delay=delays["inputs"]["estimator"]["mocap"])
 
     # Create agent
-    from envs.crazyflie.agent import PPOAgent
+    if inclined_landing:
+        from envs.crazyflie.inclined_landing import PPOAgent
+    else:
+        from envs.crazyflie.path_following import PPOAgent
     agent = PPOAgent(name="agent", color=cscheme["agent"], order=order.index("agent"),
                      rate=rates["agent"], scheduling=Scheduling.FREQUENCY, advance=True,
                      delay=delays["step"]["agent"], delay_dist=delays_sim["step"]["agent"])
@@ -212,26 +262,36 @@ def real_system(delays_sim: DelaySim,
                       delay_dist=delays_sim["inputs"]["estimator"]["agent"], delay=delays["inputs"]["estimator"]["agent"])
 
     # Create pid
-    from envs.crazyflie.real import PID
-    pid = PID(name="pid", color=cscheme["pid"], order=order.index("pid"),
-              rate=rates["pid"], scheduling=Scheduling.FREQUENCY, advance=False,
-              copilot_name=copilot_name, mock=mock_copilot, feedthrough=feedthrough,
-              delay=delays["step"]["pid"], delay_dist=delays_sim["step"]["pid"])
+    if inclined_landing:
+        from envs.crazyflie.real import InclinedPID
+        pid = InclinedPID(name="pid", color=cscheme["pid"], order=order.index("pid"),
+                          rate=rates["pid"], scheduling=Scheduling.FREQUENCY, advance=False,
+                          vicon_ip="192.168.0.232", vicon_platform="inclined_surface1", reset_in_platform_frame=True,
+                          copilot_name=copilot_name, mock=mock_copilot, feedthrough=feedthrough,
+                          delay=delays["step"]["pid"], delay_dist=delays_sim["step"]["pid"])
+    else:
+        from envs.crazyflie.real import PID
+        pid = PID(name="pid", color=cscheme["pid"], order=order.index("pid"),
+                  rate=rates["pid"], scheduling=Scheduling.FREQUENCY, advance=False,
+                  copilot_name=copilot_name, mock=mock_copilot, feedthrough=feedthrough,
+                  delay=delays["step"]["pid"], delay_dist=delays_sim["step"]["pid"])
     pid.connect(agent, window=1, blocking=False,
                 delay_dist=delays_sim["inputs"]["pid"]["agent"], delay=delays["inputs"]["pid"]["agent"])
-
-    # Create supervisor
-    from envs.crazyflie.supervisor import Supervisor
-    supervisor = Supervisor(name="supervisor", color=cscheme["supervisor"], order=order.index("supervisor"),
-                            rate=rates["supervisor"], scheduling=Scheduling.FREQUENCY, advance=False,
-                            delay=delays["step"]["supervisor"], delay_dist=delays_sim["step"]["supervisor"])
-    supervisor.connect(estimator, window=1, blocking=False,
-                       delay_dist=delays_sim["inputs"]["supervisor"]["estimator"], delay=delays["inputs"]["supervisor"]["estimator"])
 
     nodes = dict(mocap=mocap,
                  estimator=estimator,
                  agent=agent,
                  pid=pid,
-                 supervisor=supervisor,
                  )
+
+    # Create platform (if inclined landing)
+    if inclined_landing:
+        from envs.crazyflie.real import Platform
+        platform = Platform(name="platform", color=cscheme["platform"], order=order.index("platform"),
+                            vicon_ip="192.168.0.232", vicon_platform="inclined_surface1",
+                            rate=rates["platform"], scheduling=Scheduling.FREQUENCY, advance=False)
+        agent.connect(platform, window=1, blocking=False, jitter=Jitter.LATEST,
+                      delay_dist=base.StaticDist.create(distrax.Deterministic(0.)),
+                      delay=0.0)
+        nodes["platform"] = platform
     return nodes

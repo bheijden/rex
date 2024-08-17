@@ -1,3 +1,4 @@
+import time
 from typing import Dict, Tuple, Union, List, Optional
 import jax
 import jax.experimental.host_callback as hcb
@@ -7,8 +8,18 @@ from flax import struct
 
 from rexv2 import base, constants
 from rexv2.node import BaseNode
-from envs.crazyflie.ode import MoCapOutput, force_to_pwm
+from envs.crazyflie.ode import PlatformOutput, MoCapOutput, rpy_to_spherical
 from envs.crazyflie.pid import PIDOutput
+
+try:
+    from pyvicon_datastream import tools as pvtools
+
+    error_vicon = None
+    VICON_AVAILABLE = True
+except ImportError as e:
+    error_vicon = e
+    pvtools = None
+    VICON_AVAILABLE = False
 
 # Import ROS specific functions
 try:
@@ -118,6 +129,96 @@ class MoCap(BaseNode):
         return new_step_state, output
 
 
+class Platform(BaseNode):
+    def __init__(self, *args, vicon_ip: str = "192.168.0.232", vicon_platform: str = "inclined_surface1", mock: bool = False, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not VICON_AVAILABLE:
+            self.log("VICON", "`pyvicon_datastream` not available, using dummy output.", log_level=constants.LogLevel.WARN)
+        else:
+            assert error_vicon is None, "Failed to import vicon: {}".format(error_vicon)
+        self._mock = mock
+        self._vicon_ip = vicon_ip
+        self._vicon_name = vicon_platform
+        self._vicon_tracker = MockObjectTracker(vicon_ip) if self._mock or pvtools is None else pvtools.ObjectTracker(vicon_ip)
+        self._dummy_output = self._read_output(None)
+        self._last_pose = onp.zeros(3), onp.zeros(3)
+
+    def _get_platform_pose(self):
+        res = self._vicon_tracker.get_position(self._vicon_name)
+        data = res[2] if isinstance(res, tuple) else []
+        if len(data) > 0 and len(data[0]) == 8:
+            pose = [
+                data[0][2] / 1000,  # x
+                data[0][3] / 1000,  # y
+                data[0][4] / 1000,  # z
+                data[0][5],  # roll
+                data[0][6],  # pitch
+                data[0][7],  # yaw
+            ]
+            position = onp.array(pose[:3], dtype=onp.float32)
+            orientation = onp.array(pose[3:], dtype=onp.float32)
+            return position, orientation
+        else:
+            return False
+
+    def _read_output(self, dummy) -> PlatformOutput:
+        """Read output from ROS."""
+        res = self._get_platform_pose()
+        if not res:  # If no data, use the last known pose
+            pos, att = self._last_pose
+        else:
+            pos, att = res
+            self._last_pose = pos, att
+        # Get relevant data
+        # **IMPORTANT**: forcefully set vel[2] == 0.0 if policy is trained this way in simulation.
+        vel = onp.zeros_like(pos)  # Not available for now
+        ts = onp.array(self.now(), dtype=onp.float32)  # Get current time
+        return PlatformOutput(pos=pos.astype(onp.float32), vel=vel.astype(onp.float32), att=att.astype(onp.float32), ts=ts)
+
+    def init_output(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> PlatformOutput:
+        """Default output of the node."""
+        graph_state = graph_state or base.GraphState()
+        # Account for sensor delay
+        output = jax.experimental.io_callback(self._read_output, self._dummy_output, 0)  # Read output from ROS service
+        # params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
+        # sensor_delay = params.sensor_delay.mean()
+        # To avoid division by zero and reflect that the measurement is not from before the start of the episode
+        # output = output.replace(ts=-1. / self.rate - sensor_delay)
+        return output
+
+    def step(self, step_state: base.StepState) -> Tuple[base.StepState, MoCapOutput]:
+        """Step the node."""
+        # Read output
+        output = jax.experimental.io_callback(self._read_output, self._dummy_output, 0)
+
+        # Update ts of step_state
+        new_step_state = step_state.replace(ts=output.ts)
+
+        # Correct for sensor delay
+        # delay = step_state.params.sensor_delay.mean()
+        # output = output.replace(ts=new_step_state.ts - delay)
+        return new_step_state, output
+
+    def startup(self, graph_state: base.GraphState, timeout: float = None) -> bool:
+        # Wait for the vicon tracker to find the object
+        sleep_time = 0.1
+        start = time.time()
+        while True:
+            now = time.time()
+            res = self._get_platform_pose()
+            if res:
+                break
+            if now - start > 5:
+                start = now
+                self.backend.logwarn(f"Vicon tracker {self._vicon_name} not found.")
+            time.sleep(sleep_time)
+        return True
+
+    def stop(self, timeout: float = None) -> bool:
+        # todo: Reset _last_pose?
+        return True
+
+
 @struct.dataclass
 class PIDParams(base.Base):
     actuator_delay: base.TrainableDist
@@ -147,10 +248,7 @@ class PID(BaseNode):
         graph_state = graph_state or base.GraphState()
         # Get base output
         output = self.inputs["agent"].output_node.init_output(rng, graph_state)
-        # Fill pwm_ref with default hover_pwm
-        params_sup = graph_state.params.get("supervisor")
-        pwm_hover = force_to_pwm(params_sup.pwm_constants, params_sup.mass * 9.81)
-        output = output.replace(pwm_ref=pwm_hover)
+        output = output.replace(pwm_ref=40_000)
         return output
 
     def step(self, step_state: base.StepState) -> Tuple[base.StepState, PIDOutput]:
@@ -173,8 +271,8 @@ class PID(BaseNode):
 
     def startup(self, graph_state: base.GraphState, timeout: float = None) -> bool:
         # Get initial position
-        x, y, z = graph_state.state["supervisor"].init_pos
-        _, _, yaw = graph_state.state["supervisor"].init_att
+        x, y, z = graph_state.state["agent"].init_pos
+        _, _, yaw = graph_state.state["agent"].init_att
         # Go to position
         self.log("Starting", f"Going to position (in world frame): x={x:.2f}, y={y:.2f}, z={z:.2f}, yaw={yaw:.2f}")
         while True:
@@ -203,11 +301,131 @@ class PID(BaseNode):
 
         # Apply command
         if True:#output.state_estimate.ts > 1.5:  # Skip the first 1.5 seconds
-            phi_ref, theta_ref, psi_ref, z_ref = output.phi_ref, output.theta_ref, output.psi_ref, output.z_ref
             if self._feedthrough:
-                self._client.send_rpyz_setpoint(phi_ref, theta_ref, psi_ref, z_ref)
+                if output.has_landed:
+                    print(f"pid | has landed: {output.has_landed}")
+                self._client.send_rpyz_setpoint(float(output.phi_ref),
+                                                float(output.theta_ref),
+                                                float(output.psi_ref),
+                                                float(output.z_ref),
+                                                bool(output.has_landed))
 
         return jnp.array(1.0, dtype=onp.float32)
+
+
+class InclinedPID(PID):
+    def __init__(self, *args, vicon_ip: str = "192.168.0.232", vicon_platform: str = "inclined_surface1",
+                 reset_in_platform_frame: bool = True, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not VICON_AVAILABLE:
+            self.log("VICON", "`pyvicon_datastream` not available, using dummy output.", log_level=constants.LogLevel.WARN)
+        else:
+            assert error_vicon is None, "Failed to import vicon: {}".format(error_vicon)
+        self._reset_in_platform_frame = reset_in_platform_frame
+        self._vicon_ip = vicon_ip
+        self._vicon_name = vicon_platform
+        self._vicon_tracker = MockObjectTracker(vicon_ip) if self._mock or pvtools is None else pvtools.ObjectTracker(vicon_ip)
+
+    def get_platform_pose(self):
+        res = self._vicon_tracker.get_position(self._vicon_name)
+        data = res[2] if isinstance(res, tuple) else []
+        if len(data) > 0 and len(data[0]) == 8:
+            pose = [
+                data[0][2] / 1000,  # x
+                data[0][3] / 1000,  # y
+                data[0][4] / 1000,  # z
+                data[0][5],  # roll
+                data[0][6],  # pitch
+                data[0][7],  # yaw
+            ]
+            position = onp.array(pose[:3], dtype=onp.float32)
+            orientation = onp.array(pose[3:], dtype=onp.float32)
+            return position, orientation
+        else:
+            return False
+
+    def startup(self, graph_state: base.GraphState, timeout: float = None) -> bool:
+        # Get initial position
+        x, y, z = graph_state.state["agent"].init_pos
+        _, _, yaw = graph_state.state["agent"].init_att
+        # Go to position
+        while True:
+            self.log("Startup", "Waiting for feedthrough to be enabled...")
+            self._client.wait_for_feedthrough()  # This blocks until feedthrough is enabled
+            if self._reset_in_platform_frame:
+                self.log("Startup", f"Going to position (in PLATFORM frame): x={x:.2f}, y={y:.2f}, z={z:.2f}, yaw={yaw:.2f}")
+                x, y, z = graph_state.state["agent"].init_pos  # Reset in case we've overridden already
+                _, _, yaw = graph_state.state["agent"].init_att  # Reset in case we've overridden already
+                # Wait for the vicon tracker to find the platform
+                sleep_time = 1.0
+                start = time.time()
+                while True:
+                    now = time.time()
+                    if now - start > 5:
+                        start = now
+                        self.log("Startup", f"Vicon tracker {self._vicon_name} not found.", log_level=constants.LogLevel.WARN)
+                    pose_is = self.get_platform_pose()
+                    if pose_is:
+                        break
+                    time.sleep(sleep_time)
+                is_pos, is_att = pose_is
+                is_polar, is_azimuth = rpy_to_spherical(is_att)
+                self.log("Startup", f"Found inclined surface at x={is_pos[0]:.2f}, y={is_pos[1]:.2f}, z={is_pos[2]:.2f} with azimuth {is_azimuth:.2f} and inclination {is_polar: .2f}")
+
+                # Make is=inclined surface rotation matrix
+                Rz = onp.array([[onp.cos(is_azimuth), -onp.sin(is_azimuth), 0],
+                               [onp.sin(is_azimuth), onp.cos(is_azimuth), 0],
+                               [0, 0, 1]])
+                is2w_R = Rz
+
+                # World to is=inclined surface
+                is2w_H = onp.eye(4)
+                is2w_H[:3, :3] = is2w_R
+                is2w_H[:3, 3] = is_pos
+
+                cf_pos = is2w_H @ onp.array([x, y, z, 1.0], dtype=onp.float32)
+                cf_pos = cf_pos[:3]
+                cf_yaw_w = yaw + is_azimuth
+
+                x, y, z = cf_pos
+                yaw = cf_yaw_w
+
+            # self.log("Starting", "Going to position...")
+            self.log("Startup", f"Going to position (in WORLD frame): x={x:.2f}, y={y:.2f}, z={z:.2f}, yaw={yaw:.2f}")
+            success = self._client.go_to(x, y, z, yaw, timeout=10)
+            if success:
+                # self.log("Starting", "Success!")
+                break
+            self.log("Starting", "Failed to reach the position. Retrying...")
+        return True
+
+    def stop(self, timeout: float = None) -> bool:
+        # todo: How to make sure to stay landed?
+        self._client.disable_feedthrough()  # This should halt the quadcopter in place
+        self.log("Stopping", "Feedthrough disabled.")
+        return True
+
+
+class MockObjectTracker:
+    def __init__(self, ip: str):
+        pass
+
+    def get_position(self, name: str):
+        latency = 0
+        framenumber = 1
+        positions = []
+        position_entry = [
+                    name,
+                    name,
+                    0.2 * 1000,  # position_x in mm
+                    0.1 * 1000,  # position_y in mm
+                    1.0 * 1000,  # position_z in mm
+                    -onp.pi / 8,  # euler_x,
+                    0.0,  # euler_y,
+                    0.0,  # euler_z
+                ]
+        positions.append(position_entry)
+        return latency, framenumber, positions
 
 
 class MockClient:
@@ -257,3 +475,5 @@ class MockClient:
 
     def shutdown(self):
         pass
+
+

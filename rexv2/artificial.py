@@ -81,7 +81,7 @@ def _generate_graphs(
     # Check if graph is consistent with num_episodes
     if graphs is None:
         graphs = Graph(vertices=dict(), edges=dict())
-        assert isinstance(ts_max, float), "ts_max should be provided."
+        assert isinstance(ts_max, (float, int)), "ts_max should be provided (float, int)."
         ts_max = ts_max * jnp.ones((num_episodes,))
     else:
         # Determine num_episodes

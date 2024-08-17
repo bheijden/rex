@@ -54,6 +54,16 @@ matplotlib.use("TkAgg")
 
 
 if __name__ == "__main__":
+    # todo: DEBUG:
+    #   - Reduce tmax
+    #   - Use no delay graph (mock?)
+    #   - Reduce init ranges, no DR, no velocity, increase p
+    #   - Check for contact_distance once.
+    #   - Check updating of distance (no noisy measurements used)
+    #   - Environment.update_graph_state_post_step, Environment.get_terminated, agent.step
+    #   - No delays
+    # todo: use_noise IS COPIED FROM sysid_params....
+    # todo: history_obs dimension, sensitivity to seed.
     # Make sysid nodes
     jnp.set_printoptions(precision=4, suppress=True)
     onp.set_printoptions(precision=4, suppress=True)
@@ -61,24 +71,23 @@ if __name__ == "__main__":
     GPU_DEVICE = jax.devices('gpu')[0]
     CPU_DEVICE = jax.devices('cpu')[0]
     CPU_DEVICES = itertools.cycle(jax.devices('cpu')[1:])
-    WORLD_RATE = 50.
-    MAX_ANGLE = onp.pi / 6
-    ACTION_DIM = 2
-    NO_DELAY = False  # todo: change
-    # MAPPING = ["t eta_ref", "phi_ref"]
+    INCLINED_LANDING = True
+    WORLD_RATE = 50.  # todo: reduce to 50
+    MAX_ANGLE = onp.pi / 6  # todo: remove?
+    ACTION_DIM = 3  # todo: remove?
+    # MAPPING = ["theta_ref", "phi_ref"]
     SUPERVISOR = "agent"
     LOG_DIR = "/home/r2ci/rex/scratch/crazyflie/logs"
-    EXP_DIR = f"{LOG_DIR}/20240813_142721_no_zref_eval_sysid_retry"  # todo:  change
+    EXP_DIR = f"{LOG_DIR}/20240813_142721_no_zref_eval_sysid_refactor"  # todo:  change
     # Input files
     RECORD_FILE = f"{EXP_DIR}/sysid_data.pkl"  # todo:  change
     PARAMS_FILE = f"{EXP_DIR}/sysid_params.pkl"  # todo:  change
     # Output files
-    delay_str = "nodelay" if NO_DELAY else "delay"
-    FIG_FILE = f"{EXP_DIR}/{delay_str}_fig.png"
-    METRICS_FILE = f"{EXP_DIR}/{delay_str}_metrics.pkl"
-    AGENT_FILE = f"{EXP_DIR}/{delay_str}_agent_params.pkl"
-    ROLLOUT_FILE = f"{EXP_DIR}/{delay_str}_rollout.pkl"
-    HTML_FILE = f"{EXP_DIR}/{delay_str}_rollout.html"
+    FIG_FILE = f"{EXP_DIR}/rl_inc_fig.png"
+    METRICS_FILE = f"{EXP_DIR}/rl_inc_metrics.pkl"
+    AGENT_FILE = f"{EXP_DIR}/rl_inc_agent_params.pkl"
+    ROLLOUT_FILE = f"{EXP_DIR}/rl_inc_rollout.pkl"
+    HTML_FILE = f"{EXP_DIR}/rl_inc_rollout.html"
     SAVE_FILE = True
 
     # Seed
@@ -89,20 +98,15 @@ if __name__ == "__main__":
         record: base.EpisodeRecord = pickle.load(f)
 
     # Create nodes
-    if NO_DELAY:
-        nodes = psys.nodelay_simulated_system(record, world_rate=WORLD_RATE)
-        graphs_real = artificial.generate_graphs(nodes, 15)
-        graphs_aug = graphs_real
-    else:
-        nodes = psys.simulated_system(record, world_rate=WORLD_RATE)
-        # Get graph
-        graphs_real = record.to_graph()
-        graphs_real = graphs_real.filter(nodes)  # Filter nodes
+    nodes = psys.simulated_system(record, world_rate=WORLD_RATE, inclined_landing=INCLINED_LANDING)
 
-        # Generate computation graph
-        rng, rng_graph = jax.random.split(rng)
-        graphs_aug = rexv2.artificial.augment_graphs(graphs_real, nodes, rng_graph)
-        graphs_aug = graphs_aug.filter(nodes)  # Filter nodes
+    # Get graph
+    graphs_real = record.to_graph()
+    graphs_real = graphs_real.filter(nodes)  # Filter nodes
+
+    # Generate computation graph
+    rng, rng_graph = jax.random.split(rng)
+    graphs_aug = rexv2.artificial.augment_graphs(graphs_real, nodes, rng_graph)
 
     # Create graph
     graph = rexv2.graph.Graph(nodes, nodes[SUPERVISOR], graphs_aug, supergraph=Supergraph.MCS)
@@ -135,47 +139,76 @@ if __name__ == "__main__":
     else:
         params = gs_init.params.unfreeze()
         print(f"Params not found at {PARAMS_FILE}")
-        if "agent" in params:
-            params.pop("agent")
+        params.pop("agent")
 
     # Add agent params
     rng, rng_agent = jax.random.split(rng)
     params["agent"] = nodes["agent"].init_params(rng_agent)
     params["agent"] = params["agent"].replace(
         init_cf="random",
-        init_path="random",
-        phi_max=MAX_ANGLE,
-        theta_max=MAX_ANGLE,
-        action_dim=ACTION_DIM,
-        use_noise=True,
-        use_dr=True,
+        init_plat="random",
+        use_noise=True,  # todo: DEBUG
+        use_dr=True,  # todo: DEBUG
     )
 
     # Make environment
-    # todo: make sure use_noise, use_dr are True (i.e. set in the init_state instead of params).
-    from envs.crazyflie.path_following import Environment, ppo_config
-    env = Environment(graph, params=params, order=("agent", "pid"), randomize_eps=False)  # No randomization.
+    assert INCLINED_LANDING, "Only inclined landing supported."
+    from envs.crazyflie.inclined_landing import Environment, ppo_config
+    assert params["agent"].action_dim == 3, "Only 3D action space."
+    params.pop("platform")  # todo: DEBUG, to circumvent randomization error
+    env = Environment(graph, params=params, order=("agent", "pid"), randomize_eps=True)  # No randomization.
 
     # Test env API
+    # todo: render in path_following.py, inclined_landing.py
     # obs_space = env.observation_space(gs_init)
     # act_space = env.action_space(gs_init)
     # _ = env.get_observation(gs_init)
     # _ = env.get_truncated(gs_init)
-    # _ = env.get_terminated(gs_init)
+    # _ = env.get_terminated(gs_init)  # todo
     # _ = env.get_reward(gs_init, jnp.zeros(act_space.low.shape))
     # _ = env.get_info(gs_init, jnp.zeros(act_space.low.shape))
     # _ = env.get_output(gs_init, jnp.zeros(act_space.low.shape))
     # _ = env.update_graph_state_pre_step(gs_init, jnp.zeros(act_space.low.shape))
+    # _ = env.update_graph_state_post_step(gs_init, jnp.zeros(act_space.low.shape))
+    # _ = env.update_graph_state_post_reward(gs_init, jnp.zeros(act_space.low.shape))
+    # _ = env.step(gs_init, jnp.zeros(act_space.low.shape))
     # gs, obs, info = jax.jit(env.reset)()
 
-    config = ppo_config.replace(FIXED_INIT=True, VERBOSE=True, TOTAL_TIMESTEPS=10e6, UPDATE_EPOCHS=16, NUM_MINIBATCHES=8, NUM_STEPS=64)
+    # reward: -31.7552547454834, truncated: False, terminated: False
+    # pos: [1.1981168  0.02006698 1.1870413 ], vel: [ 0.          0.         -0.02086072], att: [0. 0. 0.], ang_vel: [0. 0. 0.]
+    # pos_plat: [ 0.01338935 -0.01109233  0.        ], vel_plat: [ 0.66946745 -0.5546167   0.        ], att_plat: [ 0.08041461  0.36330733 -0.223003  ]
+    # world_state = gs_init.state["world"].replace(pos=jnp.array([1.1981168, 0.02006698, 1.1870413]), att=jnp.array([0.0, 0.0, 0.0]),
+    #                                              vel=jnp.array([0.0, 0.0, -0.02086072]), ang_vel=jnp.array([0.0, 0.0, 0.0]))
+    # platform_state = gs_init.state["platform"].replace(pos=jnp.array([ 0.01338935, -0.01109233,  0.]), att=jnp.array([ 0.08041461,  0.36330733, -0.223003]),
+    #                                                    vel=jnp.array([0.66946745, -0.5546167 ,  0.]))
+    # new_state = gs_init.state.unfreeze()
+    # new_state.update(world=world_state, platform=platform_state)
+    # gs = gs_init.replace(state=new_state)
+    # act_space = env.action_space(gs_init)
+    # reward, truncated, terminated, info = env.get_reward(gs, act_space.high)
+    # print(f"reward: {reward}, truncated: {truncated}, terminated: {terminated}, info: {info}")
+    # print(f"world_state: {world_state}")
+
+    # Create train function
+    config = ppo_config  # .replace(FIXED_INIT=True, VERBOSE=True, TOTAL_TIMESTEPS=10e6, UPDATE_EPOCHS=16, NUM_MINIBATCHES=8, NUM_STEPS=64)
     train = functools.partial(rexv2.ppo.train, env)
+    train_v = jax.vmap(train, in_axes=(None, 0))
+    train_vjit = jax.jit(train_v)
     rng, rng_train = jax.random.split(rng)
+    rngs_train = jax.random.split(rng_train, 3)
     with timer("train | jit"):
-        train = jax.jit(train).lower(config, rng_train).compile()
+        train_vjit = train_vjit.lower(config, rngs_train).compile()
     with timer("train | run"):
-        res = train(config, rng_train)
+        res = train_vjit(config, rngs_train)
     print("Training done!")
+    exit()
+    # config = ppo_config#.replace(FIXED_INIT=True, VERBOSE=True, TOTAL_TIMESTEPS=10e6, UPDATE_EPOCHS=16, NUM_MINIBATCHES=8, NUM_STEPS=64)
+    # rng, rng_train = jax.random.split(rng)
+    # with timer("train | jit"):
+    #     train = jax.jit(train).lower(config, rng_train).compile()
+    # with timer("train | run"):
+    #     res = train(config, rng_train)
+    # print("Training done!")
 
     # Get agent params
     agent_params = params["agent"].replace(act_scaling=res["act_scaling"],

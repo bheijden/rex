@@ -2,13 +2,11 @@ from typing import Any, Dict, Tuple, Union, List
 import jax
 import jax.numpy as jnp
 import numpy as onp
-from math import ceil
 from flax import struct
 from flax.core import FrozenDict
 from rexv2.base import StepState, GraphState, Empty, TrainableDist, Base
 from rexv2.node import BaseNode
 from rexv2.jax_utils import tree_dynamic_slice
-from envs.crazyflie.ode import force_to_pwm
 
 
 @struct.dataclass
@@ -204,13 +202,13 @@ class PIDState(Base):
 
 @struct.dataclass
 class PIDOutput(Base):
-    """Pendulum actuator output"""
     pwm_ref: Union[float, jax.typing.ArrayLike]  # Pwm thrust reference command 10000 to 60000
     phi_ref: Union[float, jax.typing.ArrayLike]  # Phi reference (roll), max: pi/6 rad
     theta_ref: Union[float, jax.typing.ArrayLike]  # Theta reference (pitch), max: pi/6 rad
     psi_ref: Union[float, jax.typing.ArrayLike]  # Psi reference (yaw)
     z_ref: Union[float, jax.typing.ArrayLike]
     state_estimate: Any = struct.field(default=None)  # Estimated state at the time the action is executed in the world
+    has_landed: Any = struct.field(default=False)  # True if the agent has landed
 
 
 @struct.dataclass
@@ -231,8 +229,6 @@ class PIDParams(Base):
     lpfPhiRef: LPFObject
     lpfThetaRef: LPFObject
     lpfZRef: LPFObject
-    # Action mapping
-    mapping: List[str] = struct.field(pytree_node=False)
 
     def reset(self) -> PIDState:
         # Replace output limits
@@ -249,15 +245,6 @@ class PIDParams(Base):
         lpfZRef = self.lpfZRef.lpfReset()
         return PIDState(pidZ=pidZ, pidVz=pidVz,
                          lpfPhiRef=lpfPhiRef, lpfThetaRef=lpfThetaRef, lpfZRef=lpfZRef)
-
-    def to_output(self, action: jax.Array) -> PIDOutput:
-        actions_mapped = {k: a for a, k in zip(action, self.mapping)}
-        actions_mapped["pwm_ref"] = None
-        actions_mapped["theta_ref"] = actions_mapped.get("theta_ref", 0.0)
-        actions_mapped["phi_ref"] = actions_mapped.get("phi_ref", 0.0)
-        actions_mapped["psi_ref"] = actions_mapped.get("psi_ref", 0.0)
-        actions_mapped["z_ref"] = actions_mapped.get("z_ref", 0.0)
-        return PIDOutput(**actions_mapped)
 
     def to_command(self, state: PIDState, output: PIDOutput, z: Union[float, jax.Array], vz: Union[float, jax.Array], att: Union[float, jax.Array] = None) -> Tuple[PIDState, PIDOutput]:
         # Get LPF objects
@@ -314,9 +301,6 @@ class PID(BaseNode):
         graph_state = graph_state or GraphState()
         pid_delay = TrainableDist.create(alpha=0., min=0.0, max=0.05)
         sensor_delay = TrainableDist.create(alpha=0., min=0.0, max=0.05)
-        # Get sentinel params
-        params_sup = graph_state.params.get("supervisor")
-        mapping = params_sup.ctrl_mapping # if params_sup is not None else ["z_ref", "theta_ref", "phi_ref"]  # noqa
         # Initialize PID controllers
         UINT16_MAX = 65_535
         zvel_max = 1.0
@@ -346,8 +330,6 @@ class PID(BaseNode):
             lpfPhiRef=lpfPhiRef,
             lpfThetaRef=lpfThetaRef,
             lpfZRef=lpfZRef,
-            # Action mapping
-            mapping=mapping,
         )
         return params
 

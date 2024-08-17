@@ -5,6 +5,8 @@ import numpy as onp
 from math import ceil
 from flax import struct
 from flax.core import FrozenDict
+
+from rexv2 import base
 from rexv2.base import StepState, GraphState, Empty, TrainableDist, Base
 from rexv2.node import BaseNode
 import rexv2.rl as rl
@@ -92,6 +94,35 @@ def rpy_to_wxyz(v: jax.typing.ArrayLike) -> jax.Array:
     return jnp.array([w, x, y, z])
 
 
+def spherical_to_R(polar, azimuth):
+    Rz = jnp.array([[jnp.cos(azimuth), -jnp.sin(azimuth), 0],
+                    [jnp.sin(azimuth), jnp.cos(azimuth), 0],
+                    [0, 0, 1]])
+    Ry = jnp.array([[jnp.cos(polar), 0, jnp.sin(polar)],
+                    [0, 1, 0],
+                    [-jnp.sin(polar), 0, jnp.cos(polar)]])
+    R = jnp.dot(Rz, Ry)
+    return R
+
+
+def R_to_spherical(R):
+    polar = jnp.arccos(R[2, 2])
+    azimuth = jnp.arctan2(R[1, 2], R[0, 2])
+    return polar, azimuth
+
+
+def spherical_to_rpy(polar, azimuth):
+    R = spherical_to_R(polar, azimuth)
+    rpy = R_to_rpy(R)
+    return rpy
+
+
+def rpy_to_spherical(rpy):
+    R = rpy_to_R(rpy, convention="xyz")
+    polar, azimuth = R_to_spherical(R)
+    return polar, azimuth
+
+
 def in_agent_frame(pos: jax.typing.ArrayLike, att: jax.typing.ArrayLike, vel: jax.typing.ArrayLike, center: jax.typing.ArrayLike):
     # return self
     pos_ciw = center  # Center of the platform in the world frame
@@ -118,12 +149,14 @@ def in_agent_frame(pos: jax.typing.ArrayLike, att: jax.typing.ArrayLike, vel: ja
     rp_q2a = jnp.array([roll_q2a, pitch_q2a])  # Roll and pitch of the quadrotor in the agent frame
 
     # Position of center w.r.t. quadrotor's local frame
-    pos_ciq = (H_w2a @ jnp.concatenate([pos_ciw, jnp.array([1.0])]))[:3]
+    # pos_ciq = (H_w2a @ jnp.concatenate([pos_ciw, jnp.array([1.0])]))[:3]
+    pos_ciq = jnp.dot(R_a2w.T, pos_ciw) - jnp.dot(R_a2w.T, pos_qiw)
     pos_cia = -pos_ciq  # Position of the quadrotor from the center of the circle
 
     # Velocity of the quadrotor in the circle frame
-    vel_qiq = H_w2a @ jnp.concatenate([vel_qiw, jnp.array([0.0])])
-    # vel_qiq = vel_qiw
+    # vel_qiq = H_w2a @ jnp.concatenate([vel_qiw, jnp.array([0.0])])
+    # vel_qiq = H_w2a @ jnp.concatenate([vel_qiw, jnp.array([0.0])])
+    vel_qiq = jnp.dot(R_a2w.T, vel_qiw)
 
     # Tangent
     radial = jnp.linalg.norm(pos_cia[:2])
@@ -156,11 +189,9 @@ class WorldState(Base):
     att: jax.typing.ArrayLike  # [phi, theta, psi]
     ang_vel: jax.typing.ArrayLike  # [p, q, r]
     thrust_state: Union[float, jax.typing.ArrayLike]  # Thrust state
-    radius: jax.typing.ArrayLike
-    center: jax.typing.ArrayLike
 
-    def in_agent_frame(self):
-        new_pos, new_vel, new_att = in_agent_frame(self.pos, self.att, self.vel, self.center)
+    def in_agent_frame(self, center):
+        new_pos, new_vel, new_att = in_agent_frame(self.pos, self.att, self.vel, center)
         return self.replace(pos=new_pos, att=new_att, vel=new_vel)
 
 
@@ -168,7 +199,6 @@ class WorldState(Base):
 class WorldParams(Base):
     actuator_delay: TrainableDist
     # Domain randomization
-    use_dr: Union[bool, jax.typing.ArrayLike]  # Domain randomization
     mass_var: jax.typing.ArrayLike  # [%]
     # Parameters
     mass: Union[float, jax.typing.ArrayLike]  # 0.03303
@@ -180,8 +210,6 @@ class WorldParams(Base):
     rotor_constants: jax.typing.ArrayLike  # [0.04076521, 380.8359]
     dragxy: jax.typing.ArrayLike  # 9.1785e-7 # Fa,x
     dragz: jax.typing.ArrayLike  # 10.311e-7 # Fa,z
-    clip_rad: jax.typing.ArrayLike  # 2.0
-    clip_vel: jax.typing.ArrayLike  # [-10.0, 10.0]
 
     @property
     def pwm_hover(self) -> Union[float, jax.Array]:
@@ -279,15 +307,14 @@ class WorldParams(Base):
         dang_vel = jnp.array([0.0, 0.0, 0.0])  # No angular velocity
         dthrust_state = A * thrust_state + B * pwm  # Thrust_state dot
         dmass = 0.0  # No mass change
-        dradius = 0.0  # No radius change
-        dcenter = jnp.array([0.0, 0.0, 0.0])  # No center change
-        dstate = WorldState(mass=dmass, pos=dpos, vel=dvel, att=datt, ang_vel=dang_vel, thrust_state=dthrust_state, radius=dradius, center=dcenter)
+        # dradius = 0.0  # No radius change
+        # dcenter = jnp.array([0.0, 0.0, 0.0])  # No center change
+        dstate = WorldState(mass=dmass, pos=dpos, vel=dvel, att=datt, ang_vel=dang_vel, thrust_state=dthrust_state)
         return dstate
 
     def sysid_range(self):
         actuator_delay = None #self.actuator_delay.replace(alpha=onp.array([0., 1.0]))
         # Domain randomization
-        use_dr = None
         mass_var = None
         # Parameters
         mass = onp.array([0.02, 0.04])
@@ -300,11 +327,8 @@ class WorldParams(Base):
         rotor_constants = None  # [0.04076521, 380.8359]
         dragxy = onp.array([0.5*9.1785e-7, 3.*9.1785e-7])
         dragz = onp.array([0.5*10.311e-7, 1.*10.311e-7])
-        clip_rad = None
-        clip_vel = None
         return self.replace(
             actuator_delay=actuator_delay,
-            use_dr=use_dr,
             mass_var=mass_var,
             mass=mass,
             gain_constant=gain_constant,
@@ -315,8 +339,6 @@ class WorldParams(Base):
             rotor_constants=rotor_constants,
             dragxy=dragxy,
             dragz=dragz,
-            clip_rad=clip_rad,
-            clip_vel=clip_vel,
         )
 
 
@@ -347,10 +369,8 @@ class World(BaseNode):
 
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> WorldParams:
         graph_state = graph_state or GraphState()
-        params = graph_state.params.get("supervisor")
         return WorldParams(
             actuator_delay=graph_state.params.get("pid").actuator_delay,
-            use_dr=params.use_dr,  # Whether to perform domain randomization
             mass_var=0.02,
             mass=0.033,
             gain_constant=1.1094,  # Attitude gain constant
@@ -361,8 +381,6 @@ class World(BaseNode):
             rotor_constants=onp.array([0.04076521, 380.8359]),
             dragxy=9.1785e-7,
             dragz=10.311e-7,
-            clip_rad=2.0,
-            clip_vel=jnp.array([20., 20., 20.]),
         )
 
     def init_state(self, rng: jax.Array = None, graph_state: GraphState = None) -> WorldState:
@@ -371,15 +389,14 @@ class World(BaseNode):
         params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
         # Determine mass
         rng, rng_mass = jax.random.split(rng)
-        use_dr = params.use_dr
+        params_sup = graph_state.params.get("agent")
+        use_dr = params_sup.use_dr
         dmass = use_dr*params.mass*params.mass_var*jax.random.uniform(rng_mass, shape=(), minval=-1, maxval=1)
         mass = params.mass + dmass
         # Determine initial state
         A, B, C = params.state_space
         init_thrust_state = params.init_thrust_scale * B * params.pwm_hover / (-A)  # Assumes dthrust = 0.
-        # Get radius & radius of path from supervisor
-        state_sup = graph_state.state.get("supervisor")
-        params_sup = graph_state.params.get("supervisor")
+        state_sup = graph_state.state.get("agent")
         state = WorldState(
             mass=mass,
             pos=state_sup.init_pos,
@@ -387,8 +404,6 @@ class World(BaseNode):
             att=state_sup.init_att,
             ang_vel=state_sup.init_ang_vel,
             thrust_state=init_thrust_state,
-            radius=state_sup.radius,
-            center=params_sup.center,
         )
         return state
 
@@ -425,22 +440,6 @@ class World(BaseNode):
         # Step the ode
         next_state, _ = params.step(self.substeps, self.dt_substeps, state, action=action)
 
-        # Clip position
-        center = next_state.center
-        high = center + params.clip_rad + next_state.radius
-        low = center - params.clip_rad - next_state.radius
-        pos_clip = jnp.clip(next_state.pos, low, high)
-        # next_state_ia = next_state.in_agent_frame()
-        # radial, theta, _ = next_state_ia.pos
-        # radial_clip = jnp.clip(radial, 0.0, params.clip_rad + next_state.radius)
-        # x_clip = radial_clip * jnp.cos(theta)
-        # y_clip = radial_clip * jnp.sin(theta)
-        # pos_clip = next_state.pos#.at[:2].set(jnp.array([x_clip, y_clip]))
-
-        # Clip velocity
-        vel_clip = jnp.clip(next_state.vel, -params.clip_vel, params.clip_vel)
-        next_state = next_state.replace(pos=pos_clip, vel=vel_clip)
-
         # Update state
         new_step_state = step_state.replace(state=next_state)
 
@@ -458,7 +457,6 @@ class World(BaseNode):
 @struct.dataclass
 class MoCapParams(Base):
     sensor_delay: TrainableDist
-    use_noise: Union[bool, jax.typing.ArrayLike]
     pos_std: jax.typing.ArrayLike  # [x, y, z]
     vel_std: jax.typing.ArrayLike  # [xdot, ydot, zdot]
     att_std: jax.typing.ArrayLike  # [phi, theta, psi]
@@ -467,6 +465,7 @@ class MoCapParams(Base):
 
 @struct.dataclass
 class MoCapState:
+    use_noise: Union[bool, jax.typing.ArrayLike]
     loss_pos: Union[float, jax.typing.ArrayLike]
     loss_vel: Union[float, jax.typing.ArrayLike]
     loss_att: Union[float, jax.typing.ArrayLike]
@@ -502,11 +501,11 @@ class MoCap(BaseNode):
 
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> MoCapParams:
         graph_state = graph_state or GraphState
-        params_sup = graph_state.params.get("supervisor")
+
         sensor_delay = TrainableDist.create(alpha=0., min=0.0, max=0.05)
         return MoCapParams(
             sensor_delay=sensor_delay,
-            use_noise=params_sup.use_noise,
+
             pos_std=onp.array([0.01, 0.01, 0.01], dtype=float),     # [x, y, z]
             vel_std=onp.array([0.02, 0.02, 0.02], dtype=float),        # [xdot, ydot, zdot]
             att_std=onp.array([0.02, 0.02, 0.02], dtype=float),     # [phi, theta, psi]
@@ -515,13 +514,14 @@ class MoCap(BaseNode):
 
     def init_state(self, rng: jax.Array = None, graph_state: GraphState = None) -> MoCapState:
         """Default state of the node."""
-        return MoCapState(loss_pos=0.0, loss_vel=0.0, loss_att=0.0)
+        params_sup = graph_state.params.get("agent")
+        return MoCapState(use_noise=params_sup.use_noise, loss_pos=0.0, loss_vel=0.0, loss_att=0.0)
 
     def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> MoCapOutput:
         """Default output of the node."""
         # Randomly define some initial sensor values
         graph_state = graph_state or GraphState
-        state_sup = graph_state.state.get("supervisor")
+        state_sup = graph_state.state.get("agent")
         # Account for sensor delay
         params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
         sensor_delay = params.sensor_delay.mean()
@@ -570,10 +570,10 @@ class MoCap(BaseNode):
 
             # Prepare output
             output = MoCapOutput(
-                pos=world.pos + params.use_noise*pos_noise,
-                vel=world.vel + params.use_noise*vel_noise,
-                att=world.att + params.use_noise*att_noise,
-                ang_vel=world.ang_vel + params.use_noise*ang_vel_noise,
+                pos=world.pos + state.use_noise*pos_noise,
+                vel=world.vel + state.use_noise*vel_noise,
+                att=world.att + state.use_noise*att_noise,
+                ang_vel=world.ang_vel + state.use_noise*ang_vel_noise,
                 ts=ts,
             )
 
@@ -605,6 +605,118 @@ class MoCap(BaseNode):
         return new_step_state, output
 
 
+@struct.dataclass
+class PlatformParams(Base):
+    pos_std: jax.typing.ArrayLike  # [x, y, z]
+    vel_std: jax.typing.ArrayLike  # [xdot, ydot, zdot]
+    att_std: jax.typing.ArrayLike  # [phi, theta, psi]
+
+    def step(self, substeps: int, dt_substeps: Union[float, jax.typing.ArrayLike], x: "PlatformState") -> Tuple["PlatformState", "PlatformState"]:
+        """Step the pendulum ode."""
+        def _scan_fn(_x, _):
+            next_x = self._runge_kutta4(dt_substeps, _x)
+            return next_x, next_x
+
+        x_final, x_substeps = jax.lax.scan(_scan_fn, x, onp.arange(substeps), length=substeps)
+        return x_final, x_substeps
+
+    def _runge_kutta4(self, dt, state: "PlatformState"):
+        k1 = self.ode(state)
+        k2 = self.ode(state + k1 * dt * 0.5)
+        k3 = self.ode(state + k2 * dt * 0.5)
+        k4 = self.ode(state + k3 * dt)
+        return state + (k1 + k2 * 2 + k3 * 2 + k4) * (dt / 6)
+
+    def ode(self, state: "PlatformState") -> "PlatformState":
+        # Calculate dstate
+        dstate = state * 0  # Set all derivatives to zero
+        dstate = dstate.replace(pos=state.vel)
+        return dstate
+
+
+@struct.dataclass
+class PlatformState(Base):
+    use_noise: Union[bool, jax.typing.ArrayLike]
+    pos: jax.typing.ArrayLike  # [x, y, z]
+    vel: jax.typing.ArrayLike  # [xdot, ydot, zdot]
+    att: jax.typing.ArrayLike  # [phi, theta, psi]
+
+
+@struct.dataclass
+class PlatformOutput(Base):
+    pos: jax.typing.ArrayLike  # [x, y, z]
+    vel: jax.typing.ArrayLike  # [xdot, ydot, zdot]
+    att: jax.typing.ArrayLike  # [phi, theta, psi]
+    ts: Union[float, jax.typing.ArrayLike]
+
+
+class Platform(BaseNode):
+
+    def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> PlatformParams:
+        return PlatformParams(
+            pos_std=onp.array([0.01, 0.01, 0.01], dtype=float),     # [x, y, z]
+            vel_std=onp.array([0.02, 0.02, 0.02], dtype=float),        # [xdot, ydot, zdot]
+            att_std=onp.array([0.02, 0.02, 0.02], dtype=float),     # [phi, theta, psi]
+        )
+
+    def init_state(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> PlatformState:
+        """Default state of the node."""
+        graph_state = graph_state or GraphState
+        params_sup = graph_state.params.get("agent")
+        state_sup = graph_state.state.get("agent")
+        return PlatformState(
+            use_noise=jnp.float32(params_sup.use_noise),
+            pos=state_sup.init_pos_plat,
+            vel=state_sup.init_vel_plat,
+            att=state_sup.init_att_plat,
+        )
+
+    def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> PlatformOutput:
+        """Default output of the node."""
+        # Randomly define some initial sensor values
+        graph_state = graph_state or GraphState
+        state_sup = graph_state.state.get("agent")
+        output = PlatformOutput(
+            pos=state_sup.init_pos_plat,
+            vel=state_sup.init_vel_plat,
+            att=state_sup.init_att_plat,
+            ts=0.0,
+        )
+        return output
+
+    def step(self, step_state: StepState) -> Tuple[StepState, PlatformOutput]:
+        """Step the node."""
+        rng = step_state.rng
+        state: PlatformState = step_state.state
+        params: PlatformParams = step_state.params
+        ts = step_state.ts
+
+        # Simulate platform dynamics
+        substeps = 1
+        dt_substeps = 1/self.rate
+        next_state, _ = params.step(substeps, dt_substeps, state)
+
+        # Sample small amount of noise to pos, vel
+        rngs = jax.random.split(rng, 8)
+        rng = rngs[0]
+        pos_noise = params.pos_std*jax.random.normal(rngs[1], next_state.pos.shape)
+        vel_noise = params.vel_std*jax.random.normal(rngs[2], next_state.vel.shape)
+        att_noise = params.att_std*jax.random.normal(rngs[3], next_state.att.shape)
+
+        # Prepare output
+        output = PlatformOutput(
+            pos=next_state.pos + state.use_noise*pos_noise,
+            vel=next_state.vel + state.use_noise*vel_noise,
+            att=next_state.att + state.use_noise*att_noise,
+            ts=ts,
+        )
+
+        # Update state
+        new_step_state = step_state.replace(rng=rng, state=next_state)
+
+        return new_step_state, output
+
+
 def save(path, json_rollout):
     """Saves trajectory as an HTML text file."""
     from etils import epath
@@ -625,9 +737,9 @@ def render(ts: jax.typing.ArrayLike, pos: jax.typing.ArrayLike, att: jax.typing.
     max_ts = jnp.max(ts)
     dt = max_ts / ts.shape[-1]
 
-    # CRAZYFLIE_BRAX_XML is defind relative to this __file__ as path_to_file/cf2_brax.xml
+    # CRAZYFLIE_BRAX_XML is defind relative to this __file__ as path_to_file/cf2_pathfollowing.xml
     import os
-    CRAZYFLIE_BRAX_XML = os.path.join(os.path.dirname(__file__), "cf2_brax.xml")
+    CRAZYFLIE_BRAX_XML = os.path.join(os.path.dirname(__file__), "cf2_pathfollowing.xml")
     ASSET_PATH = os.path.join(os.path.dirname(__file__))
 
     # Read as string

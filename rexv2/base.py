@@ -229,6 +229,20 @@ class Graph:
         graphs = jax.tree_util.tree_map(_stack, *graphs_raw)
         return graphs
 
+    def filter(self, nodes: Dict[str, "BaseNode"]) -> "Graph":
+        vertices = self.vertices.copy()
+        edges = self.edges.copy()
+        # Filter supervisor nodes
+        v_names = list(vertices.keys())
+        e_names = list(edges.keys())
+        for k in v_names:
+            if k not in nodes:
+                vertices.pop(k)
+        for (n1, n2) in e_names:
+            if n1 not in nodes or n2 not in nodes:
+                edges.pop((n1, n2))
+        return Graph(vertices=vertices, edges=edges)
+
 
 @struct.dataclass
 class Window:
