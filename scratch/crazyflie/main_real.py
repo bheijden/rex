@@ -65,13 +65,13 @@ if __name__ == "__main__":
     RATES = dict(mocap=50, world=100, pid=50, agent=25, estimator=25, supervisor=10, platform=25)
     POSITION = onp.array([0.0, 0.0, 1.0])
     CENTER = onp.array([0.0, 0.0, 1.0])
-    RADIUS = 1.0
+    RADIUS = 0.5
     SKIP_SEC = 3.0
     # Settings
-    MOCK = "real"  # "ode", "copilot, or "real" else todo: "real"
+    MOCK = "ode"  # "ode", "copilot, or "real" else todo: "real"
     LOG_DIR = "/home/r2ci/rex/scratch/crazyflie/logs"
     # EXP_DIR = f"{LOG_DIR}/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_10Hz"
-    EXP_DIR = f"{LOG_DIR}/20240813_142721_no_zref_eval_sysid_retry_eval"  # todo: CHANGE
+    EXP_DIR = f"{LOG_DIR}/20240816_path_following_inclined_landing_experiments_sim"  # todo: CHANGE
     # DELAYS_SIM = csys.load_distribution(f"{EXP_DIR}/dists.pkl") # TODO: CHANGE
     DELAYS_SIM = csys.load_distribution(f"{LOG_DIR}/dists.pkl")
     # DELAYS_SIM = csys.get_default_distributions(nodes=ORDER)
@@ -93,8 +93,8 @@ if __name__ == "__main__":
         TSIM = 15
         # INPUT
         PARAMS_FILE = f"{EXP_DIR}/sysid_params.pkl"
-        AGENT_FILE = f"{EXP_DIR}/delay_agent_params.pkl"  # todo: CHANGE
-        # AGENT_FILE = f"{EXP_DIR}/nodelay_agent_params.pkl" # todo: CHANGE
+        # AGENT_FILE = f"{EXP_DIR}/delay_agent_params.pkl"  # todo: CHANGE
+        AGENT_FILE = f"{EXP_DIR}/nodelay_agent_params.pkl" # todo: CHANGE
         # OUTPUT
         RECORD_FILE = f"{EXP_DIR}/sysid_data.pkl"
         FIG_FILE = f"{EXP_DIR}/sysid_fig.png"

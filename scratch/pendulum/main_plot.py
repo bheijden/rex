@@ -16,10 +16,10 @@ import equinox as eqx
 
 import rexv2.open_colors as oc
 from rexv2 import base
+from rexv2.gmm_estimator import GMMEstimator, plot_component_norm_pdfs
 
 # Setup sns plotting
 import matplotlib.pyplot as plt
-# import matplotlib.patches as mpatches
 import matplotlib.patches as patches
 import seaborn as sns
 sns.set(style="whitegrid", font_scale=1.5)
@@ -63,6 +63,20 @@ print("Thirdwidth figsize:", thirdwidth_figsize)
 print("Twothirdwidth figsize:", twothirdwidth_figsize)
 print("Sixthwidth figsize:", sixthwidth_figsize)
 LABELS = {
+    # Delay
+    "step_delay": "step_delay",
+    "inputs_delay": "input_delay",
+    "component_delay": "Gaussian comp. ",
+    "gmm_delay": "gmm",
+    "data_step_delay": "computation delays",
+    "data_inputs_delay": "communication delays",
+    # Crazyflie
+    "mocap": "mocap",
+    "mocap_recon": "mocap (recon)",
+    # "mocap_recon": "delays+dynamics",
+    "mocap_nodelay": "dynamics",
+    "cf_delay": "delay sim.",
+    "cf_nodelay": "no-delay sim.",
     # RL policies
     "delay_estimator": "estimator + delay sim.",
     "nodelay_fullstate": "full state",
@@ -84,7 +98,7 @@ LABELS = {
     # Components
     "sensor": "encoder",
     "actuator": "actuator",
-    "camera": "detector",
+    "camera": "camera",
     "estimator": "estimator",
     "est_future": "predictive",
     "est_meas": "filtered (corrected)",
@@ -103,6 +117,36 @@ LABELS = {
     "all": "all",
 }
 CSCHEME = {
+    # Computation
+    1: "red",
+    2: "red",
+    4: "pink",
+    8: "grape",
+    16: "violet",
+    32: "indigo",
+    64: "blue",
+    128: "cyan",
+    256: "cyan",
+    512: "teal",
+    1024: "green",
+    2048: "lime",
+    4096: "yellow",
+    8192: "orange",
+    16384: "orange",
+    # Systems
+    "pendulum": "indigo",
+    "quadrotor": "grape",
+    # Delay
+    "step_delay": "blue",
+    "inputs_delay": "cyan",
+    "component_delay": "orange",
+    "gmm_delay": "gray",
+    # Crazyflie
+    "mocap": "red",
+    "mocap_recon": "indigo",
+    "mocap_nodelay": "teal",
+    "cf_delay": "grape",
+    "cf_nodelay": "orange",
     # RL policies
     "delay_estimator": "blue",
     "nodelay_fullstate": "teal",
@@ -206,7 +250,168 @@ def load_experiment_files(df, exp_dir):
     return df
 
 
-def plot_system_identification(exp_dir: str, cache_dir: str = None, fig_dir: str = None, regenerate_cache: bool = True):
+def plot_crazyflie_pathfollowing(exp_dir: str, cache_dir: str = None, fig_dir: str = None, regenerate_cache: bool = True):
+    # Create cache directory
+    cache_dir = f"{exp_dir}/cache-plots" if cache_dir is None else cache_dir
+    os.makedirs(cache_dir, exist_ok=True)
+    print(f"Cache directory: {cache_dir}")
+    # Create figure directory
+    fig_dir = f"{exp_dir}/figs" if fig_dir is None else fig_dir
+    os.makedirs(fig_dir, exist_ok=True)
+    print(f"Figure directory: {fig_dir}")
+    TIMINGS_FILE = os.path.join(exp_dir, "delay_elapsed.pkl")
+    DELAY_R1_FILE = os.path.join(exp_dir, "delay_1.0R/sysid_data.pkl")
+    DELAY_R075_FILE = os.path.join(exp_dir, "delay_0.75R/sysid_data.pkl")
+    DELAY_R05_FILE = os.path.join(exp_dir, "delay_0.5R/sysid_data.pkl")
+    NODELAY_R1_FILE = os.path.join(exp_dir, "nodelay_1.0R/sysid_data.pkl")
+    NODELAY_R075_FILE = os.path.join(exp_dir, "nodelay_0.75R/sysid_data.pkl")
+    NODELAY_R05_FILE = os.path.join(exp_dir, "nodelay_crash_0.5R/sysid_data.pkl")
+    NODELAY_SIM_FILE = os.path.join(exp_dir, "nodelay_sim_radii_rollout.pkl")
+    DELAY_SIM_FILE = os.path.join(exp_dir, "delay_sim_radii_rollout.pkl")
+    CACHE_FILE = f"{cache_dir}/plot_crazyflie_pathfollowing.pkl"
+    EPS_IDX = -1
+    SKIP_SEC = 3.0
+    FILES = {
+        "delay_1.0R": DELAY_R1_FILE,
+        "delay_0.75R": DELAY_R075_FILE,
+        "delay_0.5R": DELAY_R05_FILE,
+        "nodelay_1.0R": NODELAY_R1_FILE,
+        "nodelay_0.75R": NODELAY_R075_FILE,
+        "nodelay_0.5R": NODELAY_R05_FILE,
+        "nodelay_sim": NODELAY_SIM_FILE,
+        "delay_sim": DELAY_SIM_FILE,
+    }
+
+    if regenerate_cache or not os.path.exists(CACHE_FILE):
+        from envs.crazyflie.ode import MoCapOutput, metrics
+        jv_in_agent_frame = jax.jit(jax.vmap(MoCapOutput.static_in_agent_frame, in_axes=(0, None)))
+        jv_metrics = jax.jit(jax.vmap(metrics, in_axes=(0, None, None)))
+        EVAL_SIM = {}
+        EVAL_REAL = {}
+        for name, file in FILES.items():
+            delay = False if "nodelay" in name else True
+            delay_str = "delay" if delay else "nodelay"
+            with open(file, "rb") as f:
+                data = pickle.load(f)
+                if isinstance(data, base.EpisodeRecord):
+                    # real-world
+                    radius = float(data.nodes["agent"].params.fixed_radius[0])
+                    center = data.nodes["agent"].params.center[0]
+                    mocap = data.nodes["mocap"].steps.output[0]
+                    vel_on, vel_off, pos_on, pos_off = jv_metrics(mocap, radius, center)
+                    entry = {
+                        "ts": data.nodes["mocap"].steps.output.ts[0],
+                        "radius": radius,
+                        "center": onp.array(center),
+                        "mocap": mocap,
+                        "mocap_ia": jv_in_agent_frame(mocap, center),
+                        "delay": delay,
+                        "vel_on": vel_on,
+                        "vel_off": vel_off,
+                        "pos_on": pos_on,
+                        "pos_off": pos_off,
+                    }
+                    EVAL_REAL[radius] = EVAL_REAL.get(radius, [])
+                    EVAL_REAL[radius].append(entry)
+                    print(f"real | {delay_str} | R={radius:.2f} | Loaded {name} from {file}.")
+                elif isinstance(data, base.GraphState):
+                    # simulation
+                    num_radius = data.params["agent"][:, 0].fixed_radius.shape[0]
+                    for i in range(num_radius):
+                        radius = float(data.params["agent"].fixed_radius[i, 0])
+                        center = data.params["agent"].center[i, 0]
+                        mocap = data.inputs["estimator"]["mocap"].data[i, :, -1]
+                        vel_on, vel_off, pos_on, pos_off = jv_metrics(mocap, radius, center)
+                        entry = {
+                            "ts": mocap.ts,
+                            "radius": radius,
+                            "center": center,
+                            "mocap": mocap,
+                            "mocap_ia": jv_in_agent_frame(mocap, center),
+                            "delay": delay,
+                            "vel_on": vel_on,
+                            "vel_off": vel_off,
+                            "pos_on": pos_on,
+                            "pos_off": pos_off,
+                        }
+                        EVAL_SIM[radius] = EVAL_SIM.get(radius, [])
+                        EVAL_SIM[radius].append(entry)
+                        print(f"real | {delay_str} | R={radius:.2f} | Loaded {name} from {file}.")
+                else:
+                    raise ValueError(f"Unknown data type {type(data)}")
+
+        CACHE_DATA = {"real": EVAL_REAL, "sim": EVAL_SIM}
+        with open(CACHE_FILE, "wb") as f:
+            pickle.dump(CACHE_DATA, f)
+            print(f"Saved cache to {CACHE_FILE}")
+    else:
+        print(f"Loading cache from {CACHE_FILE}")
+        with open(CACHE_FILE, "rb") as f:
+            CACHE_DATA = pickle.load(f)
+        EVAL_REAL = CACHE_DATA["real"]
+        EVAL_SIM = CACHE_DATA["sim"]
+
+    # Get timings
+    with open(TIMINGS_FILE, "rb") as f:
+        timings = pickle.load(f)
+    print(f"Quadrotor | run time: {timings['train']:.2f} s | JIT time: {timings['train_jit']:.2f} s")
+
+    # Plot
+    figures = {}
+    figsize = [c * s for c, s in zip([1 / 5, 0.5], rescaled_figsize)]
+
+    for key, data in CACHE_DATA.items():
+        for radius, entries in data.items():
+            figname = f"{key}_xy_R{radius}"
+            fig, ax = plt.subplots(figsize=figsize)
+            figures[figname] = (fig, ax)
+            for entry in entries:
+                delay_str = "cf_delay" if entry["delay"] else "cf_nodelay"
+                # Where either pos[:, 0] or pos[:, 1] is > abs 2.0, replace subsequent values with NaN
+                pos = entry["mocap"].pos
+                # Clip to truncate crashed cases
+                bounds_x = onp.abs(pos[:, 0]) < 2.0
+                bounds_y = onp.abs(pos[:, 1]) < 2.0
+                bounds = onp.logical_and(bounds_x, bounds_y)
+                max_idx = onp.argwhere(~bounds).flatten()
+                max_idx = max_idx[0] if len(max_idx) > 0 else len(bounds)
+                pos_clip = pos[:max_idx]
+                # Determine min_index
+                min_index = min(np.argmax(entry["ts"] > SKIP_SEC), max_idx)
+                vel_on = float(entry["vel_on"][min_index:max_idx].mean())
+                vel_off = float(entry["vel_off"][min_index:max_idx].mean())
+                pos_on = float(entry["pos_on"][min_index:max_idx].mean())
+                pos_off = float(entry["pos_off"][min_index:max_idx].mean())
+                print(f"{key} | R={radius:.2f} m | {delay_str} | vel_on={vel_on:.2f} m/s, pos_off={pos_off:.2f} m")
+                # Plot
+                ax.plot(pos_clip[:, 0], pos_clip[:, 1], label=LABELS[delay_str], color=ECOLOR[delay_str], linewidth=3)
+            ax.set(xlabel="x (m)",
+                   ylabel="y (m)")
+            # ax.set_aspect("equal")
+            ax.set(
+                xlabel="x (m)",
+                ylabel="y (m)",
+                xlim=(-1.5, 1.5),
+                ylim=(-1.5, 1.5),
+                xticks=[-1, 0, 1],
+                yticks=[-1, 0, 1],
+            )
+            ax.legend(handles=ax.get_legend_handles_labels()[0], labels=ax.get_legend_handles_labels()[1],
+                      bbox_to_anchor=(2, 2),
+                      ncol=2, loc='lower right', fancybox=True, shadow=True)
+
+    ###############################################################
+    # SAVING
+    ###############################################################
+    for plot_name, (fig, ax) in figures.items():
+        fig.savefig(f"{fig_dir}/cf_pf_{plot_name}_legend.pdf", bbox_inches=export_legend(fig, ax.get_legend()))
+        ax.get_legend().remove()
+        ax.set_aspect("equal")
+        fig.savefig(f"{fig_dir}/cf_pf_{plot_name}.pdf", bbox_inches='tight')
+        print(f"Saved {plot_name} to {fig_dir}/cf_sysid_{plot_name}.pdf")
+
+
+def plot_crazyflie_sysid(exp_dir: str, cache_dir: str = None, fig_dir: str = None, regenerate_cache: bool = True):
     # Create cache directory
     cache_dir = f"{exp_dir}/cache-plots" if cache_dir is None else cache_dir
     os.makedirs(cache_dir, exist_ok=True)
@@ -216,11 +421,32 @@ def plot_system_identification(exp_dir: str, cache_dir: str = None, fig_dir: str
     os.makedirs(fig_dir, exist_ok=True)
     print(f"Figure directory: {fig_dir}")
     DATA_SYSID_FILE = os.path.join(exp_dir, "sysid_data.pkl")
-    EVAL_SYSID_FILE = os.path.join(exp_dir, "sysid_gs_eval.pkl")
-    CACHE_FILE = f"{cache_dir}/plot_system_identification.pkl"
+    EVAL_SYSID_FILE = os.path.join(exp_dir, "sysid_gs.pkl")
+    TIMINGS_SYSID_FILE = os.path.join(exp_dir, "sysid_elapsed.pkl")
+    SOL_SYSID_FILE = os.path.join(exp_dir, "sysid_log_state.pkl")
+    EVAL_NODELAY_SYSID_FILE = os.path.join(exp_dir, "sysid_gs_nodelay.pkl")
+    CACHE_FILE = f"{cache_dir}/plot_crazyflie_sysid.pkl"
     EPS_IDX = -1
 
     if regenerate_cache or not os.path.exists(CACHE_FILE):
+        # Load TIMINGS and SOL
+        with open(TIMINGS_SYSID_FILE, "rb") as f:
+            timings = pickle.load(f)
+        with open(SOL_SYSID_FILE, "rb") as f:
+            sol = pickle.load(f)
+        log_gen_1_nonan = onp.nan_to_num(sol.state["log_gen_1"], copy=True, nan=onp.inf)
+        idx_min = onp.argmin(log_gen_1_nonan)
+        tsolve = timings["solve"]
+        tjit = timings["solve_jit"]
+        tbest = tsolve*(idx_min+1) / len(sol.state["log_gen_1"])
+        num_params = len(sol.state["top_params"][-1])
+        print(f"Crazyflie | Best solution at generation {idx_min+1} | Solve time: {tsolve:.2f} s | JIT time: {tjit:.2f} s | Best time: {tbest:.2f} s | num_params: {num_params}")
+
+        fig, ax = plt.subplots(figsize=thirdwidth_figsize)
+        ax.plot(sol.state["log_gen_1"])
+        fig, ax = sol.plot("sol_state")
+        ax.set(yscale="log")
+
         # Load recorded real-world data
         with open(DATA_SYSID_FILE, "rb") as f:  # Load record
             data: base.EpisodeRecord = pickle.load(f)
@@ -232,7 +458,618 @@ def plot_system_identification(exp_dir: str, cache_dir: str = None, fig_dir: str
         # Load evaluation data
         with open(EVAL_SYSID_FILE, "rb") as f:  # Load record
             gs: base.GraphState = pickle.load(f)
+        with open(EVAL_NODELAY_SYSID_FILE, "rb") as f:  # Load record
+            gs_nodelay: base.GraphState = pickle.load(f)
         params = dict(jax.tree_util.tree_map(lambda x: x[0], gs.params))
+        delay_pid_to_world = params["pid"].actuator_delay.mean()
+        delay_world_to_pid = params["pid"].sensor_delay.mean()
+        delay_world_to_mocap = params["mocap"].sensor_delay.mean()
+        print(f"Delays | PID to world: {delay_pid_to_world*1000:.0f} ms, "
+              f"world to PID: {delay_world_to_pid*1000:.0f} ms, "
+              f"world to mocap: {delay_world_to_mocap*1000:.0f} ms")
+
+        from envs.crazyflie.ode import in_body_frame
+        in_body_frame_jv = jax.jit(jax.vmap(in_body_frame))
+
+        # Extract recorded sensor data (Assumed to be ground truth and not delayed)
+        vel_ib = in_body_frame_jv(outputs["mocap"].att, outputs["mocap"].vel)
+        mocap = dict(ts=ts["mocap"],
+                     vx=vel_ib[:, 0],
+                     vy=vel_ib[:, 1],
+                     phi=outputs["mocap"].att[:, 0],
+                     theta=outputs["mocap"].att[:, 1],
+                     )
+
+        # Extract reconstructed mocap data
+        # mocap_recon_ts = gs.inputs["mocap"]["world"][:, -1].ts_recv
+        # mocap_recon = gs.inputs["mocap"]["world"][:, -1].data
+        mocap_recon = gs.inputs["estimator"]["mocap"][:, -1].data
+        vel_ib_recon = in_body_frame_jv(mocap_recon.att, mocap_recon.vel)
+        mocap_recon = dict(ts=mocap_recon.ts + delay_world_to_mocap,
+        # mocap_recon = dict(ts=mocap_recon_ts,
+                           vx=vel_ib_recon[:, 0],
+                           vy=vel_ib_recon[:, 1],
+                           phi=mocap_recon.att[:, 0],
+                           theta=mocap_recon.att[:, 1],
+                           )
+        # Extract reconstructed mocap data
+        mocap_nodelay = gs_nodelay.inputs["estimator"]["mocap"][:, -1].data
+        vel_ib_nodelay = in_body_frame_jv(mocap_nodelay.att, mocap_nodelay.vel)
+        mocap_nodelay = dict(ts=mocap_nodelay.ts,
+                             vx=vel_ib_nodelay[:, 0],
+                             vy=vel_ib_nodelay[:, 1],
+                             phi=mocap_nodelay.att[:, 0],
+                             theta=mocap_nodelay.att[:, 1],
+                             )
+
+        # Group measurement related data (same keys: ts, vel, att)
+        recon = dict(mocap=mocap, mocap_recon=mocap_recon, mocap_nodelay=mocap_nodelay)
+
+        # include = ["mocap", "mocap_recon", "mocap_nodelay"]
+        include = ["mocap", "mocap_recon"]#, "mocap_nodelay"]
+
+        def plot_graphs(ax, keys, interp, y_key, xlabel, ylabel):
+            for key, value in interp.items():
+                if key not in keys:
+                    continue
+                ax.plot(value["ts"], value[y_key], label=LABELS[key], color=ECOLOR[key], linewidth=3)
+            ax.set(xlabel=xlabel, ylabel=ylabel)
+            # Place the legend on the right outside of the figure
+            ax.legend(handles=ax.get_legend_handles_labels()[0], labels=ax.get_legend_handles_labels()[1],
+                      bbox_to_anchor=(2, 2),
+                      ncol=6, loc='lower right', fancybox=True, shadow=True)
+
+        def plot_zoomed_frame(ax, x_zoom, y_zoom, w, h, w_scale, h_scale):
+            rect = patches.Rectangle(
+                (x_zoom + w / 2 - w_scale * w / 2, y_zoom + h / 2 - h_scale * h / 2),
+                w * w_scale, h * h_scale, linewidth=4,
+                edgecolor=ECOLOR["zoomed_frame"], facecolor='none'
+            )
+            ax.add_patch(rect)
+
+        figures = {}
+        sysid_figsize = [c * s for c, s in zip([1/3, 0.5], rescaled_figsize)]
+        # sysid_figsize = [c * s for c, s in zip([0.5, 0.5], rescaled_figsize)]
+        # Plot attitude
+        ylabels =[r"$\mathbf{\phi}$ (rad)", r"$\mathbf{\theta}$ (rad)"]
+        for k, ylabel in zip(["phi", "theta"], ylabels):
+            fig, ax = plt.subplots(figsize=sysid_figsize)  # Used to be twothirdwidth_figsize
+            figures[k] = (fig, ax)
+            plot_graphs(ax, include, recon, k, "Time (s)", ylabel)
+            if k == "theta":
+                plot_zoomed_frame(ax, 5.2, 0.15, 0.2, 0.1, 3.0, 1.5)
+                # plot_zoomed_frame(ax, 5.0, 0.1, 2.0, 0.35, 1.0, 1.0)
+            ax.set(
+                ylim=[-0.5, 0.5],
+                yticks=[-0.5, 0, 0.5],
+            )
+
+        fig, ax = plt.subplots(figsize=sysid_figsize)
+        figures["theta_zoom"] = (fig, ax)
+        plot_graphs(ax, include, recon, "theta", "Time (s)", ylabels[1])
+        ax.set(
+            xlim=[5.2, 5.2 + 0.2],
+            xticks=[5.2, 5.3, 5.4],
+            ylim=[0.15, 0.15+0.1],
+            yticks=[0.16, 0.2, 0.24],
+        )
+        # ax.set(
+        #     xlim=[5.0, 5.0 + 2],
+        #     xticks=[5, 6, 7],
+        #     ylim=[0.1, 0.1+0.35],
+        #     yticks=[0.1, 0.2, 0.3, 0.4],
+        # )
+
+        # Plot Velocity in body frame
+        ylabels = [r"$v_x$ (m/s)", r"$v_y$ (m/s)", r"$v_z$ (m/s)"]
+        for k, ylabel in zip(["vx", "vy"], ylabels):
+            fig, ax = plt.subplots(figsize=sysid_figsize)  # Used to be twothirdwidth_figsize
+            figures[k] = (fig, ax)
+            plot_graphs(ax, include, recon, k, "Time (s)", ylabel)
+            if k == "vy":
+                plot_zoomed_frame(ax, 6.0, -2.0, 0.2, 0.2, 4.0, 2.0)
+                # plot_zoomed_frame(ax, 5.0, -2.0, 2.0, 2.0, 1.0, 1.0)
+            ax.set(
+                ylim=[-3, 3],
+                yticks=[-2, 0, 2],
+            )
+
+        fig, ax = plt.subplots(figsize=sysid_figsize)
+        figures["vy_zoom"] = (fig, ax)
+        plot_graphs(ax, include, recon, "vy", "Time (s)", ylabels[1])
+        ax.set(
+            xlim=[6.1, 6.1 + 0.2],
+            xticks=[6.1, 6.2, 6.3],
+            ylim=[-1.925, -1.825],
+            yticks=[-1.9, -1.85],
+        )
+        # ax.set(
+        #     xlim=[5.0, 5.0 + 2],
+        #     xticks=[5, 6, 7],
+        #     ylim=[-2, 0],
+        #     yticks=[-2, -1, 0],
+        # )
+
+        # ax.legend()
+
+        ###############################################################
+        # SAVING
+        ###############################################################
+        for plot_name, (fig, ax) in figures.items():
+            fig.savefig(f"{fig_dir}/cf_sysid_{plot_name}_legend.pdf", bbox_inches=export_legend(fig, ax.get_legend()))
+            ax.get_legend().remove()
+            fig.savefig(f"{fig_dir}/cf_sysid_{plot_name}.pdf", bbox_inches='tight')
+            print(f"Saved {plot_name} to {fig_dir}/cf_sysid_{plot_name}.pdf")
+        return
+
+
+def plot_crazyflie_dists(exp_dir: str, cache_dir: str = None, fig_dir: str = None, regenerate_cache: bool = True):
+    # Create cache directory
+    cache_dir = f"{exp_dir}/cache-plots" if cache_dir is None else cache_dir
+    os.makedirs(cache_dir, exist_ok=True)
+    print(f"Cache directory: {cache_dir}")
+    # Create figure directory
+    fig_dir = f"{exp_dir}/figs" if fig_dir is None else fig_dir
+    os.makedirs(fig_dir, exist_ok=True)
+    print(f"Figure directory: {fig_dir}")
+    DATA_DELAY_FILE = os.path.join(exp_dir, "sysid_data.pkl")
+    CACHE_FILE = f"{cache_dir}/plot_crazyflie_dists.pkl"  # todo: Nothing cached at the moment...
+
+    if regenerate_cache or not os.path.exists(CACHE_FILE):
+        # Load recorded real-world data
+        with open(DATA_DELAY_FILE, "rb") as f:  # Load record
+            record: base.EpisodeRecord = pickle.load(f)
+
+        n = next(iter(record.nodes.values()))
+        if n.steps.seq.ndim == 2:
+            record = jax.tree_util.tree_map(lambda x: x.flatten(), record)
+            # Filter -1 from record
+            record = jax.tree_util.tree_map(lambda x: x[x != -1], record)
+
+        # Get data
+        data, info = dict(step={}, inputs={}), dict(step={}, inputs={})
+        for name, n in record.nodes.items():
+            data["step"][name] = n.steps.delay
+            info["step"][name] = n.info
+            data["inputs"][name] = {}
+            info["inputs"][name] = {}
+            for input_name, i in n.inputs.items():
+                data["inputs"][name][input_name] = i.messages.delay
+                info["inputs"][name][input_name] = (n.info.inputs[input_name], n.info)
+
+        def init_estimator(x, i):
+            name = i.name if not isinstance(i, tuple) else f"{i[0].output}->{i[1].name}"
+            est = GMMEstimator(x, name)
+            return est
+
+        # Initialize estimators
+        est = jax.tree_util.tree_map(lambda x, i: init_estimator(x, i), data, info)
+
+        # Fit estimators
+        jax.tree_util.tree_map(lambda e: e.fit(num_steps=300, num_components=2, step_size=0.05, seed=0), est)
+
+        # Get distributions
+        dist = jax.tree_util.tree_map(lambda e: e.get_dist(), est)
+
+        # Get final_state
+        w_ms = jax.tree_util.tree_map(lambda e: e._rescale(e.adam_get_params(e.final_state_norm)), est)
+
+        CACHE_DATA = dict(data=data, info=info, w_ms=w_ms, dist=dist)
+        with open(CACHE_FILE, "wb") as f:
+            pickle.dump(CACHE_DATA, f)
+            print(f"Saved cache to {CACHE_FILE}")
+    else:
+        with open(CACHE_FILE, "rb") as f:
+            CACHE_DATA = pickle.load(f)
+        print(f"Loading cache from {CACHE_FILE}")
+        data = CACHE_DATA["data"]
+        info = CACHE_DATA["info"]
+        w_ms = CACHE_DATA["w_ms"]
+        dist = CACHE_DATA["dist"]
+
+    # Calculate statistics
+    print("QUADROTOR DELAY STATISTICS")
+    mean_data = jax.tree_util.tree_map(lambda x: f"mean: {x.mean()*1000: .1f} ms", data)
+    std_data = jax.tree_util.tree_map(lambda x: f"std: {x.std()*1000: .1f} ms", data)
+    max_data = jax.tree_util.tree_map(lambda x: f"max: {x.max()*1000: .1f} ms", data)
+    min_data = jax.tree_util.tree_map(lambda x: f"min: {x.min()*1000: .1f} ms", data)
+    stats_data = jax.tree_util.tree_map(lambda *x: ", ".join(x), mean_data, std_data, max_data, min_data)
+    eqx.tree_pprint(stats_data["step"])
+    # eqx.tree_pprint(stats_data["inputs"])
+
+    # Start plotting distributions
+    figures = {}
+    # twothirdwidth_figsize = [c * s for c, s in zip([2 / 3, 0.5], rescaled_figsize)]
+    # [c * s for c, s in zip([1, 0.52], rescaled_figsize)]
+    figsize = [c * s for c, s in zip([1 / 3, 0.5], rescaled_figsize)]  # Used to be twothirdwidth_figsize
+
+    def cycling_kwargs_generator():
+        cindex = 1
+        while True:
+            kwargs_comp = {"color": ECOLOR["component_delay"], "linestyle": "-", "linewidth": 3}
+            if cindex == 1:
+                # kwargs_comp["label"] = f"{LABELS['component_delay']} {cindex}"
+                kwargs_comp["label"] = f"{LABELS['component_delay']}"
+            else:
+                kwargs_comp["label"] = None
+            yield kwargs_comp
+            cindex += 1
+
+    def plot_dist(_ax, dtype, _dist, _w_ms, _delays):
+        percentile = 99.9
+        xscale = 1000.0  # m to ms
+        xmin = 0.0
+        # xmax = _dist.quantile(percentile / 100)  # if delays is not None else dist.quantile(0.99)*1.05
+        xmax = _delays.max()#_dist.quantile(percentile / 100)  # if delays is not None else dist.quantile(0.99)*1.05
+        xmax *= xscale
+
+        # Rescale and only keep below xmax
+        _delays = xscale*_delays
+        _delays = _delays[_delays <= xmax]  # Filter out negative delays
+
+        # Plot histogram
+        _ax.hist(_delays, bins=30, density=True, label=LABELS[f"data_{dtype}_delay"], edgecolor=ECOLOR[f"{dtype}_delay"], facecolor=FCOLOR[f"{dtype}_delay"], alpha=0.3)
+
+        # Plot pdfs
+        kwargs_gmm = {"color": ECOLOR["gmm_delay"], "linestyle": "-", "linewidth": 3}
+        w, _, m, s = _w_ms
+        m *= xscale
+        s += onp.log(xscale)
+        plot_component_norm_pdfs(w, m, s, xmin=xmin, xmax=xmax*2, ax=_ax, num_points=300,
+                                 kwargs_comp=cycling_kwargs_generator, plot_comp=False,
+                                 kwargs_gmm=kwargs_gmm)
+        ylim = list(_ax.get_ylim())  # Get current y-limits
+        ylim[0] = 1e-2
+        _ax.set(xlabel="delay (ms)",
+               ylabel="density",
+               yscale="log",
+               ylim=ylim,
+               # xlim=[xmin, round(xmax, 0)],
+               xlim=[xmin, xmax],
+               xticks=[0, round(xmax / 2, 0), round(xmax, 0)],
+               )
+
+        # Create a rectangular patch for "communication delay"
+        other_dtype = "inputs" if dtype == "step" else "step"
+        other_patch = patches.Patch(label=LABELS[f"data_{other_dtype}_delay"], edgecolor=ECOLOR[f"{other_dtype}_delay"], facecolor=FCOLOR[f"{other_dtype}_delay"], alpha=0.3)
+
+        # Add the patch to the legend
+        handles, labels = ax.get_legend_handles_labels()
+        handles = [other_patch] + handles
+        labels = [LABELS[f"data_{other_dtype}_delay"]] + labels
+
+        _ax.legend(handles=handles, labels=labels,
+                   bbox_to_anchor=(2, 2),
+                   ncol=6, loc='lower right', fancybox=True, shadow=True)
+
+    for name, d in dist["step"].items():
+        dtype = "step"
+        figname = f"dist_{dtype}_{name}"
+        fig, ax = plt.subplots(figsize=figsize)
+        figures[figname] = (fig, ax)
+        plot_dist(ax, dtype, d, w_ms[dtype][name], data[dtype][name])
+
+    for name_in, dd in dist["inputs"].items():
+        for name_out, d in dd.items():
+            dtype = "inputs"
+            figname = f"dist_{dtype}_{name_out}->{name_in}"
+            fig, ax = plt.subplots(figsize=figsize)
+            figures[figname] = (fig, ax)
+            plot_dist(ax, dtype, d, w_ms[dtype][name_in][name_out], data[dtype][name_in][name_out])
+
+    ###############################################################
+    # SAVING
+    ###############################################################
+    for plot_name, (fig, ax) in figures.items():
+        fig.savefig(f"{fig_dir}/cf_{plot_name}_legend.pdf", bbox_inches=export_legend(fig, ax.get_legend()))
+        ax.get_legend().remove()
+        fig.savefig(f"{fig_dir}/cf_{plot_name}.pdf", bbox_inches='tight')
+        print(f"Saved {plot_name} to {fig_dir}/cf_{plot_name}.pdf")
+
+        # Save excalidraw version
+        for line in ax.lines:
+            line.set_linewidth(4.5)
+        for bar in ax.patches:
+            bar.set_linewidth(0)  # Adjust the linewidth as needed
+            bar.set_edgecolor(FCOLOR["gmm"])  # Optional: set edge color to make lines visible
+            bar.set_facecolor(FCOLOR["gmm"])  # Optional: set edge color to make lines visible
+            bar.set_alpha(1.0)
+        # Adjust x-ticks position
+        ax.tick_params(axis='x', pad=4, labelsize=35)  # Move x-ticks down (adjust `pad` value as needed)
+
+        # Adjust figure size to ensure width is 1.3 times the height
+        fig_width, fig_height = fig.get_size_inches()
+        fig.set_size_inches(fig_width, fig_width / 1.3)
+        # ax.set_aspect(1.35)  # Set aspect ratio to 1.3 (width = 1.3 * height)
+
+        # Remove top and right spines (part of the frame)
+        # ax.set_frame_on(True)  # Hide the axes frame
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        # Customize bottom and left spines (x and y axes)
+        ax.spines['bottom'].set_color('black')
+        ax.spines['bottom'].set_linewidth(5)  # Adjust thickness as needed
+        ax.spines['left'].set_color('black')
+        ax.spines['left'].set_linewidth(5)  # Adjust thickness as needed
+
+        # Increase x-label font size
+        ax.set_xlabel("delay (ms)", fontsize=40)  # Set x-label text and increase font size (adjust `fontsize` as needed)
+
+        # Increase gridline thickness
+        ax.grid(True, linewidth=4)  # Set to desired thickness
+        ax.set(# xlabel="",
+               ylabel="",
+               # xticks=[],
+               # yticks=[]
+               )  # Remove axis labels
+        if "->" in plot_name:
+            ax.set_xlabel("")  # Remove x-axis labels
+        # Remove y-axis labels but keep ticks
+        ax.set_yticklabels([])  # Remove y-axis labels
+        # Save the line plot only
+        fig.savefig(f"{fig_dir}/cf_{plot_name}_min.png", transparent=True, bbox_inches='tight')
+
+
+def plot_pendulum_dists(exp_dir: str, cache_dir: str = None, fig_dir: str = None, regenerate_cache: bool = True):
+    # Create cache directory
+    cache_dir = f"{exp_dir}/cache-plots" if cache_dir is None else cache_dir
+    os.makedirs(cache_dir, exist_ok=True)
+    print(f"Cache directory: {cache_dir}")
+    # Create figure directory
+    fig_dir = f"{exp_dir}/figs" if fig_dir is None else fig_dir
+    os.makedirs(fig_dir, exist_ok=True)
+    print(f"Figure directory: {fig_dir}")
+    DATA_DELAY_FILE = os.path.join(exp_dir, "real_data.pkl")
+    CACHE_FILE = f"{cache_dir}/plot_pendulum_dists.pkl"  # todo: Nothing cached at the moment...
+
+    if regenerate_cache or not os.path.exists(CACHE_FILE):
+        # Load recorded real-world data
+        with open(DATA_DELAY_FILE, "rb") as f:  # Load record
+            record: base.ExperimentRecord = pickle.load(f)
+        record = record.stack()
+
+        n = next(iter(record.nodes.values()))
+        if n.steps.seq.ndim == 2:
+            record = jax.tree_util.tree_map(lambda x: x.flatten(), record)
+            # Filter -1 from record
+            record = jax.tree_util.tree_map(lambda x: x[x != -1], record)
+
+        # Get data
+        data, info = dict(step={}, inputs={}), dict(step={}, inputs={})
+        for name, n in record.nodes.items():
+            data["step"][name] = n.steps.delay
+            info["step"][name] = n.info
+            data["inputs"][name] = {}
+            info["inputs"][name] = {}
+            for input_name, i in n.inputs.items():
+                data["inputs"][name][input_name] = i.messages.delay
+                info["inputs"][name][input_name] = (n.info.inputs[input_name], n.info)
+
+        def init_estimator(x, i):
+            name = i.name if not isinstance(i, tuple) else f"{i[0].output}->{i[1].name}"
+            est = GMMEstimator(x, name)
+            return est
+
+        # Initialize estimators
+        est = jax.tree_util.tree_map(lambda x, i: init_estimator(x, i), data, info)
+
+        # Fit estimators
+        jax.tree_util.tree_map(lambda e: e.fit(num_steps=300, num_components=4, step_size=0.05, seed=0), est)
+
+        # Get distributions
+        dist = jax.tree_util.tree_map(lambda e: e.get_dist(), est)
+
+        # Get final_state
+        w_ms = jax.tree_util.tree_map(lambda e: e._rescale(e.adam_get_params(e.final_state_norm)), est)
+
+        CACHE_DATA = dict(data=data, info=info, w_ms=w_ms, dist=dist)
+        with open(CACHE_FILE, "wb") as f:
+            pickle.dump(CACHE_DATA, f)
+            print(f"Saved cache to {CACHE_FILE}")
+    else:
+        with open(CACHE_FILE, "rb") as f:
+            CACHE_DATA = pickle.load(f)
+        print(f"Loading cache from {CACHE_FILE}")
+        data = CACHE_DATA["data"]
+        info = CACHE_DATA["info"]
+        w_ms = CACHE_DATA["w_ms"]
+        dist = CACHE_DATA["dist"]
+
+    # Calculate statistics
+    print("PENDULUM DELAY STATISTICS")
+    mean_data = jax.tree_util.tree_map(lambda x: f"mean: {x.mean() * 1000: .1f} ms", data)
+    std_data = jax.tree_util.tree_map(lambda x: f"std: {x.std() * 1000: .1f} ms", data)
+    max_data = jax.tree_util.tree_map(lambda x: f"max: {x.max() * 1000: .1f} ms", data)
+    min_data = jax.tree_util.tree_map(lambda x: f"min: {x.min() * 1000: .1f} ms", data)
+    stats_data = jax.tree_util.tree_map(lambda *x: ", ".join(x), mean_data, std_data, max_data, min_data)
+    eqx.tree_pprint(stats_data["step"])
+#     eqx.tree_pprint(stats_data["inputs"])
+
+    # Start plotting distributions
+    figures = {}
+    # twothirdwidth_figsize = [c * s for c, s in zip([2 / 3, 0.5], rescaled_figsize)]
+    # [c * s for c, s in zip([1, 0.52], rescaled_figsize)]
+    figsize = [c * s for c, s in zip([1 / 3, 0.5], rescaled_figsize)]  # Used to be twothirdwidth_figsize
+
+    def cycling_kwargs_generator():
+        cindex = 1
+        while True:
+            kwargs_comp = {"color": ECOLOR["component_delay"], "linestyle": "-", "linewidth": 3}
+            if cindex == 1:
+                # kwargs_comp["label"] = f"{LABELS['component_delay']} {cindex}"
+                kwargs_comp["label"] = f"{LABELS['component_delay']}"
+            else:
+                kwargs_comp["label"] = None
+            yield kwargs_comp
+            cindex += 1
+
+    def plot_dist(_ax, dtype, _dist, _w_ms, _delays):
+        percentile = 99.9
+        xscale = 1000.0  # m to ms
+        xmin = 0.0
+        xmax = _dist.quantile(percentile / 100)  # if delays is not None else dist.quantile(0.99)*1.05
+        xmax *= xscale
+
+        # Rescale and only keep below xmax
+        _delays = xscale*_delays
+        _delays = _delays[_delays <= xmax]  # Filter out negative delays
+
+        # Plot histogram
+        _ax.hist(_delays, bins=30, density=True, label=LABELS[f"data_{dtype}_delay"], edgecolor=ECOLOR[f"{dtype}_delay"], facecolor=FCOLOR[f"{dtype}_delay"], alpha=0.3)
+
+        # Plot pdfs
+        kwargs_gmm = {"color": ECOLOR["gmm_delay"], "linestyle": "-", "linewidth": 3}
+        w, _, m, s = _w_ms
+        m *= xscale
+        s += onp.log(xscale)
+        plot_component_norm_pdfs(w, m, s, xmin=xmin, xmax=xmax*2, ax=_ax, num_points=300, #xscale=xscale,
+                                 kwargs_comp=cycling_kwargs_generator, plot_comp=False,
+                                 kwargs_gmm=kwargs_gmm)
+        ylim = list(_ax.get_ylim())  # Get current y-limits
+        ylim[0] = 1e-4
+        _ax.set(xlabel="delay (ms)",
+               ylabel="density",
+               yscale="log",
+               ylim=ylim,
+               xlim=[xmin, round(xmax, 0)],
+               xticks=[0, round(xmax / 2, 0), round(xmax, 0)],
+               )
+
+        # Create a rectangular patch for "communication delay"
+        other_dtype = "inputs" if dtype == "step" else "step"
+        other_patch = patches.Patch(label=LABELS[f"data_{other_dtype}_delay"], edgecolor=ECOLOR[f"{other_dtype}_delay"], facecolor=FCOLOR[f"{other_dtype}_delay"], alpha=0.3)
+
+        # Add the patch to the legend
+        handles, labels = ax.get_legend_handles_labels()
+        handles = [other_patch] + handles
+        labels = [LABELS[f"data_{other_dtype}_delay"]] + labels
+
+        # Plot legend
+        _ax.legend(handles=handles, labels=labels,
+                   bbox_to_anchor=(2, 2),
+                   ncol=6, loc='lower right', fancybox=True, shadow=True)
+
+    for name, d in dist["step"].items():
+        dtype = "step"
+        figname = f"dist_{dtype}_{name}"
+        fig, ax = plt.subplots(figsize=figsize)
+        figures[figname] = (fig, ax)
+        plot_dist(ax, dtype, d, w_ms[dtype][name], data[dtype][name])
+
+    for name_in, dd in dist["inputs"].items():
+        for name_out, d in dd.items():
+            dtype = "inputs"
+            figname = f"dist_{dtype}_{name_out}->{name_in}"
+            fig, ax = plt.subplots(figsize=figsize)
+            figures[figname] = (fig, ax)
+            plot_dist(ax, dtype, d, w_ms[dtype][name_in][name_out], data[dtype][name_in][name_out])
+
+    ###############################################################
+    # SAVING
+    ###############################################################
+    for plot_name, (fig, ax) in figures.items():
+        fig.savefig(f"{fig_dir}/{plot_name}_legend.pdf", bbox_inches=export_legend(fig, ax.get_legend()))
+        ax.get_legend().remove()
+        fig.savefig(f"{fig_dir}/{plot_name}.pdf", bbox_inches='tight')
+        print(f"Saved {plot_name} to {fig_dir}/{plot_name}.pdf")
+
+        # Save excalidraw version
+        for line in ax.lines:
+            line.set_linewidth(4.5)
+        for bar in ax.patches:
+            bar.set_linewidth(0)  # Adjust the linewidth as needed
+            bar.set_edgecolor(FCOLOR["gmm"])  # Optional: set edge color to make lines visible
+            bar.set_facecolor(FCOLOR["gmm"])  # Optional: set edge color to make lines visible
+            bar.set_alpha(1.0)
+        # Adjust x-ticks position
+        ax.tick_params(axis='x', pad=4, labelsize=35)  # Move x-ticks down (adjust `pad` value as needed)
+
+        # Adjust figure size to ensure width is 1.3 times the height
+        fig_width, fig_height = fig.get_size_inches()
+        fig.set_size_inches(fig_width, fig_width / 1.3)
+        # ax.set_aspect(1.35)  # Set aspect ratio to 1.3 (width = 1.3 * height)
+
+        # Remove top and right spines (part of the frame)
+        # ax.set_frame_on(True)  # Hide the axes frame
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        # Customize bottom and left spines (x and y axes)
+        ax.spines['bottom'].set_color('black')
+        ax.spines['bottom'].set_linewidth(5)  # Adjust thickness as needed
+        ax.spines['left'].set_color('black')
+        ax.spines['left'].set_linewidth(5)  # Adjust thickness as needed
+
+        # Increase x-label font size
+        ax.set_xlabel("delay (ms)", fontsize=40)  # Set x-label text and increase font size (adjust `fontsize` as needed)
+
+        # Increase gridline thickness
+        ax.grid(True, linewidth=4)  # Set to desired thickness
+        ax.set(# xlabel="",
+               ylabel="",
+               # xticks=[],
+               # yticks=[]
+               )  # Remove axis labels
+        if "->" in plot_name:
+            ax.set_xlabel("")  # Remove x-axis labels
+        # Remove y-axis labels but keep ticks
+        ax.set_yticklabels([])  # Remove y-axis labels
+        # Save the line plot only
+        fig.savefig(f"{fig_dir}/{plot_name}_min.png", transparent=True, bbox_inches='tight')
+
+
+def plot_pendulum_sysid(exp_dir: str, cache_dir: str = None, fig_dir: str = None, regenerate_cache: bool = True):
+    # Create cache directory
+    cache_dir = f"{exp_dir}/cache-plots" if cache_dir is None else cache_dir
+    os.makedirs(cache_dir, exist_ok=True)
+    print(f"Cache directory: {cache_dir}")
+    # Create figure directory
+    fig_dir = f"{exp_dir}/figs" if fig_dir is None else fig_dir
+    os.makedirs(fig_dir, exist_ok=True)
+    print(f"Figure directory: {fig_dir}")
+    DATA_SYSID_FILE = os.path.join(exp_dir, "sysid_data.pkl")
+    TIMINGS_SYSID_FILE = os.path.join(exp_dir, "sysid_elapsed.pkl")
+    SOL_SYSID_FILE = os.path.join(exp_dir, "sysid_log_state.pkl")
+    # STATE_SYSID_FILE = os.path.join(exp_dir, "sysid_sol_state.pkl")
+    EVAL_SYSID_FILE = os.path.join(exp_dir, "sysid_gs_eval.pkl")
+    CACHE_FILE = f"{cache_dir}/plot_pendulum_sysid.pkl"  # todo: Nothing cached at the moment...
+    EPS_IDX = -1
+
+    if regenerate_cache or not os.path.exists(CACHE_FILE):
+        # Load SOL_STATE, SOL, and TIMINGS
+        # with open(STATE_SYSID_FILE, "rb") as f:
+        #     state = pickle.load(f)
+        with open(TIMINGS_SYSID_FILE, "rb") as f:
+            timings = pickle.load(f)
+        with open(SOL_SYSID_FILE, "rb") as f:
+            sol = pickle.load(f)
+        log_gen_1_nonan = onp.nan_to_num(sol.state["log_gen_1"], copy=True, nan=onp.inf)
+        idx_min = onp.argmin(log_gen_1_nonan)
+        tsolve = timings["solve"]
+        tjit = timings["solve_jit"]
+        tbest = tsolve*(idx_min+1) / len(sol.state["log_gen_1"])
+        num_params = len(sol.state["top_params"][-1])
+        print(f"Pendulum | Best solution at generation {idx_min+1} | Solve time: {tsolve:.2f} s | JIT time: {tjit:.2f} s | Best time: {tbest:.2f} s | num_params: {num_params}")
+
+        # Load recorded real-world data
+        with open(DATA_SYSID_FILE, "rb") as f:  # Load record
+            data: base.EpisodeRecord = pickle.load(f)
+
+        # Load outputs
+        outputs = {name: n.steps.output for name, n in data.nodes.items()}
+        outputs = jax.tree_util.tree_map(lambda x: x[EPS_IDX], outputs)
+        ts = {name: n.steps.ts_start for name, n in data.nodes.items()}
+        ts = jax.tree_util.tree_map(lambda x: x[EPS_IDX], ts)
+
+        # Load evaluation data
+        with open(EVAL_SYSID_FILE, "rb") as f:  # Load record
+            gs: base.GraphState = pickle.load(f)
+        params = dict(jax.tree_util.tree_map(lambda x: x[0], gs.params))
+        delay_act_to_world = params["actuator"].actuator_delay.mean()
+        delay_world_to_sensor = params["sensor"].sensor_delay.mean()
+        delay_world_to_cam = params["camera"].sensor_delay.mean()
+        print(f"Delays | Actuator to world: {delay_act_to_world*1000:.0f} ms, "
+              f"world to sensor: {delay_world_to_sensor*1000:.0f} ms, "
+              f"world to cam: {delay_world_to_cam*1000:.0f} ms")
 
         # Get action
         actuator = dict(ts=ts["actuator"],
@@ -269,7 +1106,7 @@ def plot_system_identification(exp_dir: str, cache_dir: str = None, fig_dir: str
                         thdot=est_nopred["thdot"])
 
         # Group measurement related data (same keys: ts, th, thdot)
-        recon = dict(sensor=sensor, world=world, camera=camera, est_nopred=est_nopred, #est_meas=est_meas,
+        recon = dict(sensor=sensor, world=world, camera=camera, est_nopred=est_nopred, est_meas=est_meas,
                      est_future=est_future)
         # Wrap
         for key, value in recon.items():
@@ -310,8 +1147,10 @@ def plot_system_identification(exp_dir: str, cache_dir: str = None, fig_dir: str
                 ax.plot(value["ts"], value["th"], label=key, color=ECOLOR[key])
             ax.legend()
 
-        th_include = ["sensor", "world", "camera", "est_future", "est_nopred", "est_meas"]
-        thdot_include = ["sensor", "world", "est_future", "est_nopred", "est_meas"]
+        # th_include = ["sensor", "world", "camera", "est_future", "est_nopred", "est_meas"]
+        # thdot_include = ["sensor", "world", "est_future", "est_nopred", "est_meas"]
+        th_include = ["sensor", "world", "est_future", "est_nopred"]
+        thdot_include = ["sensor", "world", "est_future", "est_nopred"]
 
         def plot_graphs(ax, keys, interp, y_key, xlabel, ylabel):
             for key, value in interp.items():
@@ -335,8 +1174,8 @@ def plot_system_identification(exp_dir: str, cache_dir: str = None, fig_dir: str
         figures = {}
         # twothirdwidth_figsize = [c * s for c, s in zip([2 / 3, 0.5], rescaled_figsize)]
         # [c * s for c, s in zip([1, 0.52], rescaled_figsize)]
-        sysid_figsize = [c * s for c, s in zip([6/3, 0.3], rescaled_figsize)]   # Used to be twothirdwidth_figsize
-        sysid_zoom_figsize = [c * s for c, s in zip([2/3, 0.3], rescaled_figsize)]  # Used to be onethirdwidth_figsize
+        sysid_figsize = [c * s for c, s in zip([3/3, 0.4], rescaled_figsize)]   # Used to be twothirdwidth_figsize
+        sysid_zoom_figsize = [c * s for c, s in zip([1/3, 0.4], rescaled_figsize)]  # Used to be onethirdwidth_figsize
         # Plot th
         fig, ax = plt.subplots(figsize=sysid_figsize)  # Used to be twothirdwidth_figsize
         figures["sysid_th"] = (fig, ax)
@@ -390,7 +1229,7 @@ def plot_system_identification(exp_dir: str, cache_dir: str = None, fig_dir: str
         return
 
 
-def plot_reinforcement_learning(exp_dir: str, cache_dir: str = None, fig_dir: str = None, regenerate_cache: bool = True):
+def plot_pendulum_rl(exp_dir: str, cache_dir: str = None, fig_dir: str = None, regenerate_cache: bool = True):
     # Create cache directory
     cache_dir = f"{exp_dir}/cache-plots" if cache_dir is None else cache_dir
     os.makedirs(cache_dir, exist_ok=True)
@@ -403,7 +1242,7 @@ def plot_reinforcement_learning(exp_dir: str, cache_dir: str = None, fig_dir: st
     SKIP_STEPS = 100
     COS_TH_THRESHOLD = 0.1737  # -0.1737 (~10 deg),  0.2 (strict), 0.9 (not very effective)
     THDOT_THRESHOLD = 0.5  # 0.5 (strict), 2.0 (not strict)
-
+    TIMINGS_FILE = os.path.join(exp_dir, "ctrl_elapsed.pkl")
     EVAL_REAL = {
         "delay_estimator2estimator_cam_pred": dict(policy="delay_estimator", setup="predictive", estimator=True, cam=True, pred=True, eval="real_data.pkl", notes="Policy should have smallest sim2real gap, so should work"),
         "nodelay_fullstate2estimator_cam_pred": dict(policy="nodelay_fullstate", setup="predictive", estimator=True, cam=True, pred=True, eval="nodelay_cam_real_data.pkl", notes="Estimator in real-world compensates for sim2real gap (partial obs., delays), so simple policy works."),
@@ -421,7 +1260,7 @@ def plot_reinforcement_learning(exp_dir: str, cache_dir: str = None, fig_dir: st
         "nodelay_stacked": dict(fullstate=False, estimator=False, delay=False, eval="stacked_nodelay_gs_evals.pkl", metrics="stacked_nodelay_ppo_metrics.pkl", notes="No estimator, no delay simulation, so policy only solves partial observability but does not compensate for delays.")
     }
 
-    CACHE_FILE = f"{cache_dir}/plot_reinforcement_learning.pkl"
+    CACHE_FILE = f"{cache_dir}/plot_pendulum_rl.pkl"
     if regenerate_cache or not os.path.exists(CACHE_FILE):
 
         def _get_reward_and_success(th, thdot):
@@ -510,6 +1349,11 @@ def plot_reinforcement_learning(exp_dir: str, cache_dir: str = None, fig_dir: st
             df_cache = pickle.load(f)
             df_sim2real = df_cache["df_sim2real"]
             df_trans = df_cache["df_trans"]
+
+    # Get timings
+    with open(TIMINGS_FILE, "rb") as f:
+        timings = pickle.load(f)
+    print(f"Pendulum | run time: {timings['solve']:.2f} s | JIT time: {timings['solve_jit']:.2f} s")
 
     figures = {}
 
@@ -804,11 +1648,99 @@ def plot_abstract(exp_dir: str, cache_dir: str = None, fig_dir: str = None, rege
         print(f"Saved {plot_name} to {fig_dir}/{plot_name}.pdf")
 
 
+def plot_computation(exp_dir_pend: str, exp_dir_cf: str, fig_dir: str, regenerate_cache: bool = True):
+    # Create cache directory
+    cache_dir = f"{exp_dir_pend}/cache-plots"
+    os.makedirs(cache_dir, exist_ok=True)
+    print(f"Cache directory: {cache_dir}")
+    # Create figure directory
+    fig_dir = f"{exp_dir_pend}/figs" if fig_dir is None else fig_dir
+    os.makedirs(fig_dir, exist_ok=True)
+    print(f"Figure directory: {fig_dir}")
+
+    PEND_FILE = f"{exp_dir_pend}/rollout_stats.pkl"
+    CF_FILE = f"{exp_dir_cf}/delay_rollout_stats.pkl"
+
+    INDEX_CACHE_FILE = f"{cache_dir}/index.pkl"
+    if regenerate_cache or not os.path.exists(INDEX_CACHE_FILE):
+        # No caching used.
+        pass
+
+    # Load data
+    with open(PEND_FILE, "rb") as f:
+        pend_stats = pickle.load(f)
+    with open(CF_FILE, "rb") as f:
+        cf_stats = pickle.load(f)
+
+    # Create dataframe
+    df_pend = pd.DataFrame(pend_stats).transpose()
+    df_cf = pd.DataFrame(cf_stats).transpose()
+
+    # Add experiment name as a row
+    df_pend["system"] = "pendulum"
+    df_cf["system"] = "quadrotor"
+    df_stats = pd.concat([df_pend, df_cf])
+    df_stats["num_rollouts"] = df_stats["num_rollouts"].astype(int)
+    df_stats = df_stats.sort_values(by='num_rollouts')
+    # df_power_of_4 = df_stats[df_stats['num_rollouts'].isin([2 ** (2*i) for i in range(15)])]
+
+    # Plot rollout stats
+    figsize = [c * s for c, s in zip([2/3, 0.5], rescaled_figsize)]
+    figures = {}
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=figsize)
+    figures["rollout_stats"] = (fig, ax)
+    sns.barplot(x="num_rollouts", y="fps", hue="system", data=df_stats, ax=ax,
+                palette=FCOLOR,
+                # hue_order=[LABELS[k] for k in ["delay_estimator", "nodelay_stacked", "delay_stacked"]],
+                # order=[k for k in ["sim", "real"]]
+    )
+
+    # Get current x-ticks
+    xticks = df_stats["num_rollouts"].unique()
+    current_xticks = ax.get_xticks()
+
+    # # Create new labels with smaller "2" and smaller overall text
+    # new_xticklabels = [
+    #     f"$\\mathregular{{2^{{\\scriptscriptstyle{{{int(np.log2(tick))}}}}}}}$" if tick > 0 else ""
+    #     for tick in xticks
+    # ]
+
+    # # Create new labels for the current x-ticks
+    new_xticklabels = [f"$2^{{{int(np.log2(tick))}}}$" if i % 2 == 0 else "" for i, tick in enumerate(xticks)]
+
+    # Set the new x-tick labels
+    ax.set_xticks(current_xticks)
+    ax.set_xticklabels(new_xticklabels)
+    ax.set_yscale("log")#, base=2)
+    ax.set(
+        xlabel="parallel envs",
+        ylabel="speed (steps/s)",
+        # yscale="log",
+        ylim=[1e3, 1e8],
+    )
+    # Place the legend on the right outside of the figure
+    ax.legend(handles=ax.get_legend_handles_labels()[0], labels=ax.get_legend_handles_labels()[1],
+              bbox_to_anchor=(2, 2),
+              ncol=4, loc='lower right', fancybox=True, shadow=True)
+    # plt.show()
+
+    ###############################################################
+    # SAVING
+    ###############################################################
+    for plot_name, (fig, ax) in figures.items():
+        fig.savefig(f"{fig_dir}/{plot_name}_legend.pdf", bbox_inches=export_legend(fig, ax.get_legend()))
+        ax.get_legend().remove()
+        fig.savefig(f"{fig_dir}/{plot_name}.pdf", bbox_inches='tight')
+        print(f"Saved {plot_name} to {fig_dir}/{plot_name}.pdf")
+
+    return []
+
+
 if __name__ == "__main__":
     jnp.set_printoptions(precision=3, suppress=True)
     onp.set_printoptions(precision=3, suppress=True)
     # todo: plot results
-    #   - Delay distributions
+    #   [D] Delay distributions
     #   [D] System identification
     #   - detection pipeline.
     #   - pixels
@@ -816,7 +1748,7 @@ if __name__ == "__main__":
     #   [D] action
     #   [D] th, thdot (+ zoomed)
     #   - CMA-ES loss
-    #   - MSE
+    #   [D] MSE
     #   - timings
     #   [D] Reinforcement learning (rwd learning curves, sim2real evaluation, timings)
     #   [D] Videos of experiments
@@ -830,6 +1762,10 @@ if __name__ == "__main__":
     # EXP_DIR = "/home/r2ci/rex/scratch/pendulum/logs/20240710_141737_brax_longerstack_dark"
     EXP_DIR_PENDULUM = "/home/r2ci/rex/scratch/pendulum/logs/20240710_141737_brax_norandomization_longerstack_v4_dark"
     EXP_DIR_ABSTRACT = "/home/r2ci/rex/scratch/abstract/logs/main_4-6-12Nodes_0.05Jitter_0sup"  # todo: _cem
+    # EXP_DIR_CRAZYFLIE = "/home/r2ci/rex/scratch/crazyflie/logs/20240816_path_following_inclined_landing_experiments"
+    EXP_DIR_CRAZYFLIE_SYSID = "/home/r2ci/rex/scratch/crazyflie/logs/20240816_path_following_inclined_landing_experiments/sysid_redo_with_nodelay"
+    EXP_DIR_CRAZYFLIE_DISTS = "/home/r2ci/rex/scratch/crazyflie/logs/20240816_path_following_inclined_landing_experiments/delay_1.0R"
+    EXP_DIR_CRAZYFLIE_PF = "/home/r2ci/rex/scratch/crazyflie/logs/20240816_path_following_inclined_landing_experiments"
     REGENERATE_CACHE = False
     print(f"Pendulum experiment directory: {EXP_DIR_PENDULUM}")
     print(f"Abstract experiment directory: {EXP_DIR_ABSTRACT}")
@@ -844,10 +1780,13 @@ if __name__ == "__main__":
     # print(f"Cache directory: {CACHE_DIR}")
 
     # Plot
-    figs = plot_abstract(exp_dir=EXP_DIR_ABSTRACT, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
-    # figs = plot_system_identification(exp_dir=EXP_DIR_PENDULUM, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
-    # figs = plot_reinforcement_learning(exp_dir=EXP_DIR_PENDULUM, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
-
+    # figs = plot_crazyflie_dists(exp_dir=EXP_DIR_CRAZYFLIE_DISTS, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
+    figs = plot_crazyflie_sysid(exp_dir=EXP_DIR_CRAZYFLIE_SYSID, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE or True)
+    # figs = plot_crazyflie_pathfollowing(exp_dir=EXP_DIR_CRAZYFLIE_PF, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
+    # figs = plot_abstract(exp_dir=EXP_DIR_ABSTRACT, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
+    # figs = plot_pendulum_sysid(exp_dir=EXP_DIR_PENDULUM, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
+    # figs = plot_pendulum_dists(exp_dir=EXP_DIR_PENDULUM, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
+    # figs = plot_pendulum_rl(exp_dir=EXP_DIR_PENDULUM, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
     # plot_delay_distributions(...)
+    # figs = plot_computation(exp_dir_pend=EXP_DIR_PENDULUM, exp_dir_cf=EXP_DIR_CRAZYFLIE_PF, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE) # todo: not working yet.
     # plt.show()
-

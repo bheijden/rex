@@ -348,7 +348,6 @@ class PPOAgent(BaseNode):
             # Newer mjx version has different API.
             self._mjx_m = mjx.put_model(self._mj_m)
             self._mjx_d = mjx.put_data(self._mj_m, self._mj_d)
-            mjx.get_data_into
 
     def init_params(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> PPOAgentParams:
         return PPOAgentParams(

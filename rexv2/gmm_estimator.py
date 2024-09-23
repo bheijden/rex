@@ -139,14 +139,27 @@ def plot_component_norm_pdfs(
     num_points,
     ax,
     animated: bool = False,
+    plot_comp=True,
+    plot_gmm=True,
+    kwargs_comp=None,
+    kwargs_gmm=None,
 ):
     x, pdfs, pdf = get_component_norm_pdfs(log_component_weights, component_mus, log_component_scales, xmin, xmax, num_points)
     artists = []
-    for component in range(pdfs.shape[1]):
-        a = ax.plot(x, pdfs[:, component], label=f"comp. {component}", animated=animated)[0]
+    if plot_comp:
+        kwargs_comp = kwargs_comp or (lambda: iter([{}]))  # Default to an empty dict if no generator provided
+        kwargs_comp = kwargs_comp or {}
+        for component, kwargs in zip(range(pdfs.shape[1]), kwargs_comp()):
+            kwargs["label"] = kwargs.get("label", f"comp. {component}")
+            a = ax.plot(x, pdfs[:, component], **kwargs, animated=animated)[0]
+            artists.append(a)
+    if plot_gmm:
+        kwargs_gmm = kwargs_gmm or {}
+        kwargs_gmm["label"] = kwargs_gmm.get("label", "gmm")
+        kwargs_gmm["linestyle"] = kwargs_gmm.get("linestyle", "--")
+        kwargs_gmm["color"] = kwargs_gmm.get("color", "red")
+        a = ax.plot(x, pdf, **kwargs_gmm, animated=animated)[0]
         artists.append(a)
-    a = ax.plot(x, pdf, linestyle="--", label="gmm", color="red", animated=animated)[0]
-    artists.append(a)
     return artists
 
 

@@ -311,8 +311,13 @@ class PPOAgent(BaseNode):
 
 
 class Environment(rl.Environment):
+
     def __init__(self, graph: Graph, params: Dict[str, base.Base] = None, only_init: bool = False, starting_eps: int = 0, randomize_eps: bool = False, order: Tuple[str, ...] = None):
         super().__init__(graph, params, only_init, starting_eps, randomize_eps, order)
+
+    @property  # todo: Currently just takes the max_steps from the graph.
+    def max_steps(self) -> Union[int, jax.typing.ArrayLike]:
+        return self.graph.max_steps
 
     def observation_space(self, graph_state: base.GraphState) -> rl.Box:
         cdata = self.get_observation(graph_state)

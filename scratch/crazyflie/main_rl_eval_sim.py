@@ -63,23 +63,24 @@ if __name__ == "__main__":
     CPU_DEVICES = itertools.cycle(jax.devices('cpu')[1:])
     WORLD_RATE = 50.
     MAX_ANGLE = onp.pi / 6
+    POSITION = onp.array([0.0, 0.0, 1.0])
+    CENTER = onp.array([0.0, 0.0, 1.0])
+    RADII = onp.array([1.0, 0.75, 0.5])
     ACTION_DIM = 2
-    NO_DELAY = False  # todo: change
+    NO_DELAY = True  # todo: change
     # MAPPING = ["t eta_ref", "phi_ref"]
     SUPERVISOR = "agent"
     LOG_DIR = "/home/r2ci/rex/scratch/crazyflie/logs"
-    EXP_DIR = f"{LOG_DIR}/20240813_142721_no_zref_eval_sysid_retry"  # todo:  change
+    EXP_DIR = f"{LOG_DIR}/20240816_path_following_inclined_landing_experiments_sim"  # todo:  change
     # Input files
     RECORD_FILE = f"{EXP_DIR}/sysid_data.pkl"  # todo:  change
     PARAMS_FILE = f"{EXP_DIR}/sysid_params.pkl"  # todo:  change
     # Output files
     delay_str = "nodelay" if NO_DELAY else "delay"
-    FIG_FILE = f"{EXP_DIR}/{delay_str}_fig.png"
-    METRICS_FILE = f"{EXP_DIR}/{delay_str}_metrics.pkl"
     AGENT_FILE = f"{EXP_DIR}/{delay_str}_agent_params.pkl"
-    ROLLOUT_FILE = f"{EXP_DIR}/{delay_str}_rollout.pkl"
-    HTML_FILE = f"{EXP_DIR}/{delay_str}_rollout.html"
-    ELAPSED_FILE = f"{EXP_DIR}/{delay_str}_elapsed.pkl"
+    # FIG_FILE = f"{EXP_DIR}/sim_{delay_str}_fig.png"
+    ROLLOUT_FILE = f"{EXP_DIR}/{delay_str}_sim_radii_rollout.pkl"
+    # HTML_FILE = f"{EXP_DIR}/sim_{delay_str}_rollout.html"
     SAVE_FILE = True
 
     # Seed
@@ -134,120 +135,68 @@ if __name__ == "__main__":
         if "agent" in params:
             params.pop("agent")
     else:
-        params = gs_init.params.unfreeze()
-        print(f"Params not found at {PARAMS_FILE}")
-        if "agent" in params:
-            params.pop("agent")
+        raise NotImplementedError("Params file not found!")
+
+    # Load trained params (if file exists)
+    if os.path.exists(AGENT_FILE):
+        with open(AGENT_FILE, "rb") as f:
+            agent_params = pickle.load(f)
+        print(f"Agent params loaded from {AGENT_FILE}")
+        params["agent"] = gs_init.params["agent"].replace(**agent_params.__dict__)
+    else:
+        # print(f"Agent params not found at {AGENT_FILE}")
+        raise FileNotFoundError(f"Agent params not found at {AGENT_FILE}")
 
     # Add agent params
-    rng, rng_agent = jax.random.split(rng)
-    params["agent"] = nodes["agent"].init_params(rng_agent)
     params["agent"] = params["agent"].replace(
-        init_cf="random",
-        init_path="random",
-        phi_max=MAX_ANGLE,
-        theta_max=MAX_ANGLE,
-        action_dim=ACTION_DIM,
+        init_cf="fixed",
+        fixed_position=POSITION,
+        init_path="fixed",
+        center=CENTER,
+        # phi_max=MAX_ANGLE,
+        # theta_max=MAX_ANGLE,
+        # action_dim=ACTION_DIM,
         use_noise=True,
-        use_dr=True,
+        use_dr=False,
     )
 
-    # Make environment
-    # todo: make sure use_noise, use_dr are True (i.e. set in the init_state instead of params).
-    from envs.crazyflie.path_following import Environment, ppo_config
-    env = Environment(graph, params=params, order=("agent", "pid"), randomize_eps=False)  # No randomization.
+    def rollout_radius(_params, rng, _radius):
+        # Replace radius
+        _params = _params.copy()
+        _params["agent"] = _params["agent"].replace(fixed_radius=_radius)
+        _gs = graph.init(rng, params=_params, order=("agent", "pid"))
+        _gs_rollout = graph.rollout(_gs)
+        return _gs_rollout.replace(timings_eps=None, buffer=None)
 
-    # Test env API
-    # obs_space = env.observation_space(gs_init)
-    # act_space = env.action_space(gs_init)
-    # _ = env.get_observation(gs_init)
-    # _ = env.get_truncated(gs_init)
-    # _ = env.get_terminated(gs_init)
-    # _ = env.get_reward(gs_init, jnp.zeros(act_space.low.shape))
-    # _ = env.get_info(gs_init, jnp.zeros(act_space.low.shape))
-    # _ = env.get_output(gs_init, jnp.zeros(act_space.low.shape))
-    # _ = env.update_graph_state_pre_step(gs_init, jnp.zeros(act_space.low.shape))
-    # gs, obs, info = jax.jit(env.reset)()
-
-    config = ppo_config.replace(FIXED_INIT=True, VERBOSE=True, TOTAL_TIMESTEPS=10e6, UPDATE_EPOCHS=16, NUM_MINIBATCHES=8, NUM_STEPS=64)
-    train = functools.partial(rexv2.ppo.train, env)
-    rng, rng_train = jax.random.split(rng)
-    t_jit = timer("train | jit")
-    with t_jit:
-        train = jax.jit(train).lower(config, rng_train).compile()
-    t_train = timer("train | run")
-    with t_train:
-        res = train(config, rng_train)
-    print("Training done!")
-
-    t_elapsed = {"train": t_train.duration, "train_jit": t_jit.duration}
-
-    if SAVE_FILE:
-        with open(ELAPSED_FILE, "wb") as f:
-            pickle.dump(t_elapsed, f)
-        print(f"Elapsed time saved to {ELAPSED_FILE}")
-    # exit()
-    # Get agent params
-    agent_params = params["agent"].replace(act_scaling=res["act_scaling"],
-                                           obs_scaling=res["norm_obs"],
-                                           model=res["runner_state"][0].params["params"],
-                                           hidden_activation=config.HIDDEN_ACTIVATION,
-                                           stochastic=False)
-
-    # Save params
-    if SAVE_FILE:
-        with open(AGENT_FILE, "wb") as f:
-            pickle.dump(agent_params, f)
-        print(f"Agent params saved to {AGENT_FILE}")
-    else:
-        print(f"Agent params not saved!")
-
-    # Get agent params
-    params_eval = params.copy()
-    params_eval["agent"] = agent_params
-
-    # Evaluate
-    from envs.crazyflie.ode import env_rollout, render, save
-    env_eval = Environment(graph, params=params_eval, order=("agent", "pid"), randomize_eps=False)  # No randomization.
+    # Rollout
     rng, rng_rollout = jax.random.split(rng)
-    res = env_rollout(env_eval, rng_rollout)
-    print("Rollout done!")
+    rngs_rollout = jax.random.split(rng_rollout, num=len(RADII))
+    rollout_radius_jv = jax.jit(jax.vmap(rollout_radius, in_axes=(None, 0, 0)))
+    rollout_radius_jv = rollout_radius_jv.lower(params, rngs_rollout, RADII).compile()
+    res_rollout = rollout_radius_jv(params, rngs_rollout, RADII)
 
-    gs_rollout = res.next_gs
-    json_rollout = render(gs_rollout.ts["world"], gs_rollout.state["world"].pos, gs_rollout.state["world"].att, gs_rollout.state["agent"].radius, gs_rollout.state["agent"].center)
-    save(HTML_FILE, json_rollout)
-    print(f"Render saved to {HTML_FILE}")
+    pos = res_rollout.state["world"].pos
+
+    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+    for i, r in enumerate(RADII):
+        axes[i].add_artist(plt.Circle(CENTER[:2], r, fill=False, color="r", linestyle="--"))
+        axes[i].plot(pos[i, :, 0], pos[i, :, 1], label=f"r={r}")
+        # Plot circle
+        axes[i].set_aspect("equal")
+        axes[i].set(
+            xlabel="x [m]",
+            ylabel="y [m]",
+            title=f"Radius: {r}",
+            xlim=(-1.5, 1.5),
+            ylim=(-1.5, 1.5),
+        )
+        axes[i].set_title(f"Radius: {r}")
+        axes[i].legend()
+    plt.show()
 
     # Save rollout
     if SAVE_FILE:
-        res_red = res.replace(next_gs=res.next_gs.replace(buffer=None, timings_eps=None))
         with open(ROLLOUT_FILE, "wb") as f:
-            pickle.dump(res_red, f)
+            pickle.dump(res_rollout, f)
         print(f"Rollout saved to {ROLLOUT_FILE}")
-    else:
-        print(f"Rollout not saved!")
-
-    # Plot results
-    from envs.crazyflie.ode import plot_data
-    pid = gs_rollout.inputs["world"]["pid"][:, -1]
-    fig, axes = plot_data(output={"att": gs_rollout.state["world"].att,
-                                  "pos": gs_rollout.state["world"].pos,
-                                  "pwm": pid.data.pwm_ref,
-                                  "pwm_ref": pid.data.pwm_ref,
-                                  "phi_ref": pid.data.phi_ref,
-                                  "theta_ref": pid.data.theta_ref,
-                                  "z_ref": pid.data.z_ref},
-                          ts={"att": gs_rollout.ts["world"],
-                              "pos": gs_rollout.ts["world"],
-                              "pwm": pid.ts_recv,
-                              "pwm_ref": pid.ts_recv,
-                              "phi_ref": pid.ts_recv,
-                              "theta_ref": pid.ts_recv,
-                              "z_ref": pid.ts_recv},
-                          # ts_max=3.0,
-                          )
-    plt.show()
-
-    # Save
-    fig.savefig(FIG_FILE)
-    print(f"Fig saved to {FIG_FILE}")
+    exit()

@@ -67,19 +67,16 @@ if __name__ == "__main__":
     SUPERVISOR = "pid"
     SUPERGRAPH = Supergraph.MCS
     LOG_DIR = "/home/r2ci/rex/scratch/crazyflie/logs"
-    EXP_DIR = f"{LOG_DIR}/20240813_142721_no_zref_eval_sysid_retry"
+    EXP_DIR = f"{LOG_DIR}/20240813_142721_no_zref_eval_sysid_retry_eval_redo_sysid_correct_z"
     # Input files
     RECORD_FILE = f"{EXP_DIR}/sysid_data.pkl"
-    # RECORD_FILE = f"{LOG_DIR}/data_first_runs/data_evaluate_0.5A_6s_nocrash.pkl"
-    # RECORD_FILE = f"{LOG_DIR}/data_first_runs/data_evaluate_0.75A_6s_nocrash.pkl"
-    # RECORD_FILE = f"{LOG_DIR}/data_first_runs/data_evaluate_0.80A_6s_nocrash.pkl"
-    # RECORD_FILE = f"{LOG_DIR}/data_first_runs/data_evaluate_0.90A_6s_new_nocrash.pkl"
     # Output files
     PARAMS_FILE = f"{EXP_DIR}/sysid_params.pkl"
     LOG_STATE_FILE = f"{EXP_DIR}/sysid_log_state.pkl"
     SOL_STATE_FILE = f"{EXP_DIR}/sysid_sol_state.pkl"
     ELAPSED_FILE = f"{EXP_DIR}/sysid_elapsed.pkl"
     GS_EVAL_FILE = f"{EXP_DIR}/sysid_gs.pkl"
+    GS_EVAL_NODELAY_FILE = f"{EXP_DIR}/sysid_gs_nodelay.pkl"
     FIG_FILE = f"{EXP_DIR}/sysid_fig"
     SAVE_FILES = True
 
@@ -120,6 +117,7 @@ if __name__ == "__main__":
     # Make sure params are correctly set.
     params_sup = nodes["agent"].init_params().replace(
         init_cf="fixed",
+        fixed_position=outputs_sysid["mocap"].pos[0, 0],
         use_noise=False,
         use_dr=False,
     )
@@ -157,7 +155,15 @@ if __name__ == "__main__":
     rng, rng_eval = jax.random.split(rng, num=2)
     gs_eval = task.evaluate(params_sysid, rng_eval, -1, order=("agent", "pid"))
     figs += task.plot(gs_eval, identifier="opt")
+    # Evaluate (no delays)
+    params_nodelay = eqx.tree_at(lambda x: x["pid"].actuator_delay.alpha, params_sysid, 0.0)
+    params_nodelay = eqx.tree_at(lambda x: x["pid"].sensor_delay.alpha, params_nodelay, 0.0)
+    params_nodelay = eqx.tree_at(lambda x: x["mocap"].sensor_delay.alpha, params_nodelay, 0.0)
+    rng, rng_eval = jax.random.split(rng, num=2)
+    gs_eval_nodelay = task.evaluate(params_nodelay, rng_eval, -1, order=("agent", "pid"))
+    figs += task.plot(gs_eval, identifier="opt (no delay)")
     # Reduce size
+    gs_eval_nodelay = gs_eval_nodelay.replace(buffer=None, timings_eps=None)
     gs_eval = gs_eval.replace(buffer=None, timings_eps=None)
     plt.show()
     # Save
@@ -188,6 +194,10 @@ if __name__ == "__main__":
         with open(GS_EVAL_FILE, "wb") as f:
             pickle.dump(gs_eval, f)
         print(f"gs_eval saved to {GS_EVAL_FILE}")
+        # Save gs_eval
+        with open(GS_EVAL_NODELAY_FILE, "wb") as f:
+            pickle.dump(gs_eval_nodelay5, f)
+        print(f"gs_eval saved to {GS_EVAL_NODELAY_FILE}")
         # Save figs with suptitle
         for fig in figs:
             suptitle = fig._suptitle.get_text() if fig._suptitle else "Untitled"
