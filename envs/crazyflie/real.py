@@ -101,7 +101,7 @@ class MoCap(BaseNode):
 
     def init_params(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> MoCapParams:
         """Default params of the node."""
-        sensor_delay = base.TrainableDist.create(alpha=0., min=0.0, max=0.05)
+        sensor_delay = base.TrainableDist.create(delay=0., min=0.0, max=0.05)
         return MoCapParams(sensor_delay=sensor_delay)
 
     def init_output(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> MoCapOutput:
@@ -240,7 +240,7 @@ class PID(BaseNode):
 
     def init_params(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> PIDParams:
         """Default params of the node."""
-        actuator_delay = base.TrainableDist.create(alpha=0., min=0.0, max=0.05)
+        actuator_delay = base.TrainableDist.create(delay=0., min=0.0, max=0.05)
         return PIDParams(actuator_delay=actuator_delay)
 
     def init_output(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> PIDOutput:

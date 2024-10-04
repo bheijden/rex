@@ -84,9 +84,9 @@ def simulated_system(record: base.EpisodeRecord,
     nodes["world"] = world
 
     # Connect according to delays
-    sensor_delay = base.TrainableDist.create(alpha=0., min=0.0, max=0.05)
-    camera_delay = base.TrainableDist.create(alpha=0., min=0.0, max=0.05)
-    actuator_delay = base.TrainableDist.create(alpha=0., min=0.0, max=0.05)
+    sensor_delay = base.TrainableDist.create(delay=0., min=0.0, max=0.05)
+    camera_delay = base.TrainableDist.create(delay=0., min=0.0, max=0.05)
+    actuator_delay = base.TrainableDist.create(delay=0., min=0.0, max=0.05)
     world.connect(actuator, window=1, blocking=False, skip=True, jitter=Jitter.LATEST, delay_dist=actuator_delay, delay=0.)
     sensor.connect(world, window=1, blocking=False, jitter=Jitter.LATEST, delay_dist=sensor_delay, delay=0.)
     camera.connect(world, window=1, blocking=False, jitter=Jitter.LATEST, delay_dist=camera_delay, delay=0.)

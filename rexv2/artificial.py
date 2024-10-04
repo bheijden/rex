@@ -51,7 +51,7 @@ def augment_graphs(graphs: Graph, nodes: Dict[str, BaseNode], rng: jax.Array = N
 
     # Remove dimension if necessary
     if rm_dim:
-        graphs_aug = jax.tree_util.tree_map(lambda x: jnp.expand_dims(x, axis=0), graphs_aug)
+        graphs_aug = jax.tree_util.tree_map(lambda x: jnp.squeeze(x, axis=0), graphs_aug)
     return graphs_aug
 
 

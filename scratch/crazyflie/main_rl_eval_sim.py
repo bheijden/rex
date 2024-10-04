@@ -165,7 +165,7 @@ if __name__ == "__main__":
         _params = _params.copy()
         _params["agent"] = _params["agent"].replace(fixed_radius=_radius)
         _gs = graph.init(rng, params=_params, order=("agent", "pid"))
-        _gs_rollout = graph.rollout(_gs)
+        _gs_rollout = graph.rollout(_gs, carry_only=False)
         return _gs_rollout.replace(timings_eps=None, buffer=None)
 
     # Rollout

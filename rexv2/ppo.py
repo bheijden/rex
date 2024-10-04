@@ -9,12 +9,13 @@ from flax.linen.initializers import constant, orthogonal
 from flax import struct
 from typing import Sequence, NamedTuple, Any
 from flax.training.train_state import TrainState
-from rexv2.rl import Environment, LogWrapper, AutoResetWrapper, VecEnv, NormalizeVecObservation, NormalizeVecReward, Box, SquashAction
+from rexv2.base import GraphState, Base
+from rexv2.rl import Environment, LogWrapper, AutoResetWrapper, VecEnv, NormalizeVecObservation, NormalizeVecReward, Box, SquashAction, SquashState, NormalizeVec
 from rexv2.actor_critic import Actor, Critic, ActorCritic
 
 
 @struct.dataclass
-class Transition:
+class Transition(Base):
     done: Union[bool, jax.typing.ArrayLike]
     action: jax.typing.ArrayLike
     value: Union[float, jax.typing.ArrayLike]
@@ -25,7 +26,7 @@ class Transition:
 
 
 @struct.dataclass
-class Diagnostics:
+class Diagnostics(Base):
     total_loss: Union[float, jax.typing.ArrayLike]
     value_loss: Union[float, jax.typing.ArrayLike]
     policy_loss: Union[float, jax.typing.ArrayLike]
@@ -34,7 +35,7 @@ class Diagnostics:
 
 
 @struct.dataclass
-class Config:
+class Config(Base):
     LR: float = struct.field(default=5e-4)
     NUM_ENVS: int = struct.field(pytree_node=False, default=64)
     NUM_STEPS: int = struct.field(pytree_node=False, default=16)
@@ -81,22 +82,23 @@ class Config:
     def EVAL_METRICS_JAX_CB(self, total_steps, diagnostics: Diagnostics, eval_transitions: Transition=None) -> Dict:
         returns_done = eval_transitions.info["returned_episode_returns"] * eval_transitions.done
         lengths_done = eval_transitions.info["returned_episode_lengths"] * eval_transitions.done
-        total_done = eval_transitions.done.sum()
-        mean_returns = returns_done.sum() / total_done
-        std_returns = jnp.sqrt(((returns_done - mean_returns) ** 2 * eval_transitions.done).sum() / total_done)
-        mean_lengths = lengths_done.sum() / total_done
-        std_lengths = jnp.sqrt(((lengths_done - mean_lengths) ** 2 * eval_transitions.done).sum() / total_done)
+        total_eps = eval_transitions.done.sum()
+        clip_done = jnp.clip(eval_transitions.done.sum(axis=0), 1, None).sum()
+        mean_returns = returns_done.sum() / clip_done
+        std_returns = jnp.sqrt(((returns_done - mean_returns) ** 2 * eval_transitions.done).sum() / clip_done)
+        mean_lengths = lengths_done.sum() / clip_done
+        std_lengths = jnp.sqrt(((lengths_done - mean_lengths) ** 2 * eval_transitions.done).sum() / clip_done)
 
         metrics = {}
         metrics["train/total_steps"] = total_steps
         metrics["train/mean_approxkl"] = diagnostics.approxkl.mean()
         metrics["train/std_approxkl"] = diagnostics.approxkl.std()
-        metrics["eval/total_done"] = total_done
+        metrics["eval/clip_done"] = clip_done
         metrics["eval/mean_returns"] = mean_returns
         metrics["eval/std_returns"] = std_returns
         metrics["eval/mean_lengths"] = mean_lengths
         metrics["eval/std_lengths"] = std_lengths
-        metrics["eval/total_episodes"] = total_done
+        metrics["eval/total_episodes"] = total_eps
         return metrics
 
     def EVAL_METRICS_HOST_CB(self, metrics: Dict):
@@ -110,11 +112,104 @@ class Config:
         total_episodes = metrics["eval/total_episodes"]
 
         if self.VERBOSE:
-            print(f"train_steps={global_step:.0f} | eval_eps={total_episodes} | return={mean_return:.1f}+-{std_return:.1f} | "
+            warn = ""
+            if total_episodes == 0:
+                warn = "WARNING: No eval. episodes returned | "
+            print(f"{warn}train_steps={global_step:.0f} | eval_eps={total_episodes} | return={mean_return:.1f}+-{std_return:.1f} | "
                   f"length={int(mean_length)}+-{std_length:.1f} | approxkl={mean_approxkl:.4f}")
 
 
-def train(env: Environment, config: Config, rng: jax.Array):
+@struct.dataclass
+class Policy(Base):
+    act_scaling: SquashState
+    obs_scaling: NormalizeVec
+    model: Dict[str, Dict[str, Union[jax.typing.ArrayLike, Any]]]
+    hidden_activation: str = struct.field(pytree_node=False)
+    output_activation: str = struct.field(pytree_node=False)
+    state_independent_std: bool = struct.field(pytree_node=False)
+
+    def apply_actor(self, norm_obs: jax.typing.ArrayLike, rng: jax.Array = None) -> jax.Array:
+        x = norm_obs  # Rename for clarity
+
+        # Get parameters
+        actor_params = self.model["actor"]
+        num_layers = sum(["Dense" in k in k for k in actor_params.keys()])
+
+        # Apply hidden layers
+        ACTIVATIONS = dict(tanh=nn.tanh, relu=nn.relu, gelu=nn.gelu, softplus=nn.softplus)
+        for i in range(num_layers-1):
+            hl = actor_params[f"Dense_{i}"]
+            num_output_units = hl["kernel"].shape[-1]
+            if x is None:
+                obs_dim = hl["kernel"].shape[-2]
+                x = jnp.zeros((obs_dim,), dtype=float)
+            x = nn.Dense(num_output_units).apply({"params": hl}, x)
+            x = ACTIVATIONS[self.hidden_activation](x)
+
+        # Apply output layer
+        hl = actor_params[f"Dense_{num_layers-1}"]  # Index of final layer
+        num_output_units = hl["kernel"].shape[-1]
+        x_mean = nn.Dense(num_output_units).apply({"params": hl}, x)
+        if self.output_activation == "gaussian":
+            if rng is not None:
+                log_std = actor_params["log_std"]
+                pi = distrax.MultivariateNormalDiag(x_mean, jnp.exp(log_std))
+                x = pi.sample(seed=rng)
+            else:
+                x = x_mean
+        else:
+            raise NotImplementedError("Gaussian output not implemented yet")
+        return x
+
+    def get_action(self, obs: jax.typing.ArrayLike, rng: jax.Array = None) -> jax.Array:
+        # Normalize observation
+        norm_obs = self.obs_scaling.normalize(obs, clip=True, subtract_mean=True) if self.obs_scaling is not None else obs
+        # Get action
+        action = self.apply_actor(norm_obs, rng=rng) if self.model is not None else jnp.zeros((self.action_dim,), dtype=jnp.float32)
+        # Scale action
+        action = self.act_scaling.unsquash(action) if self.act_scaling is not None else action
+        return action
+
+
+@struct.dataclass
+class RunnerState(Base):
+    train_state: TrainState
+    env_state: GraphState
+    last_obs: jax.typing.ArrayLike
+    rng: jax.Array
+
+
+@struct.dataclass
+class PPOResult(Base):
+    config: Config
+    runner_state: RunnerState
+    metrics: Dict[str, Any]
+
+    @property
+    def obs_scaling(self) -> SquashState:
+        return self.runner_state.env_state.aux.get("norm_obs", None)
+
+    @property
+    def act_scaling(self) -> SquashAction:
+        return jax.tree_util.tree_map(lambda x: x[0], self.runner_state.env_state.aux.get("act_scaling", None))
+
+    @property
+    def rwd_scaling(self) -> NormalizeVec:
+        return self.runner_state.env_state.aux.get("norm_reward", None)
+
+    @property
+    def policy(self) -> Policy:
+        return Policy(
+            act_scaling=self.act_scaling,
+            obs_scaling=self.obs_scaling,
+            model=self.runner_state.train_state.params["params"],
+            hidden_activation=self.config.HIDDEN_ACTIVATION,
+            output_activation="gaussian",
+            state_independent_std=self.config.STATE_INDEPENDENT_STD
+        )
+
+
+def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
     # INIT TRAIN ENV
     env = AutoResetWrapper(env, fixed_init=config.FIXED_INIT)
     env = LogWrapper(env)
@@ -204,6 +299,7 @@ def train(env: Environment, config: Config, rng: jax.Array):
         _, last_val = network.apply(train_state.params, last_obs)
 
         def _calculate_gae(traj_batch, last_val):
+            """https://nn.labml.ai/rl/ppo/gae.html"""
             def _get_advantages(gae_and_next_value, transition):
                 gae, next_value = gae_and_next_value
                 done, value, reward = (
@@ -235,6 +331,8 @@ def train(env: Environment, config: Config, rng: jax.Array):
                 traj_batch, advantages, targets = batch_info
 
                 def _loss_fn(params, traj_batch, gae, targets):
+                    # gae:=advantages in this context
+                    # targets:=advantages + traj_batch.value
                     # RERUN NETWORK
                     pi, value = network.apply(params, traj_batch.obs)
                     log_prob = pi.log_prob(traj_batch.action)
@@ -249,7 +347,7 @@ def train(env: Environment, config: Config, rng: jax.Array):
                     logratio = log_prob - traj_batch.log_prob
                     ratio = jnp.exp(logratio)
                     approxkl = ((ratio - 1) - logratio).mean()  # Approximate KL estimators: http://joschu.net/blog/kl-approx.html
-                    gae = (gae - gae.mean()) / (gae.std() + 1e-8)
+                    gae = (gae - gae.mean()) / (gae.std() + 1e-8)  # Advantage normalization (optional, but True in cleanrl)
                     loss_actor1 = ratio * gae
                     loss_actor2 = (jnp.clip(ratio, 1.0 - config.CLIP_EPS, 1.0 + config.CLIP_EPS,)* gae)
                     loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
@@ -362,12 +460,30 @@ def train(env: Environment, config: Config, rng: jax.Array):
     runner_state = (train_state, env_state, obsv, rng_update)
     runner_state, metrics = jax.lax.scan(_update_and_eval, runner_state, (rngs_eval, idx_eval))
 
-    ret = {"runner_state": runner_state, "metrics": metrics}
-    ret["act_scaling"] = jax.tree_util.tree_map(lambda x: x[0], runner_state[1].aux["act_scaling"])
-    if config.NORMALIZE_ENV:  # Return normalization parameters
-        ret["norm_obs"] = runner_state[1].aux["norm_obs"]
-        ret["norm_reward"] = runner_state[1].aux["norm_reward"]
+    # Before returning
+    ret = PPOResult(
+        config=config,
+        runner_state=RunnerState(train_state=runner_state[0],
+                                 env_state=runner_state[1],
+                                 last_obs=runner_state[2],
+                                 rng=runner_state[3]),
+        metrics=metrics
+    )
     return ret
+    # ret = {"runner_state": runner_state, "metrics": metrics}
+    # ret["act_scaling"] = jax.tree_util.tree_map(lambda x: x[0], runner_state[1].aux["act_scaling"])
+    # if config.NORMALIZE_ENV:  # Return normalization parameters
+    #     ret["norm_obs"] = runner_state[1].aux["norm_obs"]
+    #     ret["norm_reward"] = runner_state[1].aux["norm_reward"]
+    # ret["policy"] = Policy(
+    #     act_scaling=ret["act_scaling"],
+    #     obs_scaling=ret["norm_obs"] if config.NORMALIZE_ENV else None,
+    #     model=runner_state[0].params["params"],
+    #     hidden_activation=config.HIDDEN_ACTIVATION,
+    #     output_activation="gaussian",
+    #     state_independent_std=config.STATE_INDEPENDENT_STD
+    # )
+    # return ret
 
 
 if __name__ == "__main__":

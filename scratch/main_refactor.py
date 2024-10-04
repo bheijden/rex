@@ -144,7 +144,7 @@ if __name__ == "__main__":
     delay_dist = base.StaticDist.create(distrax.Normal(loc=0.1 / 100, scale=0.05 / 100))
     sim.connect(world, window=1, name="world", delay=1 / 100, delay_dist=delay_dist)
     min_delay, max_delay = jnp.clip(delay_dist.quantile(0.01), 0., None), delay_dist.quantile(0.99)
-    delay_dist = base.TrainableDist.create(alpha=0.5, min=min_delay, max=max_delay)
+    delay_dist = base.TrainableDist.create(delay=min_delay + (max_delay-min_delay)/2 , min=min_delay, max=max_delay)
     agent.connect(sim, window=1, name="sim", delay=1 / 100, delay_dist=delay_dist)
     nodes["sim"] = sim
 
@@ -211,7 +211,8 @@ if __name__ == "__main__":
     graph_init_jv = jax.jit(jax.vmap(graph_init, in_axes=0))
 
     # Vectorized graph rollout with .rollout() convenience function
-    graph_rollout_jv = jax.jit(jax.vmap(graph.rollout, in_axes=0))
+    rollout_fn = functools.partial(graph.rollout, carry_only=False)
+    graph_rollout_jv = jax.jit(jax.vmap(rollout_fn, in_axes=0))
 
     # Check if we have a GPU
     try:

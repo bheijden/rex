@@ -262,8 +262,8 @@ if __name__ == "__main__":
     print("Training done!")
 
     # Initialize agent params
-    model_params = res["runner_state"][0].params["params"]
-    ctrl_params = params_env["controller"].replace(act_scaling=res["act_scaling"], obs_scaling=res["norm_obs"],
+    model_params = res.policy.model
+    ctrl_params = params_env["controller"].replace(act_scaling=res.act_scaling, obs_scaling=res.obs_scaling,
                                                    model=model_params, hidden_activation=config.HIDDEN_ACTIVATION,
                                                    stochastic=False)
     ctrl_params_onp = jax.tree_util.tree_map(lambda x: onp.array(x), ctrl_params)

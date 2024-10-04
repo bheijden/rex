@@ -81,7 +81,7 @@ class BraxParams(WorldParams):
     def step(self, substeps: int, dt_substeps: Union[float, jax.typing.ArrayLike], x: Pipelines, us: jax.typing.ArrayLike) -> Tuple[Pipelines, Pipelines]:
         """Step the pendulum ode."""
         # Appropriately replace timestep for the disk pendulum
-        sys = self.sys.replace(opt=self.sys.opt.replace(timestep=self.dt_substeps))
+        sys = self.sys.replace(opt=self.sys.opt.replace(timestep=dt_substeps))
 
         def _scan_fn(_x, _u):
             # Add friction loss

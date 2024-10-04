@@ -42,7 +42,7 @@ class D435iBase(BaseNode):
 
     def init_params(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> D435iParams:
         """Default params of the node."""
-        sensor_delay = base.TrainableDist.create(alpha=0.1262352466583252/2, min=0.0, max=0.05)
+        sensor_delay = base.TrainableDist.create(delay=0.00315588116645813, min=0.0, max=0.05)
         std_th = 0.4375  # Standard deviation of angle noise
         return D435iParams(sensor_delay=sensor_delay, std_th=std_th)
 

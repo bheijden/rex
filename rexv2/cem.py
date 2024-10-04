@@ -5,7 +5,7 @@ import jax.random as rnd
 import equinox as eqx
 from flax import struct
 
-from rexv2.base import Loss, LossArgs, Params
+from rexv2.base import Loss, Transform, Params
 
 
 @struct.dataclass
@@ -86,7 +86,7 @@ def cem_update_mean_stdev(solver: CEMSolver, state: CEMState, samples: Dict[str,
     return updated_state
 
 
-def cem(loss: Loss, solver: CEMSolver, init_state: CEMState, args: LossArgs,
+def cem(loss: Loss, solver: CEMSolver, init_state: CEMState, transform: Transform,
         max_steps: int = 100, rng: jax.Array = None, verbose: bool = True):
     if rng is None:
         rng = rnd.PRNGKey(0)
@@ -94,7 +94,7 @@ def cem(loss: Loss, solver: CEMSolver, init_state: CEMState, args: LossArgs,
 
     def _cem_step(_state, xs):
         i, _rngs = xs
-        new_state, losses = cem_step(loss, solver, _state, args, _rngs)
+        new_state, losses = cem_step(loss, solver, _state, transform, _rngs)
         if verbose:
             max_loss = jnp.max(losses)
             loss_nonan = jnp.where(jnp.isnan(losses), jnp.inf, losses)
@@ -111,12 +111,12 @@ def cem(loss: Loss, solver: CEMSolver, init_state: CEMState, args: LossArgs,
     return final_state, losses
 
 
-def cem_step(loss: Loss, solver: CEMSolver, state: CEMState, args: LossArgs, rng: jax.Array = None):
+def cem_step(loss: Loss, solver: CEMSolver, state: CEMState, transform: Transform, rng: jax.Array = None):
     if rng is None:
         rng = rnd.PRNGKey(0)
     rngs = jax.random.split(rng, num=solver.num_samples*2)
 
     samples = eqx.filter_vmap(gaussian_samples, in_axes=(None, None, 0))(solver, state, rngs[:solver.num_samples])
-    losses = eqx.filter_vmap(loss, in_axes=(0, None, 0))(samples, args, rngs[solver.num_samples:])
+    losses = eqx.filter_vmap(loss, in_axes=(0, None, 0))(samples, transform, rngs[solver.num_samples:])
     new_state = cem_update_mean_stdev(solver, state, samples, losses)
     return new_state, losses

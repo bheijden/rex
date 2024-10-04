@@ -59,7 +59,7 @@ class Sensor(BaseNode):
 
     def init_params(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> SensorParams:
         """Default params of the node."""
-        sensor_delay = base.TrainableDist.create(alpha=0., min=0.0, max=0.05)
+        sensor_delay = base.TrainableDist.create(delay=0., min=0.0, max=0.05)
         return SensorParams(sensor_delay=sensor_delay)
 
     def init_output(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> SensorOutput:
@@ -108,7 +108,7 @@ class Actuator(BaseNode):
 
     def init_params(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> ActuatorParams:
         """Default params of the node."""
-        actuator_delay = base.TrainableDist.create(alpha=0., min=0.0, max=0.05)
+        actuator_delay = base.TrainableDist.create(delay=0., min=0.0, max=0.05)
         return ActuatorParams(actuator_delay=actuator_delay)
 
     def init_output(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> ActuatorOutput:

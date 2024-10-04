@@ -299,8 +299,8 @@ class PID(BaseNode):
 
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> PIDParams:
         graph_state = graph_state or GraphState()
-        pid_delay = TrainableDist.create(alpha=0., min=0.0, max=0.05)
-        sensor_delay = TrainableDist.create(alpha=0., min=0.0, max=0.05)
+        pid_delay = TrainableDist.create(delay=0., min=0.0, max=0.05)
+        sensor_delay = TrainableDist.create(delay=0., min=0.0, max=0.05)
         # Initialize PID controllers
         UINT16_MAX = 65_535
         zvel_max = 1.0

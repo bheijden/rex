@@ -892,6 +892,7 @@ def plot_pendulum_dists(exp_dir: str, cache_dir: str = None, fig_dir: str = None
     figsize = [c * s for c, s in zip([1 / 3, 0.5], rescaled_figsize)]  # Used to be twothirdwidth_figsize
 
     def cycling_kwargs_generator():
+        raise NotImplementedError("Not sure if still working properly")
         cindex = 1
         while True:
             kwargs_comp = {"color": ECOLOR["component_delay"], "linestyle": "-", "linewidth": 3}

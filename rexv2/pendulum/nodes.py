@@ -8,8 +8,12 @@ from flax.core import FrozenDict
 
 try:
     from brax.generalized import pipeline as gen_pipeline
+    from brax.spring import pipeline as spring_pipeline
+    from brax.positional import pipeline as pos_pipeline
+    from brax.base import System, State
     from brax.io import mjcf
-
+    Systems = Union[gen_pipeline.System, spring_pipeline.System, pos_pipeline.System]
+    Pipelines = Union[gen_pipeline.State, spring_pipeline.State, pos_pipeline.State]
     BRAX_INSTALLED = True
 except ModuleNotFoundError:
     print("Brax not installed. Install it with `pip install brax`")
@@ -18,14 +22,15 @@ except ModuleNotFoundError:
 from rexv2.graph import Graph
 from rexv2 import base
 from rexv2 import rl
+from rexv2.jax_utils import tree_dynamic_slice
+from rexv2.ppo import Policy
 from rexv2.base import GraphState, StepState
 from rexv2.node import BaseNode
 
 
 @struct.dataclass
 class OdeParams(base.Base):
-    """Pendulum state definition"""
-
+    """Pendulum ode param definition"""
     max_speed: Union[float, jax.typing.ArrayLike]
     J: Union[float, jax.typing.ArrayLike]
     mass: Union[float, jax.typing.ArrayLike]
@@ -34,36 +39,150 @@ class OdeParams(base.Base):
     K: Union[float, jax.typing.ArrayLike]
     R: Union[float, jax.typing.ArrayLike]
     c: Union[float, jax.typing.ArrayLike]
+    dt_substeps_min: Union[float, jax.typing.ArrayLike] = struct.field(pytree_node=False)
+    dt: Union[float, jax.typing.ArrayLike] = struct.field(pytree_node=False)
+
+    @property
+    def substeps(self) -> int:
+        substeps = ceil(self.dt / self.dt_substeps_min)
+        return int(substeps)
+
+    @property
+    def dt_substeps(self) -> float:
+        substeps = self.substeps
+        dt_substeps = self.dt / substeps
+        return dt_substeps
+
+    def step(self, substeps: int, dt_substeps: jax.typing.ArrayLike, x: "OdeState", us: jax.typing.ArrayLike) -> Tuple["OdeState", "OdeState"]:
+        """Step the pendulum ode."""
+
+        def _scan_fn(_x, _u):
+            next_x = self._runge_kutta4(dt_substeps, _x, _u)
+            # Clip velocity
+            clip_thdot = jnp.clip(next_x.thdot, -self.max_speed, self.max_speed)
+            next_x = next_x.replace(thdot=clip_thdot)
+            return next_x, next_x
+
+        x_final, x_substeps = jax.lax.scan(_scan_fn, x, us, length=substeps)
+        return x_final, x_substeps
+
+    def _runge_kutta4(self, dt: jax.typing.ArrayLike, x: "OdeState", u: jax.typing.ArrayLike) -> "OdeState":
+        k1 = self.ode(x, u)
+        k2 = self.ode(x + k1 * dt * 0.5, u)
+        k3 = self.ode(x + k2 * dt * 0.5, u)
+        k4 = self.ode(x + k3 * dt, u)
+        return x + (k1 + k2 * 2 + k3 * 2 + k4) * (dt / 6)
+
+    def ode(self, x: "OdeState", u: jax.typing.ArrayLike) -> "OdeState":
+        """dx function for the pendulum ode"""
+        # Downward := [pi, 0], Upward := [0, 0]
+        g, J, m, l, b, K, R, c = 9.81, self.J, self.mass, self.length, self.b, self.K, self.R, self.c
+        th, thdot = x.th, x.thdot
+        activation = jnp.sign(thdot)
+        ddx = (u * K / R + m * g * l * jnp.sin(th) - b * thdot - thdot * K * K / R - c * activation) / J
+        return OdeState(th=thdot, thdot=ddx, loss_task=0.0)  # No derivative for loss_task
 
 
 @struct.dataclass
 class OdeState(base.Base):
     """Pendulum state definition"""
-
+    loss_task: Union[float, jax.typing.ArrayLike]
     th: Union[float, jax.typing.ArrayLike]
     thdot: Union[float, jax.typing.ArrayLike]
 
 
 @struct.dataclass
 class BraxParams(base.Base):
-    """Pendulum param definition"""
-
     max_speed: Union[float, jax.typing.ArrayLike]
+    damping: Union[float, jax.typing.ArrayLike]
+    armature: Union[float, jax.typing.ArrayLike]
+    gear: Union[float, jax.typing.ArrayLike]
+    mass_weight: Union[float, jax.typing.ArrayLike]
+    radius_weight: Union[float, jax.typing.ArrayLike]
+    offset: Union[float, jax.typing.ArrayLike]
     friction_loss: Union[float, jax.typing.ArrayLike]
-    sys: gen_pipeline.System
+    backend: str = struct.field(pytree_node=False)
+    base_sys: Systems = struct.field(pytree_node=False)
+    dt: Union[float, jax.typing.ArrayLike] = struct.field(pytree_node=False)
+
+    @property
+    def substeps(self) -> int:
+        dt_substeps_per_backend = {
+            "generalized": 1 / 100,
+            "spring": 1 / 100,
+            "positional": 1 / 100
+        }[self.backend]
+        substeps = ceil(self.dt / dt_substeps_per_backend)
+        return int(substeps)
+
+    @property
+    def dt_substeps(self) -> float:
+        substeps = self.substeps
+        dt_substeps = self.dt / substeps
+        return dt_substeps
+
+    @property
+    def pipeline(self) -> Pipelines:
+        return {
+            "generalized": gen_pipeline,
+            "spring": spring_pipeline,
+            "positional": pos_pipeline
+        }[self.backend]
+
+    @property
+    def sys(self) -> Systems:
+        # Appropriately replace parameters for the disk pendulum
+        itransform = self.base_sys.link.inertia.transform.replace(pos=jnp.array([[0.0, self.offset, 0.0]]))
+        i = self.base_sys.link.inertia.i.at[0, 0, 0].set(
+            0.5 * self.mass_weight * self.radius_weight**2
+        )  # inertia of cylinder in local frame.
+        inertia = self.base_sys.link.inertia.replace(transform=itransform, mass=jnp.array([self.mass_weight]), i=i)
+        link = self.base_sys.link.replace(inertia=inertia)
+        actuator = self.base_sys.actuator.replace(gear=jnp.array([self.gear]))
+        dof = self.base_sys.dof.replace(armature=jnp.array([self.armature]), damping=jnp.array([self.damping]))
+        opt = self.base_sys.opt.replace(timestep=self.dt_substeps)
+        new_sys = self.base_sys.replace(link=link, actuator=actuator, dof=dof, opt=opt)
+        return new_sys
+
+    def step(self, substeps: int, dt_substeps: jax.typing.ArrayLike, x: Pipelines, us: jax.typing.ArrayLike) -> Tuple[Pipelines, Pipelines]:
+        """Step the pendulum ode."""
+        # Appropriately replace timestep for the disk pendulum
+        sys = self.sys.replace(opt=self.sys.opt.replace(timestep=dt_substeps))
+
+        def _scan_fn(_x, _u):
+            # Add friction loss
+            thdot = x.qd[0]
+            activation = jnp.sign(thdot)
+            friction = self.friction_loss * activation / sys.actuator.gear[0]
+            _u_friction = _u - friction
+            # Step
+            next_x = gen_pipeline.step(sys, _x, jnp.array(_u_friction)[None])
+            # Clip velocity
+            next_x = next_x.replace(qd=jnp.clip(next_x.qd, -self.max_speed, self.max_speed))
+            return next_x, next_x
+
+        x_final, x_substeps = jax.lax.scan(_scan_fn, x, us, length=substeps)
+        return x_final, x_substeps
 
 
 @struct.dataclass
 class BraxState(base.Base):
     """Pendulum state definition"""
+    loss_task: Union[float, jax.typing.ArrayLike]
+    pipeline_state: Pipelines
 
-    pipeline_state: gen_pipeline.State
+    @property
+    def th(self):
+        return self.pipeline_state.q[..., 0]
+
+    @property
+    def thdot(self):
+        return self.pipeline_state.qd[..., 0]
 
 
 @struct.dataclass
 class WorldOutput(base.Base):
     """World output definition"""
-
     th: Union[float, jax.typing.ArrayLike]
     thdot: Union[float, jax.typing.ArrayLike]
 
@@ -77,37 +196,35 @@ class SensorOutput(base.Base):
 @struct.dataclass
 class ActuatorOutput(base.Base):
     """Pendulum actuator output"""
-
     action: jax.typing.ArrayLike  # Torque to apply to the pendulum
 
 
 class OdeWorld(BaseNode):
-    def __init__(self, *args, dt_substeps: float = 1 / 100, **kwargs):
-        super().__init__(*args, **kwargs)
-        dt = 1 / self.rate
-        self.substeps = ceil(dt / dt_substeps)
-        self.dt_substeps = dt / self.substeps
-
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> OdeParams:
         """Default params of the node."""
         return OdeParams(
-            max_speed=40.0,
-            J=0.00019745720783248544,  # 0.000159931461600856,
-            mass=0.053909555077552795,  # 0.0508581731919534,
-            length=0.0471346490085125,  # 0.0415233722862552,
-            b=1.3641421901411377e-05,  # 1.43298488358436e-05,
-            K=0.046251337975263596,  # 0.0333391179016334,
-            R=8.3718843460083,  # 7.73125142447252,
-            c=0.0006091465475037694,  # 0.000975041213361349,
+            max_speed=40.0,  # Clip angular velocity to this value
+            J=0.000159931461600856,  # 0.000159931461600856,
+            mass=0.0508581731919534,  # 0.0508581731919534,
+            length=0.0415233722862552,  # 0.0415233722862552,
+            b=1.43298488e-05,  # 1.43298488358436e-05,
+            K=0.03333912,  # 0.0333391179016334,
+            R=7.73125142,  # 7.73125142447252,
+            c=0.000975041213361349,  # 0.000975041213361349,
+            # Backend parameters
+            dt_substeps_min=1 / 100,  # Minimum substep size for ode integration
+            dt=1 / self.rate,  # Time step per .step() call
         )
 
     def init_state(self, rng: jax.Array = None, graph_state: GraphState = None) -> OdeState:
         """Default state of the node."""
-        if rng is None:
-            rng = jax.random.PRNGKey(0)
-        init_th = jax.random.uniform(rng, shape=(), minval=-onp.pi, maxval=onp.pi)
-        init_thdot = jax.random.uniform(rng, shape=(), minval=-2.0, maxval=2.0)
-        return OdeState(th=init_th, thdot=init_thdot)
+        graph_state = graph_state or GraphState()
+
+        # Try to grab state from graph_state
+        state = graph_state.state.get("agent", None)
+        init_th = state.init_th if state is not None else jnp.pi
+        init_thdot = state.init_thdot if state is not None else 0.
+        return OdeState(th=init_th, thdot=init_thdot, loss_task=0.0)
 
     def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> WorldOutput:
         """Default output of the node."""
@@ -116,96 +233,121 @@ class OdeWorld(BaseNode):
         world_state = graph_state.state.get(self.name, self.init_state(rng, graph_state))
         return WorldOutput(th=world_state.th, thdot=world_state.thdot)
 
+    def init_delays(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> Dict[str, Union[float, jax.typing.ArrayLike]]:
+        graph_state = graph_state or GraphState()
+        params = graph_state.params.get("actuator")
+        delays = {}
+        if hasattr(params, "actuator_delay"):
+            delays["actuator"] = params.actuator_delay
+        return delays
+
     def step(self, step_state: StepState) -> Tuple[StepState, WorldOutput]:
         """Step the node."""
-
         # Unpack StepState
         _, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
 
-        # Get action
+        # Apply dynamics
         u = inputs["actuator"].data.action[-1][0]
-        x = jnp.array([state.th, state.thdot])
-        next_x = x
+        us = jnp.array([u] * params.substeps)
+        new_state = params.step(params.substeps, params.dt_substeps, state, us)[0]
+        next_th, next_thdot = new_state.th, new_state.thdot
+        output = WorldOutput(th=next_th, thdot=next_thdot)  # Prepare output
 
-        # Calculate next state
-        for _ in range(self.substeps):
-            next_x = self._runge_kutta4(self._ode_disk_pendulum, self.dt_substeps, params, next_x, u)
+        # Calculate cost (penalize angle error, angular velocity and input voltage)
+        norm_next_th = self._angle_normalize(next_th)
+        loss_task = state.loss_task + norm_next_th ** 2 + 0.1 * (
+                    next_thdot / (1 + 10 * abs(norm_next_th))) ** 2 + 0.01 * u ** 2
 
         # Update state
-        next_th, next_thdot = next_x
-        next_thdot = jnp.clip(next_thdot, -params.max_speed, params.max_speed)
-        new_state = state.replace(th=next_th, thdot=next_thdot)
+        new_state = new_state.replace(loss_task=loss_task)
         new_step_state = step_state.replace(state=new_state)
-
-        # Prepare output
-        output = WorldOutput(th=next_th, thdot=next_thdot)
-        # print(f"{self.name.ljust(14)} | x: {x} | u: {u} -> next_x: {next_x}")
         return new_step_state, output
 
     @staticmethod
-    def _runge_kutta4(ode, dt, params, x, u):
-        k1 = ode(params, x, u)
-        k2 = ode(params, x + 0.5 * dt * k1, u)
-        k3 = ode(params, x + 0.5 * dt * k2, u)
-        k4 = ode(params, x + dt * k3, u)
-        return x + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
-
-    @staticmethod
-    def _ode_disk_pendulum(params: OdeParams, x, u):
-        g, J, m, l, b, K, R, c = 9.81, params.J, params.mass, params.length, params.b, params.K, params.R, params.c
-        activation = jnp.sign(x[1])
-        ddx = (u * K / R + m * g * l * jnp.sin(x[0]) - b * x[1] - x[1] * K * K / R - c * activation) / J
-        return jnp.array([x[1], ddx])
+    def _angle_normalize(th: jax.typing.ArrayLike):
+        th_norm = th - 2 * jnp.pi * jnp.floor((th + jnp.pi) / (2 * jnp.pi))
+        return th_norm
 
 
 class BraxWorld(BaseNode):
-    def __init__(self, *args, dt_substeps: float = 1 / 100, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, backend: str = "generalized", **kwargs):
         assert BRAX_INSTALLED, "Brax not installed. Install it with `pip install brax`"
+        super().__init__(*args, **kwargs)
+        self.backend = backend
         self.sys = mjcf.loads(DISK_PENDULUM_XML)
-        dt = 1 / self.rate
-        self.substeps = ceil(dt / dt_substeps)
-        self.dt_substeps = dt / self.substeps
 
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> BraxParams:
         """Default params of the node."""
-        # Realistic parameters for the disk pendulum
-        damping = 0.00015877
-        armature = 6.4940527e-06
-        gear = 0.00428677
-        mass_weight = 0.05076142
-        radius_weight = 0.05121992
-        offset = 0.04161447
-        friction_loss = 0.00097525
-
-        # Appropriately replace parameters for the disk pendulum
-        itransform = self.sys.link.inertia.transform.replace(pos=jnp.array([[0.0, offset, 0.0]]))
-        i = self.sys.link.inertia.i.at[0, 0, 0].set(
-            0.5 * mass_weight * radius_weight**2
-        )  # inertia of cylinder in local frame.
-        inertia = self.sys.link.inertia.replace(transform=itransform, mass=jnp.array([mass_weight]), i=i)
-        link = self.sys.link.replace(inertia=inertia)
-        actuator = self.sys.actuator.replace(gear=jnp.array([gear]))
-        dof = self.sys.dof.replace(armature=jnp.array([armature]), damping=jnp.array([damping]))
-        new_sys = self.sys.replace(link=link, actuator=actuator, dof=dof, dt=self.dt_substeps)
-        return BraxParams(max_speed=40.0, friction_loss=friction_loss, sys=new_sys)
+        return BraxParams(
+            # Realistic parameters for the disk pendulum
+            max_speed=40.0,
+            damping=0.00015877,
+            armature=6.4940527e-06,
+            gear=0.00428677,
+            mass_weight=0.05076142,
+            radius_weight=0.05121992,
+            offset=0.04161447,
+            friction_loss=0.00097525,
+            # Backend parameters
+            dt=1/self.rate,
+            base_sys=self.sys,
+            backend=self.backend,
+        )
+        # # matlab nlgreyest params
+        # J = 0.000159931461600856
+        # M = 0.0508581731919534
+        # offset = 0.0415233722862552
+        # radius_weight = 0.0508581731919534
+        # b = 1.43298488e-05
+        # K = 0.03333912
+        # R = 7.73125142
+        #
+        # damping = (b + K**2 / R)
+        # armature = (J - 0.5*radius_weight**2*M - M*offset**2)
+        # gear = (K/R)
+        # mass_weight = M
+        # radius_weight = radius_weight
+        # offset = offset
+        # friction_loss = 0.000975041213361349
+        #
+        # # Realistic parameters for the disk pendulum
+        # # damping = 0.00015877
+        # # armature = 6.4940527e-06
+        # # gear = 0.00428677
+        # # mass_weight = 0.05076142
+        # # radius_weight = 0.05121992
+        # # offset = 0.04161447
+        # # friction_loss = 0.00097525
+        #
+        # # Appropriately replace parameters for the disk pendulum
+        # itransform = self.sys.link.inertia.transform.replace(pos=jnp.array([[0.0, offset, 0.0]]))
+        # i = self.sys.link.inertia.i.at[0, 0, 0].set(
+        #     0.5 * mass_weight * radius_weight**2
+        # )  # inertia of cylinder in local frame.
+        # inertia = self.sys.link.inertia.replace(transform=itransform, mass=jnp.array([mass_weight]), i=i)
+        # link = self.sys.link.replace(inertia=inertia)
+        # actuator = self.sys.actuator.replace(gear=jnp.array([gear]))
+        # dof = self.sys.dof.replace(armature=jnp.array([armature]), damping=jnp.array([damping]))
+        # opt = self.sys.opt.replace(timestep=self.dt_substeps)
+        # new_sys = self.sys.replace(link=link, actuator=actuator, dof=dof, opt=opt)
+        # return BraxParams(max_speed=40.0, friction_loss=friction_loss, sys=new_sys)
 
     def init_state(self, rng: jax.Array = None, graph_state: GraphState = None) -> BraxState:
         """Default state of the node."""
-        if rng is None:
-            rng = jax.random.PRNGKey(0)
         graph_state = graph_state or GraphState()
 
-        # Sample initial state
-        init_th = jax.random.uniform(rng, shape=(), minval=-onp.pi, maxval=onp.pi)
-        init_thdot = jax.random.uniform(rng, shape=(), minval=-2.0, maxval=2.0)
+        # Try to grab state from graph_state
+        state = graph_state.state.get("agent", None)
+        init_th = state.init_th if state is not None else jnp.pi
+        init_thdot = state.init_thdot if state is not None else 0.
 
         # Set the initial state of the disk pendulum
         params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
-        qpos = params.sys.init_q.at[0].set(init_th)
-        qvel = jnp.array([init_thdot])
-        pipeline_state = gen_pipeline.init(params.sys, qpos, qvel)
-        return BraxState(pipeline_state=pipeline_state)
+        sys = params.sys
+        q = sys.init_q.at[0].set(init_th)
+        qd = jnp.array([init_thdot])
+        pipeline_state = params.pipeline.init(sys, q, qd)
+        return BraxState(pipeline_state=pipeline_state, loss_task=0.0)
 
     def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> WorldOutput:
         """Default output of the node."""
@@ -220,32 +362,29 @@ class BraxWorld(BaseNode):
         # Unpack StepState
         _, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
 
-        # Get action
-        action = inputs["actuator"].data.action[-1]
+        # Apply dynamics
+        u = inputs["actuator"].data.action[-1][0]
+        us = jnp.array([u] * params.substeps)
+        x = state.pipeline_state
+        next_x = params.step(params.substeps, params.dt_substeps, x, us)[0]
+        new_state = state.replace(pipeline_state=next_x)
+        next_th, next_thdot = new_state.th, new_state.thdot
+        output = WorldOutput(th=next_th, thdot=next_thdot)  # Prepare output
 
-        # Brax does not have static friction implemented
-        thdot = state.pipeline_state.qd[0]
-        activation = jnp.sign(thdot)
-        friction = params.friction_loss * activation / params.sys.actuator.gear[0]
-        action_friction = action - friction
-
-        # Run the pipeline for the number of substeps
-        def f(state, _):
-            return (
-                gen_pipeline.step(self.sys, state, action_friction),
-                None,
-            )
-
-        new_pipeline_state = jax.lax.scan(f, state.pipeline_state, (), self.substeps)[0]
+        # Calculate cost (penalize angle error, angular velocity and input voltage)
+        norm_next_th = self._angle_normalize(next_th)
+        loss_task = state.loss_task + norm_next_th ** 2 + 0.1 * (
+                    next_thdot / (1 + 10 * abs(norm_next_th))) ** 2 + 0.01 * u ** 2
 
         # Update state
-        new_state = state.replace(pipeline_state=new_pipeline_state)
+        new_state = new_state.replace(loss_task=loss_task)
         new_step_state = step_state.replace(state=new_state)
-
-        # Prepare output
-        output = WorldOutput(th=new_pipeline_state.q[0], thdot=new_pipeline_state.qd[0])
-
         return new_step_state, output
+
+    @staticmethod
+    def _angle_normalize(th: jax.typing.ArrayLike):
+        th_norm = th - 2 * jnp.pi * jnp.floor((th + jnp.pi) / (2 * jnp.pi))
+        return th_norm
 
 
 class Sensor(BaseNode):
@@ -269,48 +408,271 @@ class Sensor(BaseNode):
         return new_step_state, output
 
 
+@struct.dataclass
+class SensorParams(base.Base):
+    sensor_delay: Union[float, jax.typing.ArrayLike]
+
+
+@struct.dataclass
+class SensorState:
+    loss_th: Union[float, jax.typing.ArrayLike]
+    loss_thdot: Union[float, jax.typing.ArrayLike]
+
+
+class SimSensor(BaseNode):
+    def __init__(self, *args, outputs: SensorOutput = None, **kwargs):
+        """Initialize Sensor for system identification.
+
+        Args:
+        outputs: Recorded sensor Outputs to be used for system identification.
+        """
+        super().__init__(*args, **kwargs)
+        self._outputs = outputs
+
+    def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> SensorParams:
+        """Default params of the node."""
+        sensor_delay = 0.05
+        return SensorParams(sensor_delay=sensor_delay)
+
+    def init_state(self, rng: jax.Array = None, graph_state: GraphState = None) -> SensorState:
+        """Default state of the node."""
+        return SensorState(loss_th=0.0, loss_thdot=0.0)
+
+    def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> SensorOutput:
+        """Default output of the node."""
+        # Randomly define some initial sensor values
+        th = jnp.pi
+        thdot = 0.0
+        return SensorOutput(th=th, thdot=thdot)
+
+    def init_delays(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> Dict[str, Union[float, jax.typing.ArrayLike]]:
+        """Initialize trainable communication delays.
+
+        **Note** These only include trainable delays that were specified while connecting the nodes.
+
+        :param rng: Random number generator.
+        :param graph_state: The graph state that may be used to get the default output.
+        :return: Trainable delays (e.g., {input_name: delay}). Can be an incomplete dictionary.
+                 Entries for non-trainable delays or non-existent connections are ignored.
+        """
+        graph_state = graph_state or GraphState()
+        params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
+        delays = {"world": params.sensor_delay}
+        return delays
+
+    def step(self, step_state: StepState) -> Tuple[StepState, SensorOutput]:
+        # Determine output
+        data = step_state.inputs["world"][-1].data
+        output = SensorOutput(th=data.th, thdot=data.thdot)
+
+        # Calculate loss
+        if self._outputs is not None:
+            output_rec = tree_dynamic_slice(self._outputs, jnp.array([step_state.eps, step_state.seq]))
+            th_rec, thdot_rec = output_rec.th, output_rec.thdot
+            state = step_state.state
+            loss_th = state.loss_th + (jnp.sin(output.th) - jnp.sin(th_rec)) ** 2 + (jnp.cos(output.th) - jnp.cos(th_rec)) ** 2
+            loss_thdot = state.loss_thdot + (output.thdot - thdot_rec) ** 2
+            new_state = state.replace(loss_th=loss_th, loss_thdot=loss_thdot)
+        else:
+            new_state = step_state.state
+
+        # Update step_state
+        new_step_state = step_state.replace(state=new_state)
+        return new_step_state, output
+
+
 class Actuator(BaseNode):
+    # todo: add host_callback code & stop routine example
     def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> ActuatorOutput:
         """Default output of the node."""
         return ActuatorOutput(action=jnp.array([0.0], dtype=jnp.float32))
 
     def step(self, step_state: StepState) -> Tuple[StepState, ActuatorOutput]:
         """Step the node."""
-
-        # Unpack StepState
-        _, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
+        # Prepare output
+        output = step_state.inputs["agent"][-1].data
+        output = ActuatorOutput(action=output.action)
 
         # Update state
         new_step_state = step_state
+        return new_step_state, output
 
-        # Prepare output
-        # key = "controller" if "controller" in inputs else "agent"
-        controller_output = next(iter(inputs.values()))[-1].data
-        output = ActuatorOutput(action=controller_output.action)
+    def stop(self, timeout: float = None) -> bool:
+        """Stopping routine that is called after the episode is done."""
+        return True
+
+    def startup(self, graph_state: base.GraphState, timeout: float = None) -> bool:
+        """Starts the node in the state specified by graph_state."""
+        return True
+
+
+@struct.dataclass
+class ActuatorParams(base.Base):
+    actuator_delay: Union[float, jax.typing.ArrayLike]
+
+
+class SimActuator(BaseNode):
+    def __init__(self, *args, outputs: ActuatorOutput = None, **kwargs):
+        """Initialize Actuator for system identification.
+
+        Args:
+        outputs: Recorded actuator Outputs to be used for system identification.
+        """
+        super().__init__(*args, **kwargs)
+        self._outputs = outputs
+
+    def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> ActuatorParams:
+        """Default params of the node."""
+        actuator_delay = 0.05
+        return ActuatorParams(actuator_delay=actuator_delay)
+
+    def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> ActuatorOutput:
+        """Default output of the node."""
+        return ActuatorOutput(action=jnp.array([0.0], dtype=jnp.float32))
+
+    def step(self, step_state: StepState) -> Tuple[StepState, ActuatorOutput]:
+        # Get action from dataset if available, else use the one provided by the agent
+        if self._outputs is not None:  # Use the recorded action (for system identification)
+            output = tree_dynamic_slice(self._outputs, jnp.array([step_state.eps, step_state.seq]))
+        else:  # Feedthrough the agent's action (for normal operation, e.g., training)
+            output = step_state.inputs["agent"][-1].data
+            output = ActuatorOutput(action=output.action)
+        new_step_state = step_state
         return new_step_state, output
 
 
-class RandomAgent(BaseNode):
+@struct.dataclass
+class AgentParams(base.Base):
+    # Policy
+    policy: Policy
+    # Observations
+    num_act: Union[int, jax.typing.ArrayLike] = struct.field(pytree_node=False)  # Action history length
+    num_obs: Union[int, jax.typing.ArrayLike] = struct.field(pytree_node=False)  # Observation history length
+    # Action
+    max_torque: Union[float, jax.typing.ArrayLike]
+    # Initial state
+    init_method: str = struct.field(pytree_node=False)  # "random", "parametrized"
+    parametrized: jax.typing.ArrayLike
+    max_th: Union[float, jax.typing.ArrayLike]
+    max_thdot: Union[float, jax.typing.ArrayLike]
+    # Train
+    gamma: Union[float, jax.typing.ArrayLike]
+    tmax: Union[float, jax.typing.ArrayLike]
+
+    @staticmethod
+    def process_inputs(inputs: FrozenDict[str, base.InputState]) -> jax.Array:
+        th, thdot = inputs["sensor"][-1].data.th, inputs["sensor"][-1].data.thdot
+        obs = jnp.array([jnp.cos(th), jnp.sin(th), thdot])
+        return obs
+
+    @staticmethod
+    def get_observation(step_state: StepState) -> jax.Array:
+        # Unpack StepState
+        inputs, state = step_state.inputs, step_state.state
+
+        # Convert inputs to single observation
+        single_obs = AgentParams.process_inputs(inputs)
+
+        # Concatenate with previous observations
+        obs = jnp.concatenate([single_obs, state.history_obs.flatten(), state.history_act.flatten()])
+        return obs
+
+    @staticmethod
+    def update_state(step_state: StepState, action: jax.Array) -> "AgentState":
+        # Unpack StepState
+        state, params, inputs = step_state.state, step_state.params, step_state.inputs
+
+        # Convert inputs to observation
+        single_obs = AgentParams.process_inputs(inputs)
+
+        # Update obs history
+        if params.num_obs > 0:
+            history_obs = jnp.roll(state.history_obs, shift=1, axis=0)
+            history_obs = history_obs.at[0].set(single_obs)
+        else:
+            history_obs = state.history_obs
+
+        # Update act history
+        if params.num_act > 0:
+            history_act = jnp.roll(state.history_act, shift=1, axis=0)
+            history_act = history_act.at[0].set(action)
+        else:
+            history_act = state.history_act
+
+        new_state = state.replace(history_obs=history_obs, history_act=history_act)
+        return new_state
+
+    @staticmethod
+    def to_output(action: jax.Array) -> ActuatorOutput:
+        return ActuatorOutput(action=action)
+
+
+@struct.dataclass
+class AgentState(base.Base):
+    history_act: jax.typing.ArrayLike
+    history_obs: jax.typing.ArrayLike
+    init_th: Union[float, jax.typing.ArrayLike]
+    init_thdot: Union[float, jax.typing.ArrayLike]
+
+
+class Agent(BaseNode):
+    def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> AgentParams:
+        return AgentParams(
+            policy=None,  # Policy must be set by the user
+            num_act=4,
+            num_obs=4,
+            max_torque=2.0,
+            init_method="parametrized",
+            parametrized=jnp.array([jnp.pi, 0.0]),
+            max_th=jnp.pi,
+            max_thdot=9.0,
+            gamma=0.99,
+            tmax=3.0,
+        )
+
+    def init_state(self, rng: jax.Array = None, graph_state: GraphState = None) -> AgentState:
+        graph_state = graph_state or base.GraphState()
+        params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
+        history_act = jnp.zeros((params.num_act, 1), dtype=jnp.float32)  # [torque]
+        history_obs = jnp.zeros((params.num_obs, 3), dtype=jnp.float32)  # [cos(th), sin(th), thdot]
+
+        # Set the initial state of the pendulum
+        if params.init_method == "parametrized":
+            init_th, init_thdot = params.parametrized
+        elif params.init_method == "random":
+            rng = rng if rng is not None else jax.random.PRNGKey(0)
+            rngs = jax.random.split(rng, num=2)
+            init_th = jax.random.uniform(rngs[0], shape=(), minval=-params.max_th, maxval=params.max_th)
+            init_thdot = jax.random.uniform(rngs[1], shape=(), minval=-params.max_thdot, maxval=params.max_thdot)
+        else:
+            raise ValueError(f"Invalid init_method: {params.init_method}")
+        return AgentState(history_act=history_act, history_obs=history_obs, init_th=init_th, init_thdot=init_thdot)
+
     def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> ActuatorOutput:
         """Default output of the node."""
-        if rng is None:
-            rng = jax.random.PRNGKey(0)
-        action = jax.random.uniform(rng, shape=(1,), minval=-2.0, maxval=2.0)
+        rng = jax.random.PRNGKey(0) if rng is None else rng
+        graph_state = graph_state or base.GraphState()
+        params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
+        action = jax.random.uniform(rng, shape=(1,), minval=-params.max_torque, maxval=params.max_torque)
         return ActuatorOutput(action=action)
 
     def step(self, step_state: StepState) -> Tuple[StepState, ActuatorOutput]:
         """Step the node."""
         # Unpack StepState
-        _, state, params, inputs = step_state.rng, step_state.state, step_state.params, step_state.inputs
+        rng, params = step_state.rng, step_state.params
 
         # Prepare output
-        rng, rng_net = jax.random.split(step_state.rng)
-        action = jax.random.uniform(rng_net, shape=(1,), minval=-2.0, maxval=2.0)
-        output = ActuatorOutput(action=action)
+        rng, rng_net = jax.random.split(rng)
+        if params.policy is not None:
+            obs = AgentParams.get_observation(step_state)
+            action = params.policy.get_action(obs, rng=None)  # Supply rng for stochastic policies
+        else:
+            action = jax.random.uniform(rng_net, shape=(1,), minval=-params.max_torque, maxval=params.max_torque)
+        output = AgentParams.to_output(action)
 
-        # Update state
-        new_step_state = step_state.replace(rng=rng)
-
+        # Update step_state (observation and action history)
+        new_state = params.update_state(step_state, action)
+        new_step_state = step_state.replace(rng=rng, state=new_state)
         return new_step_state, output
 
 

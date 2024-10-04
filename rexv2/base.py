@@ -229,17 +229,36 @@ class Graph:
         graphs = jax.tree_util.tree_map(_stack, *graphs_raw)
         return graphs
 
-    def filter(self, nodes: Dict[str, "BaseNode"]) -> "Graph":
+    def filter(self, nodes: Dict[str, "BaseNode"], filter_edges: bool = True) -> "Graph":
+        """Filter the graph to only include the nodes and edges that are in the nodes dictionary.
+
+        :param nodes: A dictionary of nodes. The keys are the unique names of the nodes, and the values are the nodes.
+        :param filter_edges:  If True, only include the nodes that are connected to the nodes in the dictionary.
+        :return: A new graph with only the nodes and edges that are in the nodes dictionary.
+        """
+        # Determine set of vertices and connections to keep
+        connections = set()
+        for n2, v2 in nodes.items():
+            if filter_edges:  # Also filter edges that only exist between vertices in `nodes`
+                for n1, i in v2.inputs.items():
+                    if n1 in nodes:
+                        connections.add((n1, n2))
+            else:  # Only filters vertices, meaning vertices may have more edges than connections in nodes.
+                if n2 in self.nodes:
+                    for n1, v1 in self.nodes[n2].inputs.items():
+                        if n1 in nodes:
+                            connections.add((n1, n2))
+
+        # Perform filtering of vertices and edges
         vertices = self.vertices.copy()
         edges = self.edges.copy()
-        # Filter supervisor nodes
         v_names = list(vertices.keys())
         e_names = list(edges.keys())
         for k in v_names:
             if k not in nodes:
                 vertices.pop(k)
         for (n1, n2) in e_names:
-            if n1 not in nodes or n2 not in nodes:
+            if (n1, n2) not in connections:
                 edges.pop((n1, n2))
         return Graph(vertices=vertices, edges=edges)
 
@@ -316,10 +335,6 @@ class SlotVertex(WindowedVertex):
     Internal use only.
     """
 
-    # seq: Union[int, jax.Array]
-    # ts_start: Union[float, jax.Array]
-    # ts_end: Union[float, jax.Array]
-    # windows: Dict[str, Window]
     run: Union[bool, jax.Array]
     kind: str = struct.field(pytree_node=False)
     generation: int = struct.field(pytree_node=False)
@@ -624,9 +639,10 @@ class TrainableDist(DelayDistribution):
         return self
 
     @classmethod
-    def create(cls, alpha: Union[float, jax.typing.ArrayLike], min: Union[float, jax.typing.ArrayLike], max: Union[float, jax.typing.ArrayLike], interp: str = "zoh") -> "TrainableDist":
+    def create(cls, delay: Union[float, jax.typing.ArrayLike], min: Union[float, jax.typing.ArrayLike], max: Union[float, jax.typing.ArrayLike], interp: str = "zoh") -> "TrainableDist":
         min = float(min)
         max = float(max)
+        alpha = float(TrainableDist._get_alpha(delay, min, max))
         assert 0.0 <= alpha <= 1.0, f"alpha should be between [0, 1], but got {alpha}."
         assert min < max, f"min should be less than max, but got min={min} and max={max}."
         assert 0.0 <= min, f"min should be greater than or equal to 0, but got {min}."
@@ -703,12 +719,31 @@ class TrainableDist(DelayDistribution):
 
             tb = [input.seq, input.ts_sent, ts_recv, input.data]
             ts_recv_interp = jax.lax.dynamic_slice(ts_recv_mask, [idx_min], [window])
-            ts_recv_interp = ts_recv_interp + (ts_start - ts_recv_interp[-1])  # Now, ts_start == ts_recv_interp[-1] should hold.
-            interp_tb = jax.tree_map(lambda _tb: jnp.interp(ts_recv_interp, ts_recv_mask, _tb).astype(jax.dtypes.canonicalize_dtype(_tb.dtype)), tb)
+            ts_recv_interp = ts_recv_interp + (ts_start - ts_recv_interp[-1])
+
+            def interp_maybe_batched(_fp):
+                if _fp.ndim > 1:
+                    _fp_shape = _fp.shape
+                    _fp_batch = _fp.reshape(_fp_shape[0], -1)  # Flatten all but the first dimension
+                    _f_shape = (window,) + _fp_shape[1:]  # This is the shape of the output
+                    res = jax.vmap(jnp.interp, in_axes=(None, None, 1,))(ts_recv_interp, ts_recv_mask, _fp_batch).reshape(_f_shape)
+                else:
+                    res = jnp.interp(ts_recv_interp, ts_recv_mask, _fp)
+                return res.astype(jax.dtypes.canonicalize_dtype(_fp.dtype))  # Ensure that the dtype is the same as the original dtype
+
+            # Now, ts_start == ts_recv_interp[-1] should hold.
+            interp_tb = jax.tree_map(interp_maybe_batched, tb)
             delayed_input_state = InputState(*interp_tb, delay_dist=new_delay_dist)
         else:
             raise ValueError(f"Interpolation method {self.interp} not supported.")
         return delayed_input_state
+
+    def get_alpha(self, delay: Union[float, jax.typing.ArrayLike]) -> Union[float, jax.typing.ArrayLike]:
+        return jnp.clip(self._get_alpha(delay, self.min, self.max), 0.0, 1.0)
+
+    @staticmethod
+    def _get_alpha(delay: Union[float, jax.typing.ArrayLike], min: Union[float, jax.typing.ArrayLike], max: Union[float, jax.typing.ArrayLike]) -> Union[float, jax.typing.ArrayLike]:
+        return (delay - min) / (max - min)
 
 
 @struct.dataclass
@@ -1040,13 +1075,25 @@ class MessageRecord:
 
 @struct.dataclass
 class InputRecord:
-    info: InputInfo
-    # rng_dist: jax.Array
+    info: InputInfo = struct.field(pytree_node=False)  # This may have broken backward compatibility
     messages: MessageRecord
 
 
 @struct.dataclass
 class StepRecord:
+    eps: Union[int, jax.typing.ArrayLike]
+    seq: Union[int, jax.typing.ArrayLike]
+    ts_start: Union[float, jax.typing.ArrayLike]
+    ts_end: Union[float, jax.typing.ArrayLike]
+    delay: Union[float, jax.typing.ArrayLike]
+    rng: jax.Array  # Optionally logged
+    inputs: InputState  # Optionally logged (can become very large)
+    state: Base  # Optionally logged | Before the step call
+    output: Base  # Optionally logged | After the step call
+
+
+@struct.dataclass
+class AsyncStepRecord(StepRecord):
     eps: Union[int, jax.typing.ArrayLike]
     seq: Union[int, jax.typing.ArrayLike]
     ts_scheduled: Union[float, jax.typing.ArrayLike]
@@ -1073,7 +1120,6 @@ class NodeRecord:
     clock: constants.Clock = struct.field(pytree_node=False)
     real_time_factor: float = struct.field(pytree_node=False)
     ts_start: float
-    # rng_dist: jax.Array
     params: Base
     inputs: Dict[str, InputRecord]  # Uses name of output node in graph context, not the input_name
     steps: StepRecord
@@ -1086,11 +1132,47 @@ class EpisodeRecord:
     def __getitem__(self, val):
         return jax.tree_util.tree_map(lambda x: x[val], self)
 
+    def filter(self, nodes: Dict[str, "BaseNode"], filter_connections: bool = False) -> "EpisodeRecord":
+        """Filter the episode record.
+
+        :param nodes: Only keep record.nodes in of subgraph spanned by nodes.
+        :param filter_connections:  If True, only keep connections between nodes in nodes.
+        :return: A new episode record with only the nodes and connections in nodes.
+        """
+        # Determine set of nodes and connections to keep
+        connections = set()
+        for n2, v2 in nodes.items():
+            if v2.inputs is None:
+                raise NotImplementedError(
+                    "'inputs' not available. Records logged in Clock.COMPILED mode do not log inputs, "
+                    "so the graph cannot be reconstructed.")
+            if filter_connections:  # Also filter connections that only exist between nodes in `nodes`
+                for n1, i in v2.inputs.items():
+                    if n1 in nodes:
+                        connections.add((n1, n2))
+            else:  # Only filters nodes, meaning self.nodes may have more connections than nodes.
+                if n2 in self.nodes:
+                    for n1, v1 in self.nodes[n2].inputs.items():
+                        if n1 in nodes:
+                            connections.add((n1, n2))
+
+        # Filter nodes and connections (if filter_connections=True)
+        new_nodes = {n: self.nodes[n] for n in nodes}
+        for n2, v2 in new_nodes.items():
+            new_info_inputs = {n1: v2.info.inputs[n1] for n1 in v2.inputs if (n1, n2) in connections}
+            new_info = v2.info.replace(inputs=new_info_inputs)
+            new_inputs = {n1: v2.inputs[n1] for n1 in v2.inputs if (n1, n2) in connections}
+            new_nodes[n2] = v2.replace(info=new_info, inputs=new_inputs)
+        return EpisodeRecord(nodes=new_nodes)
 
     def to_graph(self) -> Graph:
         vertices = {n: Vertex(seq=v.steps.seq, ts_start=v.steps.ts_start, ts_end=v.steps.ts_end) for n, v in self.nodes.items()}
         edges = dict()
         for n2, v2 in self.nodes.items():
+            if v2.inputs is None:
+                raise NotImplementedError(
+                    "'inputs' not available. Records logged in Clock.COMPILED mode do not log inputs, "
+                    "so the graph cannot be reconstructed.")
             for n1, i in v2.inputs.items():
                 seq_in = i.messages.seq_in
                 seq_out = i.messages.seq_out
@@ -1102,6 +1184,10 @@ class EpisodeRecord:
 @struct.dataclass
 class ExperimentRecord:
     episodes: List[EpisodeRecord]
+
+    def filter(self, nodes: Dict[str, "BaseNode"], filter_connections: bool = False) -> "ExperimentRecord":
+        episodes = [e.filter(nodes, filter_connections=filter_connections) for e in self.episodes]
+        return ExperimentRecord(episodes=episodes)
 
     def to_graph(self) -> Graph:
         # Note: Vertex.seq=-1, .ts_start=-1., .ts_end=-1. for padded vertices
@@ -1155,8 +1241,7 @@ class Transform:
         raise NotImplementedError
 
 
-LossArgs = Tuple[Transform]
-Loss = Callable[[Params, LossArgs, jax.Array], Union[float, jax.Array]]
+Loss = Callable[[Params, Transform, jax.Array], Union[float, jax.Array]]
 
 
 @struct.dataclass

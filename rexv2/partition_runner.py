@@ -6,9 +6,10 @@ import jax
 import jax.numpy as jnp
 import numpy as onp
 import rexv2.jax_utils as rjax
+import equinox as eqx
 from rexv2.utils import check_generations_uniformity
 from rexv2.node import BaseNode
-from rexv2.base import InputState, StepState, GraphState, Output, GraphBuffer, Timings, SlotVertex, TrainableDist
+from rexv2.base import InputState, StepState, GraphState, Output, GraphBuffer, Timings, SlotVertex, EpisodeRecord, StepRecord
 
 
 int32 = Union[jnp.int32, onp.int32]
@@ -48,7 +49,7 @@ def update_output(buffer: GraphBuffer, output: Output, seq: int32) -> Output:
 
 
 def make_update_state(name: str):
-    def _update_state(graph_state: GraphState, timing: SlotVertex, step_state: StepState, output: Any) -> GraphState:
+    def _update_state(graph_state: GraphState, timing: SlotVertex, step_state: StepState, output: Any, output_record: Any) -> GraphState:
         # Define node's step state update
         new_step_states = dict()
         new_outputs = dict()
@@ -62,6 +63,13 @@ def make_update_state(name: str):
 
         graph_state = graph_state.replace_buffer(new_outputs)
         new_graph_state = graph_state.replace_step_states(new_step_states)
+
+        # Update record
+        record = graph_state.aux.get("record", None)
+        if record is not None and output_record is not None:
+            new_outputs = jax.tree_map(lambda _b, _o: jnp.array(_b).at[timing.seq].set(jnp.array(_o)),
+                                       record.nodes[name].steps.output, output_record)
+            new_graph_state = eqx.tree_at(lambda _gs: _gs.aux["record"].nodes[name].steps.output, new_graph_state, new_outputs)
         return new_graph_state
 
     return _update_state
@@ -136,15 +144,34 @@ def make_run_partition_excl_supervisor(
         # Increment sequence number
         _new_seq_ss = _new_ss.replace(seq=_new_ss.seq + 1)
 
+        # Update record # todo: update record
+        if "record" in graph_state.aux:
+            record: EpisodeRecord = graph_state.aux["record"]
+            new_step_record = StepRecord(
+                eps=ss.eps,
+                seq=ss.seq,
+                ts_start=ss.ts,
+                ts_end=timings_node.ts_end,
+                delay=timings_node.ts_end - ss.ts,
+                rng=ss.rng if record.nodes[kind].steps.rng is not None else None,
+                inputs=ss.inputs if record.nodes[kind].steps.inputs is not None else None,
+                state=ss.state if record.nodes[kind].steps.state is not None else None,
+                output=output if record.nodes[kind].steps.output is not None else None,
+            )
+        else:
+            new_step_record = None
+
         # Update output buffer
         if not RETURN_OUTPUT:
             output = update_output(graph_state.buffer[kind], output, timings_node.seq)
         # _new_output = graph_state.outputs[kind]
-        return _new_seq_ss, output
+        return _new_seq_ss, output, new_step_record
 
     node_step_fns = {kind: functools.partial(_run_node, kind) for kind in nodes.keys()}
 
     def _run_generation(graph_state: GraphState, timings_gen: Dict[str, SlotVertex]):
+        record: EpisodeRecord = graph_state.aux.get("record", None)
+        new_records = dict()
         new_step_states = dict()
         new_outputs = dict()
         for slot_kind, timings_node in timings_gen.items():
@@ -159,9 +186,11 @@ def make_run_partition_excl_supervisor(
             pred = timings_gen[slot_kind].run  # Predicate for running node step
 
             # Prepare old states
+            noop_step_record = rjax.tree_take(record.nodes[kind].steps, timings_node.seq) if record is not None else None
             noop_ss = graph_state.step_state[kind]
             if RETURN_OUTPUT:
-                noop_output = rjax.tree_take(graph_state.buffer[kind], timings_node.seq)
+                size = get_buffer_size(graph_state.buffer[kind])
+                noop_output = rjax.tree_take(graph_state.buffer[kind], timings_node.seq % size)
             else:
                 noop_output = graph_state.buffer[kind]
 
@@ -169,14 +198,19 @@ def make_run_partition_excl_supervisor(
                 raise DeprecationWarning("Inputs should not be None, but pre-filled via graph.init")
 
             # Run node step
-            no_op = lambda *args: (noop_ss, noop_output)
-            # no_op = jax.checkpoint(no_op) # todo: apply jax.checkpoint to no_op?
+            no_op = lambda *args: (noop_ss, noop_output, noop_step_record)
             try:
-                new_ss, output = jax.lax.cond(pred, node_step_fns[kind], no_op, graph_state, timings_node)
+                new_ss, output, new_step_record = jax.lax.cond(pred, node_step_fns[kind], no_op, graph_state, timings_node)
             except TypeError as e:
-                new_ss, output = node_step_fns[kind](graph_state, timings_node)
-                print(f"TypeError: kind={kind}")
+                print(f"TypeError: kind={kind}:",  e)
+                new_ss, output, new_step_record = node_step_fns[kind](graph_state, timings_node)
                 raise e
+
+            # Update record
+            if record is not None:
+                steps = record.nodes[kind].steps
+                new_steps = jax.tree_map(lambda _b, _o: jnp.array(_b).at[timings_node.seq].set(jnp.array(_o)), steps, new_step_record)
+                new_records[kind] = record.nodes[kind].replace(steps=new_steps)
 
             # Store new state
             new_step_states[kind] = new_ss
@@ -187,16 +221,20 @@ def make_run_partition_excl_supervisor(
 
             # Update buffer
             if INTERMEDIATE_UPDATE:
+                # todo: Incorrect? new_outputs/new_step_states are not emptied to {} after the lines below.
                 graph_state = graph_state.replace_buffer(new_outputs)
-                # new_buffer = graph_state.buffer.replace(outputs=graph_state.buffer.outputs.copy(new_outputs))
                 graph_state = graph_state.replace_step_states(new_step_states)
+                raise NotImplementedError("Intermediate record update not yet implemented")
 
         if INTERMEDIATE_UPDATE:
             new_graph_state = graph_state
         else:
             graph_state = graph_state.replace_buffer(new_outputs)
-            # new_buffer = graph_state.buffer.replace(outputs=graph_state.buffer.outputs.copy(new_outputs))
             new_graph_state = graph_state.replace_step_states(new_step_states)
+            if record is not None:
+                new_nodes = record.nodes.copy()
+                new_nodes.update(new_records)
+                new_graph_state = new_graph_state.replace_aux({"record": record.replace(nodes=new_nodes)})
         return new_graph_state, new_graph_state
 
     def _run_S(graph_state: GraphState) -> GraphState:
@@ -241,6 +279,30 @@ def make_run_partition_excl_supervisor(
         # Run supervisor input update
         new_ss_supervisor = update_input_fns[supervisor](graph_state, timings_mcs[supervisor_gen_idx][supervisor_slot])
         graph_state = graph_state.replace_step_states({supervisor: new_ss_supervisor})
+
+        record = graph_state.aux.get("record", None)
+        if record is not None:
+            timing_sup = rjax.tree_take(graph_state.timings_eps.slots[supervisor_slot], i=graph_state.step)
+            new_step_record = StepRecord(
+                eps=new_ss_supervisor.eps,
+                seq=new_ss_supervisor.seq,
+                ts_start=new_ss_supervisor.ts,
+                ts_end=timing_sup.ts_end,
+                delay=timing_sup.ts_end - new_ss_supervisor.ts,
+                rng=new_ss_supervisor.rng if record.nodes[supervisor].steps.rng is not None else None,
+                inputs=new_ss_supervisor.inputs if record.nodes[supervisor].steps.inputs is not None else None,
+                state=new_ss_supervisor.state if record.nodes[supervisor].steps.state is not None else None,
+                # Output is recorded AFTER the supervisor's step,
+                # while the other statistics are recorded BEFORE the supervisor.
+                output=None,
+            )
+            # Therefore, we perform some output abracadabra here.
+            # We set output to none to match the static shape of new_step_record.
+            # Then, we add the original output back to the record.
+            new_steps = jax.tree_map(lambda _b, _o: jnp.array(_b).at[graph_state.step].set(jnp.array(_o)),
+                                     record.nodes[supervisor].steps.replace(output=None), new_step_record)
+            new_steps = new_steps.replace(output=record.nodes[supervisor].steps.output)
+            graph_state = eqx.tree_at(lambda _gs: _gs.aux["record"].nodes[supervisor].steps, graph_state, new_steps)
 
         # Increment step (new step may exceed max_step) --> clipping is done at the start of run_S.
         graph_state = graph_state.replace(step=graph_state.step + 1)

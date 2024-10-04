@@ -13,7 +13,7 @@ from rexv2.partition_runner import make_run_partition_excl_supervisor, make_upda
 from rexv2 import base
 from rexv2.node import BaseNode
 from rexv2 import utils
-from rexv2.constants import Supergraph
+from rexv2.constants import Supergraph, Clock, RealTimeFactor
 import rexv2.jax_utils as rjax
 
 
@@ -68,17 +68,26 @@ class Graph:
         self.nodes_excl_supervisor = {k: v for k, v in nodes.items() if v.name != supervisor.name}
         self._skip = skip if isinstance(skip, list) else [skip] if isinstance(skip, str) else []
 
-        # Apply window to graphs
+        # # Initialize record_settings
+        # _settings = dict(params=False, rng=False, inputs=False, state=False, output=False)
+        # self._record_settings = {k: _settings.copy() for k in nodes.keys()}
+
+        # Expand dimension if necessary
+        v = next(iter(graphs_raw.vertices.values()))
+        if len(v.seq.shape) == 1:
+            graphs_raw = jax.tree_util.tree_map(lambda x: jnp.expand_dims(x, axis=0), graphs_raw)
+        elif len(v.seq.shape) == 2:
+            pass
+        else:
+            raise ValueError("Invalid shape. Expected 1 (step,) or 2 dimensions (episode, step).")
         v = next(iter(graphs_raw.vertices.values()))
         assert len(v.seq.shape) == 2, "Invalid shape. Expected 2 dimensions (episode, step)."
+        # Apply window to graphs
         self._graphs_raw = graphs_raw
-        # with timer("apply_window", verbose=debug):
         self._windowed_graphs = utils.apply_window(nodes, graphs_raw)  # Apply window to graphs
-        # with timer("to_graph", verbose=debug):
         self._graphs = self._windowed_graphs.to_graph()  # For visualization
 
         # Convert to networkx graphs
-        # with timer("to_networkx_graph", verbose=debug):
         self._Gs = []
         for i in range(len(self._graphs)):
             G = utils.to_networkx_graph(self._graphs[i], nodes=nodes, validate=debug)
@@ -283,6 +292,98 @@ class Graph:
         new_cgs = new_cgs.replace_eps(timings, eps=new_gs.eps)  # (Clips eps to valid value & updates timings_eps)
         return new_cgs
 
+    def init_record(self,
+                    graph_state: base.GraphState,
+                    params: Union[Dict[str, bool], bool] = None,
+                    rng: Union[Dict[str, bool], bool] = None,
+                    inputs: Union[Dict[str, bool], bool] = None,
+                    state: Union[Dict[str, bool], bool] = None,
+                    output: Union[Dict[str, bool], bool] = None,
+                    ) -> base.GraphState:
+        """Sets the record settings for the nodes in the graph."""
+        assert "record" not in graph_state.aux, "Already initialized record in graph_state.aux."
+
+        # Prepare record settings
+        params = params if params is not None else {}
+        rng = rng if rng is not None else {}
+        inputs = inputs if inputs is not None else {}
+        state = state if state is not None else {}
+        output = output if output is not None else {}
+        params = params if isinstance(params, dict) else {k: params for k in self.nodes.keys()}
+        rng = rng if isinstance(rng, dict) else {k: rng for k in self.nodes.keys()}
+        inputs = inputs if isinstance(inputs, dict) else {k: inputs for k in self.nodes.keys()}
+        state = state if isinstance(state, dict) else {k: state for k in self.nodes.keys()}
+        output = output if isinstance(output, dict) else {k: output for k in self.nodes.keys()}
+        # Initialize default record_settings
+        _record_settings = {k: {} for k in self.nodes.keys()}
+        for name in self.nodes.keys():
+            _record_settings[name]["params"] = params.get(name, False)
+            _record_settings[name]["rng"] = rng.get(name, False)
+            _record_settings[name]["inputs"] = inputs.get(name, False)
+            _record_settings[name]["state"] = state.get(name, False)
+            _record_settings[name]["output"] = output.get(name, False)
+
+        # Initialize record
+        # Determine maximum number of steps per node across episodes
+        num_seqs = {}
+        for sname, slot in self._timings.slots.items():
+            kind = slot.kind
+            num_runs = slot.run.sum(axis=-1)
+            # Calculate total non-masked steps per node per episode
+            num_seqs[kind] = num_seqs.get(kind, onp.zeros_like(num_runs)) + num_runs
+        num_seqs = {k: onp.max(v) for k, v in num_seqs.items()} # Take the maximum number of steps over all episodes
+
+        node_records = {}
+        for name, node in self.nodes.items():
+            # Initialize input record
+            inputs = {}
+            for _, c in node.inputs.items():
+                name_out = c.output_node.name
+                info = c.output_node.info
+                seqs_out = num_seqs[name_out]
+                dummy_arr = onp.ones((seqs_out,), dtype=int) * -1
+                messages = base.MessageRecord(
+                    seq_out=dummy_arr,
+                    seq_in=dummy_arr,
+                    ts_sent=dummy_arr.astype(float),
+                    ts_recv=dummy_arr.astype(float),
+                    delay=dummy_arr.astype(float),
+                )
+                inputs[name_out] = base.InputRecord(info=info, messages=messages)
+            # Initialize step record
+            rng = graph_state.rng[name] if _record_settings[name]["rng"] else None
+            inputs = inputs if _record_settings[name]["inputs"] else None
+            state = graph_state.state[name] if _record_settings[name]["state"] else None
+            buffer = graph_state.buffer[name] if _record_settings[name]["output"] else None
+            output = jax.tree_util.tree_map(lambda x: x[0], buffer) if buffer is not None else None
+
+            seqs_in = num_seqs[name]
+            step_record = base.StepRecord(
+                eps=onp.array(-1, dtype=int),
+                seq=onp.array(-1, dtype=int),
+                ts_start=onp.array(-1, dtype=float),
+                ts_end=onp.array(-1, dtype=float),
+                delay=onp.array(-1, dtype=float),
+                rng=rng,
+                inputs=inputs,
+                state=state,
+                output=output,
+            )
+            steps = jax.tree_util.tree_map(lambda x: (jnp.ones((seqs_in,) + x.shape) * -1).astype(jax.dtypes.canonicalize_dtype(x.dtype)), step_record)
+            # Initialize node record
+            node_records[name] = base.NodeRecord(
+                info=node.info,
+                clock=Clock.COMPILED,
+                real_time_factor=RealTimeFactor.FAST_AS_POSSIBLE,
+                ts_start=0.0,
+                params=graph_state.params[name] if _record_settings[name]["params"] else None,
+                steps=steps,
+                inputs=None,  # todo: use inputs instead of None (currently not logged).
+            )
+        new_aux = graph_state.aux.copy({"record": base.EpisodeRecord(nodes=node_records)})
+        new_gs = graph_state.replace(aux=new_aux)
+        return new_gs
+
     def run_until_supervisor(self, graph_state: base.GraphState) -> base.GraphState:
         """Runs graph until supervisor node.step is called.
 
@@ -306,6 +407,7 @@ class Graph:
         update_state = make_update_state(self._supervisor_kind)
         supervisor_slot = self._supervisor_slot
         supervisor = self.supervisor
+        record = graph_state.aux.get("record", None)
 
         if RETURN_OUTPUT:
             # Update graph state
@@ -314,28 +416,33 @@ class Graph:
             # Hence, we need to grab the timings of the previous step (i.e. graph_state.step-1).
             timing = rjax.tree_take(graph_state.timings_eps.slots[supervisor_slot], i=graph_state.step - 1)
             # Define NOOP
+            noop_output_record = rjax.tree_take(record.nodes[self._supervisor_kind].steps.output, timing.seq) if record is not None else None
             noop_ss = graph_state.step_state[self.supervisor.name]
             noop_output = rjax.tree_take(graph_state.buffer[self.supervisor.name], timing.seq)
 
-            def _run_supervisor_step() -> Tuple[base.StepState, base.Output]:
+            def _run_supervisor_step() -> Tuple[base.StepState, base.Output, base.Output]:
                 # Get next step state and output from supervisor node
                 if step_state is None and output is None:  # Run supervisor node
                     ss = noop_ss
                     _new_ss, _new_output = supervisor.step(ss)
                 else:  # Override step_state and output
                     _new_ss, _new_output = step_state, output
-                return _new_ss, _new_output
+                _new_output_record = _new_output if noop_output_record is not None else None
+                return _new_ss, _new_output, _new_output_record
 
-            def _skip_supervisor_step() -> Tuple[base.StepState, base.Output]:
-                return noop_ss, noop_output
+            def _skip_supervisor_step() -> Tuple[base.StepState, base.Output, base.Output]:
+                # noop_output and noop_output_record can be different, e.g.,
+                # noop_output_record is -1 everywhere, while noop_output may be a previously buffered output
+                return noop_ss, noop_output, noop_output_record
 
             # Run supervisor node if step > 0, else skip
-            new_ss, new_output = jax.lax.cond(graph_state.step == 0, _skip_supervisor_step, _run_supervisor_step)
+            new_ss, new_output, new_output_record = jax.lax.cond(graph_state.step == 0, _skip_supervisor_step, _run_supervisor_step)
 
             # Update graph state
-            graph_state = update_state(graph_state, timing, new_ss, new_output)
+            graph_state = update_state(graph_state, timing, new_ss, new_output, new_output_record)
 
         else:
+            raise NotImplementedError("RETURN_OUTPUT=False is not implemented yet with the new record system.")
             def _run_supervisor_step() -> base.GraphState:
                 # Get next step state and output from supervisor node
                 if step_state is None and output is None:  # Run supervisor node
@@ -425,7 +532,7 @@ class Graph:
         self,
         graph_state: base.GraphState,
         max_steps: int = None,
-        carry_only: bool = False,
+        carry_only: bool = True,
     ) -> base.GraphState:
         """
         Executes the graph for a specified number of steps or until a condition is met, starting from a given step and episode.
@@ -433,6 +540,9 @@ class Graph:
         Utilizes the run method for execution, with an option to return only the final graph state or a sequence of all graph states.
         By virtue of using the run method, it does not allow for overriding the supervisor node's step method. That is,
         the supervisor node's step method is used during the rollout.
+
+        Note: To record the rollout, use the init_record method on the graph_state before calling this method and
+              set carry_only=True. Then, the record is available in graph_state.aux["record"].
 
         :param graph_state: The initial graph state.
         :param max_steps: The maximum steps to execute, if None, runs until a stop condition is met.

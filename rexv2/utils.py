@@ -10,6 +10,7 @@ from flax import struct
 import time
 
 import supergraph
+from supergraph import EDGE_DATA
 from supergraph import open_colors as oc
 from rexv2.base import Graph, WindowedGraph, Window, Vertex, Edge, WindowedVertex, Timings, SlotVertex, TrainableDist
 from rexv2.constants import LogLevel, Jitter
@@ -17,6 +18,7 @@ from rexv2.constants import LogLevel, Jitter
 from threading import current_thread
 from os import getpid
 from termcolor import colored
+import matplotlib
 import matplotlib.pyplot as plt
 
 if TYPE_CHECKING:
@@ -379,3 +381,185 @@ def get_subplots(tree, figsize=(10, 10), sharex=False, sharey=False, major="row"
         for ax in axes.flatten()[num:]:
             ax.remove()
     return fig, tree_axes
+
+
+def plot_graph(
+    G,
+    font_size=10,
+    edge_linewidth=1.0,
+    arrowsize=8,
+    arrowstyle="-|>",
+    connectionstyle="arc3,rad=-0.1",
+    show_labels=True,
+    max_x=None,
+    ax=None,
+    label_map: Dict = None,
+    label_loc="center",  # "center", "bottom", "top"
+    height: float = 0.6,
+    show_stateful_edges=False,
+    message_arrow_timing_mode="arrival",
+):
+    """
+
+    :param G:
+    :param font_size:
+    :param edge_linewidth: Edge line width for the message arrows
+    :param arrowsize: Arrow size for the message arrows
+    :param arrowstyle: Arrow style for the message arrows
+    :param connectionstyle: Connection style for the message arrows
+    :param show_labels: Whether to draw labels on the nodes
+    :param max_x: Maximum x value to plot
+    :param ax: Matplotlib axis
+    :param label_map: A dictionary mapping node names to labels
+    :param label_loc: Location of the label: "center", "bottom", "top"
+    :param height: Height of the computation blocks
+    :param show_stateful_edges: Whether to show stateful edges between consecutive vertices of the same kind.
+    :param message_arrow_timing_mode: "arrival" represents the message arrival timem, while
+                                      "usage" represents the time when the message is actually used in processing.
+    :return:
+    """
+    if ax is None:
+        fig, ax = plt.subplots(nrows=1)
+        fig.set_size_inches(12, 5)
+
+    # Remove nodes until max_x
+    x = {n: data.get("ts", data.get("seq", "")) for idx, (n, data) in enumerate(G.nodes(data=True))}
+    if max_x is not None:
+        x = {k: v for k, v in x.items() if v <= max_x}
+        G = G.subgraph(x.keys()).copy()
+
+    # Get all nodes and edges
+    edges = G.edges(data=True)
+    nodes = G.nodes(data=True)
+
+    # Remove stateful edges
+    if not show_stateful_edges:
+        # Remove stateful edges
+        rm_edges = [(u, v) for u, v, data in edges if G.nodes[u]["kind"] == G.nodes[v]["kind"]]
+        G.remove_edges_from(rm_edges)
+        edges = G.edges(data=True)
+
+    # Get color, order per node kind
+    node_ecolor, node_fcolor, node_order, node_alpha = {}, {}, {}, {}
+    for n, data in nodes:
+        node_ecolor[data["kind"]] = data.get("edgecolor", "#212529")
+        node_fcolor[data["kind"]] = data.get("facecolor", "#868e96")
+        node_order[data["kind"]] = data.get("order", None)
+        node_alpha[data["kind"]] = data.get("alpha", 1.0)
+
+    # Add unassigned nodes an order
+    orders = []
+    for idx, (k, o) in enumerate(node_order.items()):
+        if o is None:
+            node_order[k] = k if isinstance(k, int) else idx
+        assert node_order[k] not in orders, "Order must be unique"
+        orders.append(node_order[k])
+
+    # Get edge attributes
+    edges_msg = []
+    pos_msg = {}
+    edge_style, edge_alpha, edge_color = [], [], []
+    for u, v, data in edges:
+        edge_color.append(data.get("color", EDGE_DATA["color"]))
+        edge_alpha.append(data.get("alpha", EDGE_DATA["alpha"]))
+        edge_style.append(data.get("linestyle", EDGE_DATA["linestyle"]))
+        # Determine position of begin and end of message
+        name = f"{u}_{v}"
+        name_out = name + "_out"
+        name_int = name + "_int"
+        edges_msg.append((name_out, name_int))
+        # Output messages always start from the end of the sender
+        offset = height / 2 if node_order[nodes[v]["kind"]] > node_order[nodes[u]["kind"]] else -height / 2  # Offset if sender is higher
+        offset = 0 if nodes[u]["kind"] == nodes[v]["kind"] else offset  # No offset if same kind
+        pos_msg[name_out] = (nodes[u]["ts_end"], node_order[nodes[u]["kind"]]+offset)
+        # Input messages always end at the start of the receiver, with a height offset
+        offset = height / 2 if node_order[nodes[u]["kind"]] > node_order[nodes[v]["kind"]] else -height / 2  # Offset if sender is higher
+        offset = 0 if nodes[u]["kind"] == nodes[v]["kind"] else offset  # No offset if same kind
+        if message_arrow_timing_mode == "arrival":
+            pos_msg[name_int] = (data["ts_recv"], node_order[nodes[v]["kind"]]+offset)
+        elif message_arrow_timing_mode == "usage":
+            pos_msg[name_int] = (nodes[v]["ts_start"], node_order[nodes[v]["kind"]]+offset)
+        else:
+            raise ValueError(f"Invalid message_arrow_timing_mode: {message_arrow_timing_mode}. Valid options: ['arrival', 'usage']")
+    G_msg = nx.DiGraph()
+    G_msg.add_edges_from(edges_msg)
+
+    # Get vertex attributes
+    node_ts_start = {k: [] for k in node_order.keys()}
+    node_ts_end = {k: [] for k in node_order.keys()}
+    node_labels, pos, pos_labels = {}, {}, {}
+    for idx, (n, data) in enumerate(nodes):
+        node_labels[n] = data.get("seq", "")
+        ts_start = data.get("ts_start")
+        ts_end = data.get("ts_end")
+        node_ts_start[data["kind"]].append(ts_start)
+        node_ts_end[data["kind"]].append(ts_end)
+        pos[n] = (ts_start + (ts_end - ts_start) / 2, node_order[data["kind"]])
+        offset = (height)/2*1.25
+        offset = offset if label_loc == "top" else -offset if label_loc == "bottom" else 0
+        pos_labels[n] = (ts_start + (ts_end - ts_start) / 2, node_order[data["kind"]]+offset)
+
+    # Sort node_ts_start and node_ts_end
+    for k in node_ts_start.keys():
+        node_ts_start[k] = onp.array(sorted(node_ts_start[k]))
+        node_ts_end[k] = onp.array(sorted(node_ts_end[k]))
+
+    node_phase, node_computation, node_idle = {}, {}, {}
+    for k in node_ts_start.keys():
+        node_phase[k] = node_ts_start[k][0]
+        node_computation[k] = node_ts_end[k] - node_ts_start[k]
+        node_idle[k] = node_ts_start[k][1:] - node_ts_end[k][:-1]
+
+    # Draw computation delay
+    c = 1.0
+    for k in node_ts_start.keys():
+        ax.barh(y=node_order[k], height=height*c, width=node_phase[k], left=0, color=oc.fcolor.phase, alpha=0.5, label="phase shift")
+        ax.barh(y=node_order[k], height=height*c, width=node_idle[k], left=node_ts_end[k][:-1], color=oc.fcolor.sleep, alpha=0.5, label="idle")
+        ax.barh(y=node_order[k], height=height, width=node_computation[k], left=node_ts_start[k], color=node_fcolor[k], edgecolor=node_ecolor[k], alpha=node_alpha[k], label=k)
+        # ax.scatter(node_ts_end[k], [node_order[k]] * len(node_ts_end[k]), s=(height*10) ** 2, edgecolors=node_ecolor[k], facecolors=node_fcolor[k], marker="o", alpha=node_alpha[k],
+        #            label=f"output {k}")
+
+    # Draw graph
+    nx.draw_networkx_edges(
+        G_msg,
+        ax=ax,
+        pos=pos_msg,
+        edge_color=edge_color,
+        alpha=edge_alpha,
+        style=edge_style,
+        arrowsize=arrowsize,
+        arrowstyle=arrowstyle,
+        connectionstyle=connectionstyle,
+        width=edge_linewidth,
+        node_size=0,
+    )
+    if show_labels:
+        nx.draw_networkx_labels(G, pos_labels, node_labels, ax=ax, font_size=font_size, font_weight="bold")
+
+    # Overwrite label_map with dict
+    label_map = label_map or {}
+
+    # Set ticks
+    yticks = list(node_order.values())
+    ylabels = [label_map.get(k, k) for k in node_order.keys()]
+    ax.set_yticks(yticks, labels=ylabels)
+    ax.tick_params(left=False, bottom=True, labelleft=True, labelbottom=True)
+
+    # Create legend with the following handles
+    new_handles, new_labels = [], []
+    handles, labels = ax.get_legend_handles_labels()
+    new_handles.append(handles[labels.index("phase shift")]), new_labels.append("phase shift")
+    new_handles.append(handles[labels.index("idle")]), new_labels.append("idle")
+    arrow_handle = matplotlib.lines.Line2D([0], [1], color='black', marker=None, linewidth=2, linestyle='-',
+                                           markerfacecolor='black', markersize=10)  # For the arrow
+    new_handles.append(arrow_handle), new_labels.append("message")
+    # dot_handle = matplotlib.lines.Line2D([0], [0], color='black', marker='o', markerfacecolor='grey', markersize=8, linestyle='None')
+    # new_handles.append(dot_handle), new_labels.append("output channel")
+
+    new_handles.append(matplotlib.lines.Line2D([], [], color='none'))  # Add empty entry as a header for the 'Nodes' category
+    new_labels.append(r'$\bf{Comp.}$ $\bf{delays}$')
+    for k in node_order.keys():
+        new_handles.append(handles[labels.index(k)]), new_labels.append(k)
+    ax.legend(handles=new_handles, labels=new_labels, loc='center left', bbox_to_anchor=(1, 0.5))
+
+    return ax

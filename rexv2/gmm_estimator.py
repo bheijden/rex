@@ -3,6 +3,7 @@ All credits for this approach go to @ericmjl and his dl-workshop. The file can b
 https://github.com/ericmjl/dl-workshop/blob/6ef9b7feb60dd5f6a4dbdda4dc899337e583a397/src/dl_workshop/gaussian_mixture.py
 """
 
+import itertools
 import jax.numpy as np
 from jax.scipy import stats
 
@@ -147,9 +148,8 @@ def plot_component_norm_pdfs(
     x, pdfs, pdf = get_component_norm_pdfs(log_component_weights, component_mus, log_component_scales, xmin, xmax, num_points)
     artists = []
     if plot_comp:
-        kwargs_comp = kwargs_comp or (lambda: iter([{}]))  # Default to an empty dict if no generator provided
-        kwargs_comp = kwargs_comp or {}
-        for component, kwargs in zip(range(pdfs.shape[1]), kwargs_comp()):
+        kwargs_comp = kwargs_comp or itertools.repeat({})  # Default to an empty dict if no generator provided
+        for component, kwargs in zip(range(pdfs.shape[1]), kwargs_comp):
             kwargs["label"] = kwargs.get("label", f"comp. {component}")
             a = ax.plot(x, pdfs[:, component], **kwargs, animated=animated)[0]
             artists.append(a)

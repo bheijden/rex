@@ -5,7 +5,7 @@ import jax.random as rnd
 import equinox as eqx
 from flax import struct
 
-from rexv2.base import Params, Loss, LossArgs
+from rexv2.base import Params, Loss, Transform
 
 try:
     import evosax as evx
@@ -77,7 +77,7 @@ class EvoSolver:
         return self.strategy.param_reshaper.reshape_single(x)
 
 
-def evo(loss: Loss, solver: EvoSolver, init_state: evx.strategy.EvoState, args: LossArgs,
+def evo(loss: Loss, solver: EvoSolver, init_state: evx.strategy.EvoState, transform: Transform,
         max_steps: int = 100, rng: jax.Array = None, verbose: bool = True, logger: LogState = None):
     if rng is None:
         rng = rnd.PRNGKey(0)
@@ -86,7 +86,7 @@ def evo(loss: Loss, solver: EvoSolver, init_state: evx.strategy.EvoState, args: 
     def _evo_step(_state, xs):
         i, _rngs = xs
         _evo_state, _logger = _state
-        new_state, losses = evo_step(loss, solver, _evo_state, args, _rngs, _logger)
+        new_state, losses = evo_step(loss, solver, _evo_state, transform, _rngs, _logger)
         new_evo_state, new_logger = new_state
         if verbose:
             max_loss = jnp.max(losses)
@@ -104,7 +104,7 @@ def evo(loss: Loss, solver: EvoSolver, init_state: evx.strategy.EvoState, args: 
     return *final_state, losses
 
 
-def evo_step(loss: Loss, solver: EvoSolver, state: evx.strategy.EvoState, args: LossArgs, rng: jax.Array = None, logger: LogState = None):
+def evo_step(loss: Loss, solver: EvoSolver, state: evx.strategy.EvoState, transform: Transform, rng: jax.Array = None, logger: LogState = None):
     if rng is None:
         rng = rnd.PRNGKey(0)
 
@@ -114,7 +114,7 @@ def evo_step(loss: Loss, solver: EvoSolver, state: evx.strategy.EvoState, args: 
     # Generate the population
     x, state = solver.strategy.ask(rngs[0], state, solver.strategy_params)
     # Evaluate the population members
-    losses = eqx.filter_vmap(loss, in_axes=(0, None, 0))(x, args, rngs[1:])
+    losses = eqx.filter_vmap(loss, in_axes=(0, None, 0))(x, transform, rngs[1:])
     loss_nonan = jnp.where(jnp.isnan(losses), jnp.inf, losses)
     # Update the evolution strategy
     new_state = solver.strategy.tell(x, loss_nonan, state, solver.strategy_params)

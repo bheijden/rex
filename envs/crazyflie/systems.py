@@ -85,9 +85,9 @@ def simulated_system(record: base.EpisodeRecord,
     # mocap_delay = base.StaticDist.create(distrax.Deterministic(0.))
     # pid_delay = base.StaticDist.create(distrax.Deterministic(0.))
     # world_delay = base.StaticDist.create(distrax.Deterministic(0.))
-    mocap_delay = base.TrainableDist.create(alpha=0., min=0.0, max=0.05, interp="linear_real_only")  # Because world is continuous
-    pid_delay = base.TrainableDist.create(alpha=0., min=0.0, max=0.05, interp="zoh")  # Because actions are discrete
-    world_delay = base.TrainableDist.create(alpha=0., min=0.0, max=0.05, interp="linear_real_only")  # Because world is continuous
+    mocap_delay = base.TrainableDist.create(delay=0., min=0.0, max=0.05, interp="linear_real_only")  # Because world is continuous
+    pid_delay = base.TrainableDist.create(delay=0., min=0.0, max=0.05, interp="zoh")  # Because actions are discrete
+    world_delay = base.TrainableDist.create(delay=0., min=0.0, max=0.05, interp="linear_real_only")  # Because world is continuous
     pid.connect(world, window=1, blocking=False, jitter=Jitter.LATEST,
                 delay_dist=world_delay,
                 delay=0.)
@@ -180,9 +180,9 @@ def mock_system(delays_sim: DelaySim,
                   rate=rates["world"], scheduling=Scheduling.FREQUENCY, advance=False,
                   delay=None, delay_dist=base.StaticDist.create(distrax.Deterministic(0.999 / rates["world"])))
 
-    mocap_delay = base.TrainableDist.create(alpha=0., min=0.0, max=0.05, interp="linear_real_only")  # Because world is continuous
-    pid_delay = base.TrainableDist.create(alpha=0., min=0.0, max=0.05, interp="zoh")  # Because actions are discrete
-    world_delay = base.TrainableDist.create(alpha=0., min=0.0, max=0.05, interp="linear_real_only")  # Because world is continuous
+    mocap_delay = base.TrainableDist.create(delay=0., min=0.0, max=0.05, interp="linear_real_only")  # Because world is continuous
+    pid_delay = base.TrainableDist.create(delay=0., min=0.0, max=0.05, interp="zoh")  # Because actions are discrete
+    world_delay = base.TrainableDist.create(delay=0., min=0.0, max=0.05, interp="linear_real_only")  # Because world is continuous
     pid.connect(world, window=1, blocking=False, jitter=Jitter.LATEST,
                 delay_dist=world_delay,
                 # delay_dist=delays_sim["inputs"]["pid"]["world"],

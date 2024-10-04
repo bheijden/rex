@@ -245,9 +245,9 @@ if __name__ == "__main__":
         # Store timings
         elapsed_ctrl = dict(solve=t_train.duration, solve_jit=t_train_jit.duration)
         # Extract policies
-        model_params = ppo_out["runner_state"][0].params["params"]
-        act_scaling = ppo_out["act_scaling"]
-        obs_scaling = ppo_out["norm_obs"]
+        model_params = ppo_out.policy.model
+        act_scaling = ppo_out.act_scaling
+        obs_scaling = ppo_out.obs_scaling
         controllers = params_train["controller"].replace(act_scaling=act_scaling, obs_scaling=obs_scaling, model=model_params,
                                                          hidden_activation=ppo_config.HIDDEN_ACTIVATION, stochastic=False)
         controllers = jax.tree_util.tree_map(lambda x: onp.array(x), controllers)
@@ -272,7 +272,7 @@ if __name__ == "__main__":
             init_v = jax.vmap(functools.partial(graph_eval.init, rng=_rng, params=_params, order=("supervisor", "actuator")))
             _gs_init = init_v(starting_eps=eps)
             # Evaluate
-            _gs_eval = jax.vmap(graph_eval.rollout)(_gs_init)
+            _gs_eval = jax.vmap(functools.partial(graph_eval.rollout, carry_only=False))(_gs_init)
 
             # Replace buffer and timings_eps to save space
             _params = _gs_eval.params.unfreeze()
@@ -366,9 +366,9 @@ if __name__ == "__main__":
         # Store timings
         elapsed_ctrl = dict(solve=t_train.duration, solve_jit=t_train_jit.duration)
         # Extract policies
-        model_params = ppo_out["runner_state"][0].params["params"]
-        act_scaling = ppo_out["act_scaling"]
-        obs_scaling = ppo_out["norm_obs"]
+        model_params = ppo_out.policy.model
+        act_scaling = ppo_out.act_scaling
+        obs_scaling = ppo_out.obs_scaling
         controllers_stacked = params_train["controller"].replace(act_scaling=act_scaling, obs_scaling=obs_scaling, model=model_params,
                                                          hidden_activation=ppo_config.HIDDEN_ACTIVATION, stochastic=False)
         controllers_stacked = jax.tree_util.tree_map(lambda x: onp.array(x), controllers_stacked)
@@ -393,7 +393,7 @@ if __name__ == "__main__":
             init_v = jax.vmap(functools.partial(graph_eval.init, rng=_rng, params=_params, order=("supervisor", "actuator")))
             _gs_init = init_v(starting_eps=eps)
             # Evaluate
-            _gs_eval = jax.vmap(graph_eval.rollout)(_gs_init)
+            _gs_eval = jax.vmap(functools.partial(graph_eval.rollout, carry_only=False))(_gs_init)
 
             # Replace buffer and timings_eps to save space
             _params = _gs_eval.params.unfreeze()
@@ -471,9 +471,9 @@ if __name__ == "__main__":
         # Store timings
         elapsed_ctrl = dict(solve=t_train.duration, solve_jit=t_train_jit.duration)
         # Extract policies
-        model_params = ppo_out["runner_state"][0].params["params"]
-        act_scaling = ppo_out["act_scaling"]
-        obs_scaling = ppo_out["norm_obs"]
+        model_params = ppo_out.policy.model
+        act_scaling = ppo_out.act_scaling
+        obs_scaling = ppo_out.obs_scaling
         controllers_stacked_nodelay = params_train["controller"].replace(act_scaling=act_scaling, obs_scaling=obs_scaling, model=model_params,
                                                          hidden_activation=ppo_config.HIDDEN_ACTIVATION, stochastic=False)
         controllers_stacked_nodelay = jax.tree_util.tree_map(lambda x: onp.array(x), controllers_stacked_nodelay)
@@ -494,7 +494,7 @@ if __name__ == "__main__":
             init_v = jax.vmap(functools.partial(graph_eval.init, rng=_rng, params=_params, order=("supervisor", "actuator")))
             _gs_init = init_v(starting_eps=eps)
             # Evaluate
-            _gs_eval = jax.vmap(graph_eval.rollout)(_gs_init)
+            _gs_eval = jax.vmap(functools.partial(graph_eval.rollout, carry_only=False))(_gs_init)
 
             # Replace buffer and timings_eps to save space
             _params = _gs_eval.params.unfreeze()
@@ -567,9 +567,9 @@ if __name__ == "__main__":
         # Store timings
         elapsed_ctrl = dict(solve=t_train.duration, solve_jit=t_train_jit.duration)
         # Extract policies
-        model_params = ppo_out["runner_state"][0].params["params"]
-        act_scaling = ppo_out["act_scaling"]
-        obs_scaling = ppo_out["norm_obs"]
+        model_params = ppo_out.policy.model
+        act_scaling = ppo_out.act_scaling
+        obs_scaling = ppo_out.obs_scaling
         controllers_nodelay = params_train["controller"].replace(act_scaling=act_scaling, obs_scaling=obs_scaling, model=model_params,
                                                          hidden_activation=ppo_config.HIDDEN_ACTIVATION, stochastic=False)
         controllers_nodelay = jax.tree_util.tree_map(lambda x: onp.array(x), controllers_nodelay)
@@ -590,7 +590,7 @@ if __name__ == "__main__":
             init_v = jax.vmap(functools.partial(graph_eval.init, rng=_rng, params=_params, order=("supervisor", "actuator")))
             _gs_init = init_v(starting_eps=eps)
             # Evaluate
-            _gs_eval = jax.vmap(graph_eval.rollout)(_gs_init)
+            _gs_eval = jax.vmap(functools.partial(graph_eval.rollout, carry_only=False))(_gs_init)
 
             # Replace buffer and timings_eps to save space
             _params = _gs_eval.params.unfreeze()

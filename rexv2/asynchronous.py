@@ -23,6 +23,10 @@ class _AsyncNodeWrapper:
         self.outputs: Dict[str, _AsyncConnectionWrapper] = {}  # Outgoing edges. Keys are the actual node names incident to the edge.
         self.inputs: Dict[str, _AsyncConnectionWrapper] = {}  # Incoming edges. Keys are the input_names of the nodes from which the edge originates. May be different from the actual node names.
 
+        # Record settings
+        self._record_setting = dict(params=False, rng=False, inputs=False, state=False, output=False)
+        self._max_records = 20000
+
         # Output related
         self._num_buffer = 50
         self._jit_reset = None
@@ -41,7 +45,7 @@ class _AsyncNodeWrapper:
         # Reset every run
         self._tick = None
         self._record: base.NodeRecord = None
-        self._record_steps: List[base.StepRecord] = None
+        self._record_steps: List[base.AsyncStepRecord] = None
         self._phase_scheduled = None
         self._phase = None
         self._sync = None
@@ -60,7 +64,7 @@ class _AsyncNodeWrapper:
         self.q_tick: Deque[int] = None
         self.q_ts_scheduled: Deque[Tuple[int, float]] = None
         self.q_ts_end_prev: Deque[float] = None
-        self.q_ts_start: Deque[Tuple[int, float, float, base.StepRecord]] = None
+        self.q_ts_start: Deque[Tuple[int, float, float, base.AsyncStepRecord]] = None
         self.q_rng_step: Deque[jax.Array] = None
         self.q_sample = None  # output related
 
@@ -79,11 +83,11 @@ class _AsyncNodeWrapper:
     @property
     def max_records(self) -> int:
         # assert self.node.max_records >= 0, "max_records must be non-negative."
-        return self.node.max_records
+        return self._max_records
 
     @property
     def record_setting(self) -> Dict[str, bool]:
-        return self.node.record_setting
+        return self._record_setting
 
     @property
     def eps(self) -> int:
@@ -177,6 +181,7 @@ class _AsyncNodeWrapper:
         # Add the steps to the record
         if self._record.steps is None:
             to_array = lambda *x: onp.array(x[:-1]) if (len(x) > 0 and x[-1] is None) else onp.array(x)
+            # to_array = lambda *x: onp.array([_x for _x in x if _x is not None]) if (len(x) > 0 and x[-1] is None) else onp.array(x)
             steps = jax.tree_map(to_array, *self._record_steps)
             self._record = self._record.replace(steps=steps)
 
@@ -197,6 +202,14 @@ class _AsyncNodeWrapper:
             params=self._record.params if params else None
         )
         return record
+
+    def set_record_settings(self, params: bool = None, rng: bool = None, inputs: bool = None, state: bool = None, output: bool = None, max_records: int = None):
+        self._record_setting["params"] = params if params is not None else self._record_setting["params"]
+        self._record_setting["rng"] = rng if rng is not None else self._record_setting["rng"]
+        self._record_setting["inputs"] = inputs if inputs is not None else self._record_setting["inputs"]
+        self._record_setting["state"] = state if state is not None else self._record_setting["state"]
+        self._record_setting["output"] = output if output is not None else self._record_setting["output"]
+        self._max_records = max_records if max_records is not None else self._max_records
 
     def warmup(self, graph_state: base.GraphState, device_step: jax.Device = None, device_dist: jax.Device = None, jit_step: bool = True, profile: bool = False):
         device_step = device_step if device_step is not None else jax.devices('cpu')[0]
@@ -423,12 +436,30 @@ class _AsyncNodeWrapper:
         If a node is the supervisor, this function is overwritten by the _Synchronizer._step
 
         """
+        # with jax.log_compiles():
+        #     same_structure(self._step_state, step_state, tag=self.name)
+        #     new_step_state, output = self.step(step_state)  # Synchronizer or Node
+        # Run the step function of the node (async_step may be jitted)
+        new_step_state, output = self.async_step(step_state)
+
+        # Block until output is ready
+        jax.tree_util.tree_map(lambda x: x.block_until_ready() if hasattr(x, "block_until_ready") else True, output)
         return self.async_step(step_state)
 
     def async_step(self, step_state: base.StepState) -> Tuple[base.StepState, base.Output]:
         """Async step function that is called when running asynchronously.
-        This function can be overridden/wrapped (e.g. jit) without affecting node.async_step() directly."""
-        return self.node.async_step(step_state)
+        This function can be overridden/wrapped (e.g. jit) without affecting node.step() directly.
+
+        This can be beneficial when settings (Clock.SIMULATED, Clock.WALL_CLOCK) require different compilation settings.
+        For example, compiling for CPU in real-time, and for GPU while simulating.
+        """
+        # Run the step function of the node
+        new_step_state, output = self.node.step(step_state)
+
+        # Update step_state (increment sequence number)
+        if new_step_state is not None:
+            new_step_state = new_step_state.replace(seq=new_step_state.seq + 1)
+        return new_step_state, output
 
     def push_scheduled_ts(self):
         # Only run if there are elements in q_tick
@@ -509,7 +540,7 @@ class _AsyncNodeWrapper:
                 delay = float(self.q_sample.popleft())
 
             # Create step record
-            record_step = base.StepRecord(
+            record_step = base.AsyncStepRecord(
                 eps=self._eps,
                 seq=tick,
                 ts_scheduled=ts_scheduled,
@@ -606,9 +637,14 @@ class _AsyncNodeWrapper:
             new_ts_start_sc_promoted = new_step_state.ts if new_step_state is not None else ts_start_sc_promoted
 
             # Log output
-            record_step = record_step.replace(
-                output=output if self.record_setting["output"] else None,
-            )
+            if isinstance(output, _SkippedSteps):
+                record_step = record_step.replace(
+                    output=None,  # Log None if we are stopping/resetting with the supervisor
+                )
+            else:
+                record_step = record_step.replace(
+                    output=output if self.record_setting["output"] else None,
+                )
 
             # Update step_state (sequence number is incremented in ._step())
             if new_step_state is not None:
@@ -618,7 +654,6 @@ class _AsyncNodeWrapper:
             if self._clock in [Clock.SIMULATED]:
                 assert delay_sc is not None
                 ts_end_sc = ts_start_sc + delay_sc
-                # _ = self.now()
                 phase_overwrite = 0.0
                 ts_start_sc = ts_start_sc
             else:
@@ -663,18 +698,22 @@ class _AsyncNodeWrapper:
             )
 
             # Push output
-            if output is not None and self._state in [Async.RUNNING]:  # Agent returns None when we are stopping/resetting.
+            if not isinstance(output, _SkippedSteps) and self._state in [Async.RUNNING]:  # Agent returns _SkippedSteps when we are stopping/resetting.
                 [i._submit(i.push_input, output, header) for i in self.outputs.values()]
 
             # Add step record
             if len(self._record_steps) < self.max_records:
-                # The supervisor produces a None in-place of the output when we reset, resulting in a None in the output.
-                # To ensure that the record has a consistent shape, we replace the None with a None tree.
+                # The supervisor produces a _SkippedSteps in-place of the output when we reset, resulting in a _SkippedSteps in the output.
+                # To ensure that the record has a consistent shape, we replace the _SkippedSteps with a None tree.
                 if len(self._record_steps) > 0 and (self._record_steps[-1].output is None) != (record_step.output is None):
-                    record_step = record_step.replace(
-                        output=jax.tree_util.tree_map(lambda x: None, self._record_steps[0].output)
-                    )  # Should only happen for the last step of the supervisor.
-                self._record_steps.append(record_step)
+                    assert isinstance(output, _SkippedSteps), "Output should be _SkippedSteps when we are stopping/resetting."
+                    if output.skipped_steps == 1:  # Only append the final step we are stopping/resetting, not the ones that follow.
+                        record_step = record_step.replace(
+                            output=jax.tree_util.tree_map(lambda x: None, self._record_steps[0].output)
+                        )  # Should only happen for the last step of the supervisor.
+                        self._record_steps.append(record_step)
+                else:
+                    self._record_steps.append(record_step)
             elif self._discarded == 0:
                 self.log(
                     "recording",
@@ -1137,6 +1176,21 @@ def update_input_state(input_state: base.InputState, seq: int, ts_sent: float, t
     return new_input_state
 
 
+class _SkippedSteps:
+    def __init__(self):
+        self._skipped_steps = 0
+
+    def increment(self):
+        self._skipped_steps += 1
+
+    @property
+    def skipped_steps(self):
+        return self._skipped_steps
+
+    def __repr__(self):
+        return f"<SkippedSteps: {self._skipped_steps}>"
+
+
 class _Synchronizer:
     def __init__(self, supervisor: _AsyncNodeWrapper):
         self._supervisor = supervisor
@@ -1156,6 +1210,7 @@ class _Synchronizer:
         return self._q_obs
 
     def reset(self):
+        self._skipped = _SkippedSteps()
         self._must_reset = False
         self._q_act: Deque[Future] = deque()
         self._q_obs: Deque[Future] = deque()
@@ -1186,7 +1241,8 @@ class _Synchronizer:
             except CancelledError:  # If cancelled is None, we are going to reset
                 self._q_act.popleft()
                 self._must_reset = True
-        return None, None  # Do not return anything if we must reset
+        self._skipped.increment()  # Increment skipped steps
+        return None, self._skipped  # Do not return anything if we must reset
 
 
 class AsyncGraph:
@@ -1281,6 +1337,37 @@ class AsyncGraph:
         new_gs = graph_state.replace(params=FrozenDict(params), state=FrozenDict(state), inputs=FrozenDict(inputs))
         return new_gs
 
+    def set_record_settings(self,
+                            params: Union[Dict[str, bool], bool] = None,
+                            rng: Union[Dict[str, bool], bool] = None,
+                            inputs: Union[Dict[str, bool], bool] = None,
+                            state: Union[Dict[str, bool], bool] = None,
+                            output: Union[Dict[str, bool], bool] = None,
+                            max_records: Union[Dict[str, int], int] = None,
+                        ):
+        """Sets the record settings for the nodes in the graph."""
+        params = params if params is not None else {}
+        rng = rng if rng is not None else {}
+        inputs = inputs if inputs is not None else {}
+        state = state if state is not None else {}
+        output = output if output is not None else {}
+        max_records = max_records if max_records is not None else {}
+        params = params if isinstance(params, dict) else {k: params for k in self._async_nodes.keys()}
+        rng = rng if isinstance(rng, dict) else {k: rng for k in self._async_nodes.keys()}
+        inputs = inputs if isinstance(inputs, dict) else {k: inputs for k in self._async_nodes.keys()}
+        state = state if isinstance(state, dict) else {k: state for k in self._async_nodes.keys()}
+        output = output if isinstance(output, dict) else {k: output for k in self._async_nodes.keys()}
+        max_records = max_records if isinstance(max_records, dict) else {k: max_records for k in self._async_nodes.keys()}
+        for name, node in self._async_nodes.items():
+            node.set_record_settings(
+                params=params.get(name, None),
+                rng=rng.get(name, None),
+                inputs=inputs.get(name, None),
+                state=state.get(name, None),
+                output=output.get(name, None),
+                max_records=max_records.get(name, None),
+            )
+
     def warmup(self, graph_state: base.GraphState,
                device_step: Union[Dict[str, jax.Device], jax.Device] = None,
                device_dist: Union[Dict[str, jax.Device], jax.Device] = None,
@@ -1308,11 +1395,12 @@ class AsyncGraph:
         profile = profile if isinstance(profile, dict) else {k: profile for k in self._async_nodes.keys()}
         device_step = device_step if isinstance(device_step, dict) else {k: device_step for k in self._async_nodes.keys()}
         device_dist = device_dist if isinstance(device_dist, dict) else {k: device_dist for k in self._async_nodes.keys()}
-        [n.warmup(graph_state,
-                  device_step=device_step.get(k, None),
-                  device_dist=device_dist.get(k, None),
-                  jit_step=jit_step.get(k, True),
-                  profile=profile.get(k, False)) for k, n in self._async_nodes.items()]
+        for k, n in self._async_nodes.items():
+            n.warmup(graph_state,
+                     device_step=device_step.get(k, None),
+                     device_dist=device_dist.get(k, None),
+                     jit_step=jit_step.get(k, True),
+                     profile=profile.get(k, False))
 
     def start(self, graph_state: base.GraphState, timeout: float = None) -> base.GraphState:
         # Stop first, if we were previously running.
@@ -1344,12 +1432,18 @@ class AsyncGraph:
         return graph_state
 
     def stop(self, timeout: float = None):
+        # # Initiate stop (this unblocks the root's step, that is waiting for an action).
+        # if len(self._synchronizer.action) > 0:
+        #     self._synchronizer.action[-1].cancel()
+
+        # Stop all nodes
+        fs = [n._stop(timeout=timeout) for n in self._async_nodes.values()]
+
         # Initiate stop (this unblocks the root's step, that is waiting for an action).
         if len(self._synchronizer.action) > 0:
             self._synchronizer.action[-1].cancel()
 
-        # Stop all nodes
-        fs = [n._stop(timeout=timeout) for n in self._async_nodes.values()]
+        # Wait for all nodes to stop
         [f.result() for f in fs]  # Wait for all nodes to stop
 
         # Toggle

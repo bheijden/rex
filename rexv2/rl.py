@@ -79,8 +79,35 @@ ResetReturn = Tuple[EnvState, jax.Array, Dict[str, Any]]
 StepReturn = Tuple[EnvState, jax.Array, Union[float, jax.Array], Union[bool, jax.Array], Union[bool, jax.Array], Dict[str, Any]]
 
 
+class BaseEnv:
+    def __init__(self, graph: Graph):
+        self.graph = graph
+
+    @property
+    def max_steps(self) -> Union[int, jax.typing.ArrayLike]:
+        """The maximum number of steps in the environment.
+
+        Per default, this is the maximum number of steps the supervisor (i.e. agent) is stepped in the provided computation graph.
+        You can override this property to provide a custom value (smaller than the default).
+        This value is used as the episode length when evaluating the environment during training.
+        """
+        return self.graph.max_steps
+
+    def observation_space(self, graph_state: base.GraphState) -> Box:
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    def action_space(self, graph_state: base.GraphState) -> Box:
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    def reset(self, rng: jax.Array = None) -> ResetReturn:
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    def step(self, graph_state: base.GraphState, action: jax.Array) -> StepReturn:
+        raise NotImplementedError("Subclasses must implement this method.")
+
+
 class Environment:
-    def __init__(self, graph: Graph, params: Dict[str, base.StepState] = None, only_init: bool = False, starting_eps: int = 0, randomize_eps: bool = False, order: Tuple[str, ...] = None):
+    def __init__(self, graph: Graph, params: Dict[str, base.Params] = None, only_init: bool = False, starting_eps: int = 0, randomize_eps: bool = False, order: Tuple[str, ...] = None):
         self.graph = graph
         self.params = params
         self.only_init = only_init

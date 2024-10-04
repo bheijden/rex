@@ -40,6 +40,7 @@ class Scheduling(Enum):
 class Clock(Enum):
     SIMULATED = auto()
     WALL_CLOCK = auto()
+    COMPILED = auto()
 
     def description(self):
         return {

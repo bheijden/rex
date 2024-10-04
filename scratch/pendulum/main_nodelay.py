@@ -120,9 +120,9 @@ if __name__ == "__main__":
     # Store timings
     elapsed_ctrl = dict(solve=t_train.duration, solve_jit=t_train_jit.duration)
     # Extract policies
-    model_params = ppo_out["runner_state"][0].params["params"]
-    act_scaling = ppo_out["act_scaling"]
-    obs_scaling = ppo_out["norm_obs"]
+    model_params = ppo_out.policy.model
+    act_scaling = ppo_out.act_scaling
+    obs_scaling = ppo_out.obs_scaling
     controllers = params_train["controller"].replace(act_scaling=act_scaling, obs_scaling=obs_scaling, model=model_params,
                                                      hidden_activation=ppo_config.HIDDEN_ACTIVATION, stochastic=False)
     controllers = jax.tree_util.tree_map(lambda x: onp.array(x), controllers)

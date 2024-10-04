@@ -188,9 +188,9 @@ if __name__ == "__main__":
         print(f"Elapsed time saved to {ELAPSED_FILE}")
     # exit()
     # Get agent params
-    agent_params = params["agent"].replace(act_scaling=res["act_scaling"],
-                                           obs_scaling=res["norm_obs"],
-                                           model=res["runner_state"][0].params["params"],
+    agent_params = params["agent"].replace(act_scaling=res.act_scaling,
+                                           obs_scaling=res.obs_scaling,
+                                           model=res.policy.model,
                                            hidden_activation=config.HIDDEN_ACTIVATION,
                                            stochastic=False)
 

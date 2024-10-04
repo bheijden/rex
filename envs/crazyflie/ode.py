@@ -502,7 +502,7 @@ class MoCap(BaseNode):
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> MoCapParams:
         graph_state = graph_state or GraphState
 
-        sensor_delay = TrainableDist.create(alpha=0., min=0.0, max=0.05)
+        sensor_delay = TrainableDist.create(delay=0., min=0.0, max=0.05)
         return MoCapParams(
             sensor_delay=sensor_delay,
 

@@ -16,7 +16,7 @@ import distrax
 class Connection:
     def __init__(
         self, input_node: "BaseNode", output_node: "BaseNode", blocking: bool,
-            delay: float = None, delay_dist: base.DelayDistribution = None,
+            delay: float = None, delay_dist: Union[base.DelayDistribution, distrax.Distribution] = None,
             window: int = 1, skip: bool = False, jitter: Jitter = Jitter.LATEST,
             input_name: str = None
     ):
@@ -24,12 +24,20 @@ class Connection:
         self.output_node = output_node
         self.blocking = blocking
         self.delay_dist = delay_dist if delay_dist is not None else base.StaticDist.create(distrax.Normal(loc=0., scale=0.))
+        self.delay_dist = base.StaticDist.create(delay_dist) if isinstance(delay_dist, distrax.Distribution) else delay_dist
+        assert isinstance(self.delay_dist, base.DelayDistribution), "Delay distribution should be a subclass of DelayDistribution."
         self.delay = delay if delay is not None else float(self.delay_dist.quantile(0.99))
         assert self.delay >= 0, "Delay should be non-negative."
         self.window = window
         self.skip = skip
         self.jitter = jitter
         self.input_name = input_name if isinstance(input_name, str) else output_node.name
+
+    def set_delay(self, delay_dist: Union[base.DelayDistribution, distrax.Distribution] = None, delay: float = None):
+        self.delay_dist = delay_dist if delay_dist is not None else self.delay_dist
+        self.delay_dist = base.StaticDist.create(delay_dist) if isinstance(delay_dist, distrax.Distribution) else delay_dist
+        assert isinstance(self.delay_dist, base.DelayDistribution), "Delay distribution should be a subclass of DelayDistribution."
+        self.delay = delay if delay is not None else self.delay
 
     @property
     def info(self) -> base.InputInfo:
@@ -56,7 +64,8 @@ class Connection:
 
 
 class BaseNode:
-    def __init__(self, name: str, rate: float, delay: float = None, delay_dist: base.DelayDistribution = None,
+    def __init__(self, name: str, rate: float, delay: float = None,
+                 delay_dist: Union[base.DelayDistribution, distrax.Distribution] = None,
                  advance: bool = False, scheduling: Scheduling = Scheduling.FREQUENCY,
                  color: str = None, order: int = None):
         """Base node class. All nodes should inherit from this class.
@@ -75,8 +84,10 @@ class BaseNode:
         self.name = name
         self.rate = rate
         self.delay_dist = delay_dist if delay_dist is not None else base.StaticDist.create(distrax.Normal(loc=0., scale=0.))
+        self.delay_dist = base.StaticDist.create(delay_dist) if isinstance(delay_dist, distrax.Distribution) else delay_dist
         if isinstance(self.delay_dist, base.TrainableDist):
             raise NotImplementedError("Cannot have trainable distribution for computation delay.")
+        assert isinstance(self.delay_dist, base.DelayDistribution), "Delay distribution should be a subclass of DelayDistribution."
         self.delay = delay if delay is not None else float(self.delay_dist.quantile(0.99))  # take 99th percentile of delay
         assert self.delay >= 0, "Delay should be non-negative."
         self.advance = advance
@@ -85,10 +96,6 @@ class BaseNode:
         self.order = order
         self.outputs: Dict[str, Connection] = {}  # Outgoing edges. Keys are the actual node names incident to the edge.
         self.inputs: Dict[str, Connection] = {}  # Incoming edges. Keys are the input_names of the nodes from which the edge originates. May be different from the actual node names.
-
-        # Record settings
-        self.record_setting = dict(params=False, rng=False, inputs=False, state=False, output=False)
-        self.max_records = 20000
 
         # Async
         self._async_now: Optional[Callable[[], float]] = None
@@ -109,8 +116,16 @@ class BaseNode:
         if 'step' in cls.__dict__:
             cls.step = jutil.no_weaktype(identifier=f"{identifier}.step")(cls.step)
 
+    def set_delay(self, delay_dist: Union[base.DelayDistribution, distrax.Distribution] = None, delay: float = None):
+        self.delay_dist = delay_dist if delay_dist is not None else self.delay_dist
+        self.delay_dist = base.StaticDist.create(delay_dist) if isinstance(delay_dist, distrax.Distribution) else delay_dist
+        if isinstance(self.delay_dist, base.TrainableDist):
+            raise NotImplementedError("Cannot have trainable distribution for computation delay.")
+        assert isinstance(self.delay_dist, base.DelayDistribution), "Delay distribution should be a subclass of DelayDistribution."
+        self.delay = delay if delay is not None else self.delay
+
     @classmethod
-    def from_info(cls, info: base.NodeInfo, *args, **kwargs):
+    def from_info(cls, info: base.NodeInfo, **kwargs):
         """Creates a subclass object from a node info object.
 
         Make sure to call connect_from_info() on the resulting subclass object to connect it to the rest of the graph.
@@ -120,11 +135,18 @@ class BaseNode:
 
         Moreover, the signature of the subclass must be the same as the BaseNode, except for the additional *args and **kwargs.
         """
+        reserved_kwargs = ['name', 'rate', 'delay_dist', 'delay', 'advance', 'scheduling', 'color', 'order']
+        extra_kwargs = {k: v for k, v in kwargs.items() if k not in reserved_kwargs}
         return cls(
-            *args,  # Pass additional arguments to the subclass
-            name=info.name, rate=info.rate, delay_dist=info.delay_dist, delay=info.delay, advance=info.advance,
-            scheduling=info.scheduling, color=info.color, order=info.order,
-            **kwargs  # Pass additional keyword arguments to the subclass
+            name=kwargs.get('name', info.name),
+            rate=kwargs.get('rate', info.rate),
+            delay_dist=kwargs.get('delay_dist', info.delay_dist),
+            delay=kwargs.get('delay', info.delay),
+            advance=kwargs.get('advance', info.advance),
+            scheduling=kwargs.get('scheduling', info.scheduling),
+            color=kwargs.get('color', info.color),
+            order=kwargs.get('order', info.order),
+            **extra_kwargs  # Pass additional keyword arguments to the subclass
         )
 
     def connect_from_info(self, infos: [str, base.InputInfo], nodes: Dict[str, "BaseNode"]):
@@ -204,13 +226,6 @@ class BaseNode:
         color = self.log_color
         utils.log(f"{self.name}", color, min(log_level, self.log_level), id, value)
 
-    def set_record_settings(self, params: bool = None, rng: bool = None, inputs: bool = None, state: bool = None, output: bool = None):
-        self.record_setting["params"] = params if params is not None else self.record_setting["params"]
-        self.record_setting["rng"] = rng if rng is not None else self.record_setting["rng"]
-        self.record_setting["inputs"] = inputs if inputs is not None else self.record_setting["inputs"]
-        self.record_setting["state"] = state if state is not None else self.record_setting["state"]
-        self.record_setting["output"] = output if output is not None else self.record_setting["output"]
-
     def now(self) -> float:
         """Get the passed time since start of episode according to the simulated and wall clock.
 
@@ -222,7 +237,7 @@ class BaseNode:
             return 0.  # Return 0 if not running asynchronously
 
     def connect(self, output_node: "BaseNode", blocking: bool = False,
-                delay: float = None, delay_dist: base.DelayDistribution = None,
+                delay: float = None, delay_dist: Union[base.DelayDistribution, distrax.Distribution] = None,
                 window: int = 1, skip: bool = False, jitter: Jitter = Jitter.LATEST,
                 name: str = None):
         """Connects the node to another node.
@@ -244,20 +259,18 @@ class BaseNode:
         self.inputs[name] = connection
         output_node.outputs[self.name] = connection
 
-    def get_step_state(self, graph_state: Union[base.GraphState, None], name: str = None) -> Union[base.StepState, None]:
-        """Grab the step state of a node.
+    def disconnect(self, output_node: Union[str, "BaseNode"]):
+        """Disconnects the node from another node.
 
-        :param graph_state: The graph state.
-        :param name: The name of the node to get the step state of.
-                     If not specified, the step state of the node itself is returned (if it exists).
-        :return: The step state of the node if it exists, else None.
+        **Note** that this may not properly disconnect if the node is already used in a graph.
+        Ideally, create new nodes for each graph, instead of reusing nodes.
+
+        :param output_node: The node to disconnect from. Can be the name of the node or the node object.
         """
-        raise NotImplementedError("Refactor to use graph_state.attribute.get(self.name, ...)")
-        name = name if isinstance(name, str) else self.name
-        if graph_state is None:
-            return None
-        else:
-            return graph_state.step_state.get(name, None)
+        name = output_node if isinstance(output_node, str) else output_node.name
+        raise NotImplementedError("Clean disconnect is not properly implemented. "
+                                  "Users are advised to create new nodes for each graph, instead of reusing nodes.")
+        self.inputs[name].disconnect()
 
     def init_params(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> base.Params:
         """Init params of the node.
@@ -306,6 +319,23 @@ class BaseNode:
         """
         return base.Empty()
 
+    def init_delays(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> Dict[str, Union[float, jax.typing.ArrayLike]]:
+        """Initialize trainable communication delays.
+
+        **Note** These only include trainable delays that were specified while connecting the nodes.
+
+        :param rng: Random number generator.
+        :param graph_state: The graph state that may be used to get the default output.
+        :return: Trainable delays (e.g., {input_name: delay}). Can be an incomplete dictionary.
+                 Entries for non-trainable delays or non-existent connections are ignored.
+        """
+        trainable_delays = dict()
+        for input_name, c in self.inputs.items():
+            delay_dist = c.delay_dist
+            if isinstance(delay_dist, base.TrainableDist):
+                trainable_delays[input_name] = delay_dist.mean()
+        return trainable_delays
+
     def init_inputs(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> FrozenDict[str, base.InputState]:
         """Default inputs of the node.
 
@@ -319,6 +349,8 @@ class BaseNode:
         """
         if rng is None:
             rng = jax.random.PRNGKey(0)
+        rng, rng_delays = jax.random.split(rng)
+        delays = self.init_delays(rng_delays, graph_state)
         rngs = jax.random.split(rng, num=len(self.inputs))
         inputs = dict()
         for (input_name, c), rng_output in zip(self.inputs.items(), rngs):
@@ -328,6 +360,10 @@ class BaseNode:
             ts_recv = 0 * onp.arange(-window, 0, dtype=onp.float32)
             outputs = [c.output_node.init_output(rng_output, graph_state) for _ in range(window)]
             delay_dist = c.delay_dist  # NOTE!: Set trainable parameters from the graph state, if needed
+            if isinstance(delay_dist, base.TrainableDist) and input_name in delays:
+                # Set alpha according to the specified delay
+                alpha = delay_dist.get_alpha(delays[input_name])
+                delay_dist = delay_dist.replace(alpha=alpha)
             inputs[input_name] = base.InputState.from_outputs(seq, ts_sent, ts_recv, outputs, delay_dist)
         return FrozenDict(inputs)
 
