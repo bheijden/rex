@@ -137,7 +137,9 @@ wandb/
 logs/
 *.zip
 *.mp4
+*.pkl
 gmm_step.gif
+gmm_comp.gif
 *.pb
 scripts/wandb/
 paper/wandb/
