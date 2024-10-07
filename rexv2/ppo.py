@@ -4,7 +4,10 @@ import numpy as onp
 import jax.numpy as jnp
 import flax.linen as nn
 import numpy as np
-import optax
+try:
+    import optax
+except ImportError as e:
+    raise ImportError(f"Failed to import optax: {e}. Please install it with `pip install optax`.")
 from flax.linen.initializers import constant, orthogonal
 from flax import struct
 from typing import Sequence, NamedTuple, Any

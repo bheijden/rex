@@ -26,9 +26,5 @@ lint:
 	# exit-zero treats all errors as warnings.
 	poetry run flake8 ${LINT_PATHS} --count --exit-zero --statistics
 
-proto-gen:
-	# See: https://www.datascienceblog.net/post/programming/essential-protobuf-guide-python/
-	protoc proto/log.proto --python_out rex/ --proto_path proto=./proto
-
 
 .PHONY: check-codestyle

@@ -8,4 +8,9 @@ import rexv2.utils as utils
 import rexv2.artificial as artificial
 import rexv2.graph as graph
 import rexv2.rl as rl
-import rexv2.ppo as ppo
+import rexv2.ppo as ppo  # Requires optax
+import rexv2.evo as evo  # Requires evosax
+import rexv2.cem as cem
+import rexv2.open_colors as open_colors
+
+__version__ = '0.0.4'

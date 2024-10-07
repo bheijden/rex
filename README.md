@@ -6,20 +6,6 @@
 [![Test Coverage](coverage.svg)](https://github.com/eager-dev/eagerx_template/actions/workflows/ci.yml)
 
 
-[//]: # (What is the `eagerx_template` package)
-
-[//]: # (-------------------------------------)
-
-[//]: # ()
-[//]: # (This repository provides a template for creating EAGERx packages.)
-
-[//]: # (EAGERx &#40;Engine Agnostic Graph Environments for Robotics&#41; enables users to easily define new tasks, switch from one sensor to another, and switch from simulation to reality with a single line of code by being invariant to the physics engine.)
-
-[//]: # ()
-[//]: # ([The core repository is available here.]&#40;https://github.com/eager-dev/eagerx&#41;)
-
-[//]: # ([Full documentation and tutorials &#40;including package creation and contributing&#41; are available here.]&#40;https://eagerx.readthedocs.io/en/master/&#41;)
-
 Installation
 ------------
 

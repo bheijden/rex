@@ -9,9 +9,11 @@ seaborn
 matplotlib
 networkx
 termcolor
-jax[cuda12]
+jax[cuda12]  # cuda12 is optional
 equinox
 evosax
 optax
 flax
 distrax
+
+brax # optional when installing with [examples] extras

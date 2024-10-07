@@ -670,6 +670,8 @@ best_policy = res.policy[best_idx]
 eval_params = rl_params.copy()
 eval_params["agent"] = eval_params["agent"].replace(init_method="random", policy=best_policy)
 
+
+
 # Plot
 if True:
     fig_ppo, axes_ppo = plt.subplots(1, 3, figsize=(12, 4))
