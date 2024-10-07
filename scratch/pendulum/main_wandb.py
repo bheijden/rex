@@ -37,14 +37,14 @@ if JAX_USE_CACHE:
     jax.config.update("jax_persistent_cache_min_compile_time_secs", 1.0)
     jax.config.update("jax_explain_cache_misses", False)  # True --> results in error
 
-import rexv2
-from rexv2 import base, jax_utils as jutils, constants
-from rexv2.constants import Clock, RealTimeFactor, Scheduling, LogLevel, Supergraph, Jitter
-from rexv2.utils import timer
+import rex
+from rex import base, jax_utils as jutils, constants
+from rex.constants import Clock, RealTimeFactor, Scheduling, LogLevel, Supergraph, Jitter
+from rex.utils import timer
 import envs.pendulum.systems as psys
 import envs.pendulum.ppo as pendulum_ppo
-import rexv2.rl as rl
-import rexv2.ppo as ppo
+import rex.rl as rl
+import rex.ppo as ppo
 
 # plotting
 import matplotlib.pyplot as plt
@@ -133,10 +133,10 @@ if __name__ == "__main__":
         graphs_real.edges.pop(("sensor", "estimator"))
 
     # Generate computation graph
-    graphs_aug = rexv2.artificial.augment_graphs(graphs_real, nodes, RNG)
+    graphs_aug = rex.artificial.augment_graphs(graphs_real, nodes, RNG)
 
     # Create graph
-    graph = rexv2.graph.Graph(nodes, nodes["controller"], graphs_aug)
+    graph = rex.graph.Graph(nodes, nodes["controller"], graphs_aug)
 
     # Get initial graph state
     with timer(f"warmup[graph_state]", log_level=LogLevel.WARN):

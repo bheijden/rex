@@ -5,8 +5,8 @@ import numpy as onp
 import jax.numpy as jnp
 from flax import struct
 
-from rexv2 import base, constants
-from rexv2.node import BaseNode
+from rex import base, constants
+from rex.node import BaseNode
 
 from envs.pendulum.base import ActuatorOutput, SensorOutput, SensorParams, ActuatorParams
 from envs.pendulum.pid import PID

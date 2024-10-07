@@ -3,9 +3,9 @@ import jax
 import jax.numpy as jnp
 import numpy as onp
 
-from rexv2.graph import Graph
-import rexv2.base as base
-import rexv2.rl as rl
+from rex.graph import Graph
+import rex.base as base
+import rex.rl as rl
 
 import envs.pendulum.controller as ctrl
 from envs.pendulum.base import ActuatorOutput

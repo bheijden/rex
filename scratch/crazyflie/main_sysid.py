@@ -36,15 +36,15 @@ if JAX_USE_CACHE:
     jax.config.update("jax_explain_cache_misses", False)  # True --> results in error
 
 import supergraph
-import rexv2
-from rexv2 import base, jax_utils as jutils, constants
-from rexv2.constants import Clock, RealTimeFactor, Scheduling, LogLevel, Supergraph, Jitter
-from rexv2.utils import timer
-import rexv2.utils as rutils
-from rexv2.jax_utils import same_structure
-from rexv2 import artificial
+import rex
+from rex import base, jax_utils as jutils, constants
+from rex.constants import Clock, RealTimeFactor, Scheduling, LogLevel, Supergraph, Jitter
+from rex.utils import timer
+import rex.utils as rutils
+from rex.jax_utils import same_structure
+from rex import artificial
 import envs.crazyflie.systems as psys
-import rexv2.rl as rl
+import rex.rl as rl
 
 # plotting
 import matplotlib.pyplot as plt
@@ -96,11 +96,11 @@ if __name__ == "__main__":
     # Generate computation graph
     graphs_real = record.to_graph()
     rng, rng_art = jax.random.split(rng)
-    graphs_aug = rexv2.artificial.augment_graphs(graphs_real, nodes, rng_art)
+    graphs_aug = rex.artificial.augment_graphs(graphs_real, nodes, rng_art)
     graphs_aug = graphs_aug.filter(nodes)
 
     # Create compiled graph
-    graph = rexv2.graph.Graph(nodes, nodes[SUPERVISOR], graphs_aug, supergraph=SUPERGRAPH)
+    graph = rex.graph.Graph(nodes, nodes[SUPERVISOR], graphs_aug, supergraph=SUPERGRAPH)
 
     # Visualize graph
     if False:

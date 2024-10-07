@@ -5,10 +5,10 @@ import jax
 import jax.numpy as jnp
 import numpy as onp
 from flax.core import FrozenDict
-from rexv2 import base
-from rexv2.constants import Scheduling, Jitter, LogLevel, Async
-from rexv2 import utils
-from rexv2 import jax_utils as jutil
+from rex import base
+from rex.constants import Scheduling, Jitter, LogLevel, Async
+from rex import utils
+from rex import jax_utils as jutil
 import supergraph.open_colors as oc
 import distrax
 

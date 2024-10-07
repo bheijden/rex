@@ -9,9 +9,9 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from matplotlib.colors import Normalize
 
-import rexv2.base as base
-from rexv2.graph import Graph
-import rexv2.evo as evo
+import rex.base as base
+from rex.graph import Graph
+import rex.evo as evo
 from envs.pendulum.tasks import Task
 
 

@@ -4,9 +4,9 @@ import jax.numpy as jnp
 from math import ceil
 from flax import struct
 from flax.core import FrozenDict
-from rexv2.base import StepState, GraphState, Empty, TrainableDist, Base
-from rexv2.node import BaseNode
-from rexv2.jax_utils import tree_dynamic_slice
+from rex.base import StepState, GraphState, Empty, TrainableDist, Base
+from rex.node import BaseNode
+from rex.jax_utils import tree_dynamic_slice
 
 from envs.pendulum.base import ActuatorOutput, WorldState, SensorOutput, WorldParams, SensorParams, ActuatorParams
 

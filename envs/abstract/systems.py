@@ -7,8 +7,8 @@ import numpy as onp
 import distrax
 import equinox as eqx
 
-from rexv2 import base
-from rexv2.open_colors import get_color_cycle
+from rex import base
+from rex.open_colors import get_color_cycle
 from envs.abstract.nodes import Abstract, Output, MAX_DELAY
 
 

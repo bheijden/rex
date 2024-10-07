@@ -11,10 +11,10 @@ import jax.numpy as jnp
 import jax.random as rnd
 import numpy as onp
 
-from rexv2.constants import Clock, RealTimeFactor, Async, LogLevel, Scheduling, Jitter
-from rexv2 import base
-from rexv2.node import BaseNode, Connection
-from rexv2 import utils
+from rex.constants import Clock, RealTimeFactor, Async, LogLevel, Scheduling, Jitter
+from rex import base
+from rex.node import BaseNode, Connection
+from rex import utils
 
 
 class _AsyncNodeWrapper:

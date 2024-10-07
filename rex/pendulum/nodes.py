@@ -19,13 +19,13 @@ except ModuleNotFoundError:
     print("Brax not installed. Install it with `pip install brax`")
     BRAX_INSTALLED = False
 
-from rexv2.graph import Graph
-from rexv2 import base
-from rexv2 import rl
-from rexv2.jax_utils import tree_dynamic_slice
-from rexv2.ppo import Policy
-from rexv2.base import GraphState, StepState
-from rexv2.node import BaseNode
+from rex.graph import Graph
+from rex import base
+from rex import rl
+from rex.jax_utils import tree_dynamic_slice
+from rex.ppo import Policy
+from rex.base import GraphState, StepState
+from rex.node import BaseNode
 
 
 @struct.dataclass

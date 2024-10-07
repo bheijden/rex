@@ -16,10 +16,10 @@ except RuntimeError:
     print("Hint: if you are using Google Colab, try to change the runtime to GPU: "
           "Runtime -> Change runtime type -> Hardware accelerator -> GPU.")
 
-import rexv2
-from rexv2 import utils
-from rexv2 import base
-from rexv2.constants import Clock, RealTimeFactor, LogLevel, Scheduling, Jitter, Supergraph
+import rex
+from rex import utils
+from rex import base
+from rex.constants import Clock, RealTimeFactor, LogLevel, Scheduling, Jitter, Supergraph
 
 if __name__ == "__main__":
     # todo: steps
@@ -57,7 +57,7 @@ if __name__ == "__main__":
     #       [DONE] Everywhere we have a trainable distribution, we need to enlarge the window and apply the delay in compilation
     #       [DONE] In simulation, use trainable delay as a conventional distribution
 
-    import rexv2.pendulum as pendulum
+    import rex.pendulum as pendulum
 
     # `color` and `order` arguments are merely for visualization purposes.
     world = pendulum.nodes.OdeWorld(name="world", rate=100, color="grape", order=0,
@@ -93,7 +93,7 @@ if __name__ == "__main__":
     utils.set_log_level(LogLevel.DEBUG, agent, "cyan")
 
     # Create the graph
-    from rexv2.asynchronous import AsyncGraph
+    from rex.asynchronous import AsyncGraph
 
     graph = AsyncGraph(nodes, agent, clock=Clock.SIMULATED, real_time_factor=RealTimeFactor.FAST_AS_POSSIBLE)
 
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     record = base.ExperimentRecord(episodes=episodes)
 
     # Fit the delay distributions
-    # from rexv2.gmm_estimator import GMMEstimator
+    # from rex.gmm_estimator import GMMEstimator
     # gmm = GMMEstimator(record.episodes[0].nodes["sensor"].steps.delay, name="sensor")
     # gmm.fit()
     # dist = gmm.get_dist()
@@ -149,7 +149,7 @@ if __name__ == "__main__":
     nodes["sim"] = sim
 
     # Augment the graphs with simulation nodes
-    from rexv2 import artificial
+    from rex import artificial
 
     graphs_aug = artificial.augment_graphs(graphs_raw, nodes)
 
@@ -157,7 +157,7 @@ if __name__ == "__main__":
     # graphs_gen = artificial.generate_graphs(nodes, ts_max=1.0, num_episodes=2)
 
     # Compile the graph
-    graph = rexv2.graph.Graph(nodes, agent, graphs_aug, supergraph=Supergraph.MCS, progress_bar=True)
+    graph = rex.graph.Graph(nodes, agent, graphs_aug, supergraph=Supergraph.MCS, progress_bar=True)
     # graph.init = jax.jit(graph.init, static_argnames=("order",))  # Compile the init function
     graph.reset = jax.jit(graph.reset)  # Compile the reset function
     graph.step = jax.jit(graph.step)  # Compile the step function
@@ -298,19 +298,19 @@ if __name__ == "__main__":
     # rng = jax.random.PRNGKey(0)
     # t_final = 5.0  # Total time of each episode
     # num_episodes = 10  # Number of episodes
-    # graphs_raw = rexv2.artificial.generate_graphs(nodes, computation_delays, communication_delays, rng=rng,
+    # graphs_raw = rex.artificial.generate_graphs(nodes, computation_delays, communication_delays, rng=rng,
     #                                               t_final=t_final, phase=phase, num_episodes=num_episodes)
     # # Visualize the first second of two generated computation graphs
     # # Notice the slight differences in the graphs due to random delays and phase shifts
     # fig, axs = plt.subplots(2, 1, figsize=(12, 10))
-    # Gs = [rexv2.utils.to_networkx_graph(graphs_raw[i], nodes=nodes) for i in range(2)]
+    # Gs = [rex.utils.to_networkx_graph(graphs_raw[i], nodes=nodes) for i in range(2)]
     # for i, G in enumerate(Gs):
     #     supergraph.plot_graph(G, max_x=0.3, ax=axs[i])
     #     axs[i].set_title(f"Episode {i}")
     #     axs[i].set_xlabel("Time [s]")
     #
     # supergraph_method = "MCS"  # Other options "MCS", "topological", or "generational"
-    # graph = rexv2.graph.Graph(nodes, agent, graphs_raw, supergraph="MCS", progress_bar=True)
+    # graph = rex.graph.Graph(nodes, agent, graphs_raw, supergraph="MCS", progress_bar=True)
     # # graph.init = jax.jit(graph.init, static_argnames=("order",))  # Compile the init function
     # graph.reset = jax.jit(graph.reset)  # Compile the reset function
     # graph.step = jax.jit(graph.step)  # Compile the step function

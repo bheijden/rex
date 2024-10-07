@@ -5,7 +5,7 @@ import jax.random as rnd
 import equinox as eqx
 from flax import struct
 
-from rexv2.base import Loss, Transform, Params
+from rex.base import Loss, Transform, Params
 
 
 @struct.dataclass

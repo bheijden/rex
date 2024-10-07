@@ -10,8 +10,8 @@ from functools import partial
 # from brax import envs
 # from brax.envs.wrappers.training import EpisodeWrapper
 
-from rexv2.graph import Graph
-from rexv2 import base
+from rex.graph import Graph
+from rex import base
 
 
 class Space:

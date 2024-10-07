@@ -7,7 +7,7 @@ os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count={}".format(
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 try:
-    import rexv2
+    import rex
     print("Rex already installed")
 except ImportError as e:
     print("Please install rex via `pip install rex-lib[paper]`. Tested with rex-lib==0.0.3")
@@ -27,11 +27,11 @@ import seaborn as sns
 sns.set()
 from distrax import Deterministic, Normal
 import supergraph
-import rexv2.utils as rutils
-import rexv2.base as base
-from rexv2.open_colors import ecolor, fcolor
-from rexv2.constants import RealTimeFactor, Clock
-from rexv2.base import StaticDist, TrainableDist
+import rex.utils as rutils
+import rex.base as base
+from rex.open_colors import ecolor, fcolor
+from rex.constants import RealTimeFactor, Clock
+from rex.base import StaticDist, TrainableDist
 
 # Check if we have a GPU
 try:
@@ -54,7 +54,7 @@ cpus = itertools.cycle(jax.devices("cpu"))
 # @markdown We will collect some data from the brax system and use it to identify the delays and parameters of a simple ODE model
 # @markdown In another notebook example, we will show how to define nodes.
 # Import the nodes from the pendulum example (see other notebook examples on how to define nodes)
-from rexv2.pendulum.nodes import Sensor, Agent, Actuator, BraxWorld
+from rex.pendulum.nodes import Sensor, Agent, Actuator, BraxWorld
 
 # `Color` and `order` arguments are merely for visualization purposes.
 # Delay distributions are used to simulate the delays as if the nodes were real-world systems.
@@ -106,7 +106,7 @@ sensor.connect(world, window=1, name="world",  # Communicate brax's state to the
 # Note that one of the nodes is designated as the supervisor (agent).
 # To make a comparison with the standard Gym-like approach, the supervisor node is the agent, and the other nodes are the environment.
 # This means that the graph will be executed in a step-by-step manner, where the agent's rate determines the rate of the environment.
-from rexv2.asynchronous import AsyncGraph
+from rex.asynchronous import AsyncGraph
 graph = AsyncGraph(nodes=nodes, supervisor=nodes["agent"],
                    # Settings for simulating at fast as possible speed according to specified delays
                    clock=Clock.SIMULATED, real_time_factor=RealTimeFactor.FAST_AS_POSSIBLE,
@@ -171,7 +171,7 @@ record = record.filter(nodes_real)
 # @markdown For simplicity, we only fit a GMM to the delays of the communication between the sensor and agent,
 # @markdown and the computation delay of the agent's step method.
 # @markdown Other delays could be fitted in the same way, e.g., the delays of the actuator.
-from rexv2.gmm_estimator import GMMEstimator
+from rex.gmm_estimator import GMMEstimator
 
 if False:  # todo: set to TRUE
     # Fit GMM to communication delay between sensor and agent
@@ -258,7 +258,7 @@ if "world" in record.nodes:
 # Prepare the recorded data that we are going to use for system identification
 outputs = {name: n.steps.output[None] for name, n in record.nodes.items()}
 
-from rexv2.pendulum.nodes import SimSensor, Agent, SimActuator, OdeWorld
+from rex.pendulum.nodes import SimSensor, Agent, SimActuator, OdeWorld
 
 # By reinitializing the nodes via the `from_info` method, we can reuse the exact same configuration (rate, delay_dist, etc.).
 # We can overwrite (e.g., delay_dist) or specify extra parameters (e.g., outputs) as keyword arguments.
@@ -291,7 +291,7 @@ nodes_sim["world"] = world  # Add the world node to the nodes
 # @markdown The edges between the world vertices and the other nodes are added according to the min/max delays
 # @markdown that we specified in the trainable delay distributions.
 rng, rng_aug = jax.random.split(rng)
-cg = rexv2.artificial.augment_graphs(df, nodes_sim, rng_aug)
+cg = rex.artificial.augment_graphs(df, nodes_sim, rng_aug)
 if False:  # Plot the computation graph
     timing_mode = "arrival"  # "arrival" or "usage"
     G = rutils.to_networkx_graph(cg, nodes=nodes)
@@ -307,7 +307,7 @@ if False:  # Plot the computation graph
 # @title Initialize a graph that can be compiled and parallelized for system identification
 # Note, we could choose to skip running the agent node for computational efficiency,
 # as we know it does not affect the world node in this case, as we are replaying the actions in the actuator node.
-graph_sim = rexv2.graph.Graph(nodes_sim, nodes_sim["agent"], cg)
+graph_sim = rex.graph.Graph(nodes_sim, nodes_sim["agent"], cg)
 
 # @title First, we define the subset of trainable parameters that we want to identify (delays, ode parameters)
 # @markdown The training loop will go as follows:
@@ -326,8 +326,8 @@ gs_init_sim = gs_init  # todo: rename
 if False:
     nodes_sim["sensor"]._outputs = None
     nodes_sim["actuator"]._outputs = None
-    import rexv2.ppo as ppo
-    from rexv2.pendulum.rl import SwingUpEnv, sweep_pmv2r1zf
+    import rex.ppo as ppo
+    from rex.pendulum.rl import SwingUpEnv, sweep_pmv2r1zf
 
     # Define the environment
     env = SwingUpEnv(graph=graph_sim)
@@ -550,7 +550,7 @@ print(f"Initial loss: {init_loss}")
 # @title Initialize the evolutionary strategy solver for system identification
 # @markdown We use the CMA-ES strategy to optimize the parameters
 # @markdown We must initialize it with a normalized min and max parameter structure
-import rexv2.evo as evo
+import rex.evo as evo
 
 # Initialize the solver
 max_steps = 50  # Number of optimization steps
@@ -637,10 +637,10 @@ if False:
 infos_sim = {name: n.info for name, n in nodes_sim.items()}
 nodes_rl = {name: n.from_info(infos_sim[name]) for name, n in nodes_sim.items()}
 [n.connect_from_info(infos_sim[name].inputs, nodes_rl) for name, n in nodes_rl.items()]
-graph_rl = rexv2.graph.Graph(nodes_rl, nodes_rl["agent"], cg)
+graph_rl = rex.graph.Graph(nodes_rl, nodes_rl["agent"], cg)
 
 # Define the environment
-from rexv2.pendulum.rl import SwingUpEnv, sweep_pmv2r1zf
+from rex.pendulum.rl import SwingUpEnv, sweep_pmv2r1zf
 env = SwingUpEnv(graph=graph_rl)
 
 # Set RL params
@@ -653,7 +653,7 @@ env.set_params(rl_params)
 config = sweep_pmv2r1zf
 
 # Train
-import rexv2.ppo as ppo
+import rex.ppo as ppo
 rng, rng_train = jax.random.split(rng)
 rngs_train = jax.random.split(rng_train, num=5)
 train = functools.partial(ppo.train, env)

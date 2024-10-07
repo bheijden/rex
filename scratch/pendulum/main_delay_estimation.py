@@ -16,13 +16,13 @@ import numpy as onp
 import distrax
 
 import supergraph
-import rexv2
-from rexv2 import base, jax_utils as jutils, constants
-from rexv2.constants import Clock, RealTimeFactor, Scheduling, LogLevel
-from rexv2.utils import timer
-import rexv2.utils as rutils
-from rexv2.jax_utils import same_structure
-from rexv2.gmm_estimator import GMMEstimator
+import rex
+from rex import base, jax_utils as jutils, constants
+from rex.constants import Clock, RealTimeFactor, Scheduling, LogLevel
+from rex.utils import timer
+import rex.utils as rutils
+from rex.jax_utils import same_structure
+from rex.gmm_estimator import GMMEstimator
 
 # plotting
 import matplotlib.pyplot as plt
@@ -163,7 +163,7 @@ def plot_dists(dist, data=None, info=None, est=None):
     fig_inputs, axes_inputs = rutils.get_subplots(dist_inputs, figsize=(10, 10), sharex=False, sharey=False, major="row", is_leaf=lambda x: isinstance(x, base.DelayDistribution))
 
     # Plot measured delays
-    from rexv2.open_colors import ecolor, fcolor
+    from rex.open_colors import ecolor, fcolor
 
     if HAS_EST:
         jax.tree_util.tree_map(

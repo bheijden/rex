@@ -6,8 +6,8 @@ from jax import numpy as jnp
 
 from envs.crazyflie.ode import WorldParams, MoCapOutput
 from envs.pendulum.ukf import UKFState, UKFParams
-from rexv2.base import GraphState, StepState, Base
-from rexv2.node import BaseNode
+from rex.base import GraphState, StepState, Base
+from rex.node import BaseNode
 
 
 # @struct.dataclass

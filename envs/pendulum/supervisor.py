@@ -4,9 +4,9 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-from rexv2.jax_utils import tree_take
-from rexv2.base import GraphState, StepState, Base
-from rexv2.node import BaseNode
+from rex.jax_utils import tree_take
+from rex.base import GraphState, StepState, Base
+from rex.node import BaseNode
 
 
 @struct.dataclass

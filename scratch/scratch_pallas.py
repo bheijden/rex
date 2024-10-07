@@ -3,8 +3,8 @@ import jax.numpy as jnp
 import jax.experimental.pallas as pl
 from jax import make_jaxpr
 import numpy as onp
-import rexv2.jax_utils as rjax
-from rexv2.utils import timer
+import rex.jax_utils as rjax
+from rex.utils import timer
 
 
 if __name__ == "__main__":

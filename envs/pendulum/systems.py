@@ -6,8 +6,8 @@ import numpy as onp
 import distrax
 import equinox as eqx
 
-from rexv2 import base
-from rexv2.constants import Scheduling, Jitter
+from rex import base
+from rex.constants import Scheduling, Jitter
 
 
 DelaySim = Dict[str, Dict[str, Union[base.DelayDistribution, Dict[str, base.DelayDistribution]]]]

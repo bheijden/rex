@@ -36,13 +36,13 @@ if JAX_USE_CACHE:
     jax.config.update("jax_explain_cache_misses", False)  # True --> results in error
 
 import supergraph
-import rexv2
-from rexv2 import base, jax_utils as jutils, constants
-from rexv2.constants import Clock, RealTimeFactor, Scheduling, LogLevel, Supergraph, Jitter
-from rexv2.utils import timer
-import rexv2.utils as rutils
-from rexv2.jax_utils import same_structure
-from rexv2 import artificial
+import rex
+from rex import base, jax_utils as jutils, constants
+from rex.constants import Clock, RealTimeFactor, Scheduling, LogLevel, Supergraph, Jitter
+from rex.utils import timer
+import rex.utils as rutils
+from rex.jax_utils import same_structure
+from rex import artificial
 import envs.crazyflie.systems as psys
 
 # plotting
@@ -106,10 +106,10 @@ if __name__ == "__main__":
 
     # Generate computation graph
     rng, rng_graph = jax.random.split(rng)
-    graphs_aug = rexv2.artificial.augment_graphs(graphs_real, nodes, rng_graph)
+    graphs_aug = rex.artificial.augment_graphs(graphs_real, nodes, rng_graph)
 
     # Create graph
-    graph = rexv2.graph.Graph(nodes, nodes[SUPERVISOR], graphs_aug, supergraph=Supergraph.MCS)
+    graph = rex.graph.Graph(nodes, nodes[SUPERVISOR], graphs_aug, supergraph=Supergraph.MCS)
 
     # Visualize the graph
     if False:
@@ -191,7 +191,7 @@ if __name__ == "__main__":
 
     # Create train function
     config = ppo_config  # .replace(FIXED_INIT=True, VERBOSE=True, TOTAL_TIMESTEPS=10e6, UPDATE_EPOCHS=16, NUM_MINIBATCHES=8, NUM_STEPS=64)
-    train = functools.partial(rexv2.ppo.train, env)
+    train = functools.partial(rex.ppo.train, env)
     train_v = jax.vmap(train, in_axes=(None, 0))
     train_vjit = jax.jit(train_v)
     rng, rng_train = jax.random.split(rng)

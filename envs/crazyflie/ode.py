@@ -6,11 +6,11 @@ from math import ceil
 from flax import struct
 from flax.core import FrozenDict
 
-from rexv2 import base
-from rexv2.base import StepState, GraphState, Empty, TrainableDist, Base
-from rexv2.node import BaseNode
-import rexv2.rl as rl
-from rexv2.jax_utils import tree_dynamic_slice
+from rex import base
+from rex.base import StepState, GraphState, Empty, TrainableDist, Base
+from rex.node import BaseNode
+import rex.rl as rl
+from rex.jax_utils import tree_dynamic_slice
 if TYPE_CHECKING:
     from envs.crazyflie.pid import PIDOutput
 

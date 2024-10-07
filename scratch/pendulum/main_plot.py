@@ -14,9 +14,9 @@ import numpy as onp
 import distrax
 import equinox as eqx
 
-import rexv2.open_colors as oc
-from rexv2 import base
-from rexv2.gmm_estimator import GMMEstimator, plot_component_norm_pdfs
+import rex.open_colors as oc
+from rex import base
+from rex.gmm_estimator import GMMEstimator, plot_component_norm_pdfs
 
 # Setup sns plotting
 import matplotlib.pyplot as plt

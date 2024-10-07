@@ -6,8 +6,8 @@ import numpy as onp
 import jax.numpy as jnp
 from flax import struct
 
-from rexv2 import base, constants
-from rexv2.node import BaseNode
+from rex import base, constants
+from rex.node import BaseNode
 from envs.crazyflie.ode import PlatformOutput, MoCapOutput, rpy_to_spherical
 from envs.crazyflie.pid import PIDOutput
 

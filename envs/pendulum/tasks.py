@@ -7,9 +7,9 @@ from flax import struct
 from jax import numpy as jnp
 from matplotlib import pyplot as plt
 
-import rexv2.base as base
-from rexv2.graph import Graph
-import rexv2.evo as evo
+import rex.base as base
+from rex.graph import Graph
+import rex.evo as evo
 
 
 @struct.dataclass

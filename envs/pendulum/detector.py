@@ -6,9 +6,9 @@ from jax import numpy as jnp
 import numpy as onp
 from scipy.spatial.transform import Rotation as R
 
-from rexv2.base import GraphState, StepState, Base
-from rexv2.node import BaseNode
-from rexv2.jax_utils import tree_dynamic_slice
+from rex.base import GraphState, StepState, Base
+from rex.node import BaseNode
+from rex.jax_utils import tree_dynamic_slice
 
 
 @struct.dataclass

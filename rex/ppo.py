@@ -12,9 +12,9 @@ from flax.linen.initializers import constant, orthogonal
 from flax import struct
 from typing import Sequence, NamedTuple, Any
 from flax.training.train_state import TrainState
-from rexv2.base import GraphState, Base
-from rexv2.rl import Environment, LogWrapper, AutoResetWrapper, VecEnv, NormalizeVecObservation, NormalizeVecReward, Box, SquashAction, SquashState, NormalizeVec
-from rexv2.actor_critic import Actor, Critic, ActorCritic
+from rex.base import GraphState, Base
+from rex.rl import Environment, LogWrapper, AutoResetWrapper, VecEnv, NormalizeVecObservation, NormalizeVecReward, Box, SquashAction, SquashState, NormalizeVec
+from rex.actor_critic import Actor, Critic, ActorCritic
 
 
 @struct.dataclass
@@ -520,7 +520,7 @@ if __name__ == "__main__":
     )
     config = Config(**config)
 
-    from rexv2.pendulum.nodes import TestDiskPendulum, TestGymnaxPendulum
+    from rex.pendulum.nodes import TestDiskPendulum, TestGymnaxPendulum
     env = TestDiskPendulum()
 
     import functools

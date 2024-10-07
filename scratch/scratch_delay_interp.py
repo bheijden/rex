@@ -2,7 +2,7 @@ import jax
 import numpy as onp
 import jax.numpy as jnp
 
-from rexv2 import base
+from rex import base
 
 
 zoh = base.TrainableDist(alpha=0.5, min=0.0, max=0.4, interp="zoh")

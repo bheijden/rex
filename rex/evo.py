@@ -5,7 +5,7 @@ import jax.random as rnd
 import equinox as eqx
 from flax import struct
 
-from rexv2.base import Params, Loss, Transform
+from rex.base import Params, Loss, Transform
 
 try:
     import evosax as evx

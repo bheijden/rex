@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as onp
 from flax import struct
 
-from rexv2.base import Base
+from rex.base import Base
 
 
 @struct.dataclass

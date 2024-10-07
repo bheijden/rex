@@ -5,11 +5,11 @@ from flax.core import FrozenDict
 import jax
 import jax.numpy as jnp
 import numpy as onp
-import rexv2.jax_utils as rjax
+import rex.jax_utils as rjax
 import equinox as eqx
-from rexv2.utils import check_generations_uniformity
-from rexv2.node import BaseNode
-from rexv2.base import InputState, StepState, GraphState, Output, GraphBuffer, Timings, SlotVertex, EpisodeRecord, StepRecord
+from rex.utils import check_generations_uniformity
+from rex.node import BaseNode
+from rex.base import InputState, StepState, GraphState, Output, GraphBuffer, Timings, SlotVertex, EpisodeRecord, StepRecord
 
 
 int32 = Union[jnp.int32, onp.int32]

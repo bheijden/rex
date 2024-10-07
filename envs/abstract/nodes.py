@@ -10,11 +10,11 @@ import equinox as eqx
 from jax import numpy as jnp
 import numpy as onp
 
-from rexv2 import base
-from rexv2.base import GraphState, StepState, Base, InputState
-from rexv2.node import BaseNode, Connection
-from rexv2.rl import NormalizeVec, SquashState
-from rexv2.jax_utils import tree_dynamic_slice
+from rex import base
+from rex.base import GraphState, StepState, Base, InputState
+from rex.node import BaseNode, Connection
+from rex.rl import NormalizeVec, SquashState
+from rex.jax_utils import tree_dynamic_slice
 
 MIN_DELAY = 0.0
 MAX_DELAY = 1.0

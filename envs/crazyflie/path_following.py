@@ -8,14 +8,14 @@ import distrax
 from jax import numpy as jnp
 import numpy as onp
 
-from rexv2 import base
-from rexv2.graph import Graph
-import rexv2.rl as rl
-from rexv2.base import GraphState, StepState, Base, InputState
-from rexv2.node import BaseNode
-import rexv2.ppo as ppo
-from rexv2.rl import NormalizeVec, SquashState
-from rexv2.jax_utils import tree_dynamic_slice
+from rex import base
+from rex.graph import Graph
+import rex.rl as rl
+from rex.base import GraphState, StepState, Base, InputState
+from rex.node import BaseNode
+import rex.ppo as ppo
+from rex.rl import NormalizeVec, SquashState
+from rex.jax_utils import tree_dynamic_slice
 from envs.crazyflie.ode import MoCapOutput
 from envs.crazyflie.pid import PIDOutput
 

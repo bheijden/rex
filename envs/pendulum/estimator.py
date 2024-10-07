@@ -7,8 +7,8 @@ from jax import numpy as jnp
 from envs.pendulum.base import WorldState
 from envs.pendulum.ode import OdeParams
 from envs.pendulum.ukf import UKFState, UKFParams
-from rexv2.base import GraphState, StepState, Base
-from rexv2.node import BaseNode
+from rex.base import GraphState, StepState, Base
+from rex.node import BaseNode
 
 
 @struct.dataclass

@@ -34,12 +34,12 @@ if JAX_USE_CACHE:
     jax.config.update("jax_explain_cache_misses", False)  # True --> results in error
 
 import supergraph
-import rexv2
-from rexv2 import base, jax_utils as jutils, constants
-from rexv2.constants import Clock, RealTimeFactor, Scheduling, LogLevel, Supergraph, Jitter
-from rexv2.utils import timer
-import rexv2.utils as rutils
-from rexv2.jax_utils import same_structure
+import rex
+from rex import base, jax_utils as jutils, constants
+from rex.constants import Clock, RealTimeFactor, Scheduling, LogLevel, Supergraph, Jitter
+from rex.utils import timer
+import rex.utils as rutils
+from rex.jax_utils import same_structure
 import envs.pendulum.systems as psys
 
 # plotting

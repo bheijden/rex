@@ -2,7 +2,7 @@ from typing import Union
 import jax
 import jax.numpy as jnp
 import jax.numpy as onp
-from rexv2.base import Base
+from rex.base import Base
 from envs.crazyflie.ode import rpy_to_R, R_to_rpy
 from flax import struct
 

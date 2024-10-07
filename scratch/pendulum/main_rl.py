@@ -35,16 +35,16 @@ if JAX_USE_CACHE:
     jax.config.update("jax_explain_cache_misses", False)  # True --> results in error
 
 import supergraph
-import rexv2
-from rexv2 import base, jax_utils as jutils, constants
-from rexv2.constants import Clock, RealTimeFactor, Scheduling, LogLevel, Supergraph, Jitter
-from rexv2.utils import timer
-import rexv2.utils as rutils
-from rexv2.jax_utils import same_structure
-from rexv2 import artificial
+import rex
+from rex import base, jax_utils as jutils, constants
+from rex.constants import Clock, RealTimeFactor, Scheduling, LogLevel, Supergraph, Jitter
+from rex.utils import timer
+import rex.utils as rutils
+from rex.jax_utils import same_structure
+from rex import artificial
 import envs.pendulum.systems as psys
 import envs.pendulum.ppo as ppo_config
-import rexv2.rl as rl
+import rex.rl as rl
 
 # plotting
 import matplotlib.pyplot as plt
@@ -110,7 +110,7 @@ if __name__ == "__main__":
         graphs_real.edges.pop(("sensor", "estimator"))
 
     # Generate computation graph
-    graphs_aug = rexv2.artificial.augment_graphs(graphs_real, nodes, RNG)
+    graphs_aug = rex.artificial.augment_graphs(graphs_real, nodes, RNG)
 
     # Create simulation nodes
     # nodes = make_pendulum_system_nodes(DELAYS_SIM, DELAY_FN, RATES, cscheme=CSCHEME, order=ORDER)
@@ -118,7 +118,7 @@ if __name__ == "__main__":
     # graphs_gen = artificial.generate_graphs(nodes, ts_max=TS_MAX, num_episodes=1)
 
     # Create graph
-    graph = rexv2.graph.Graph(nodes, nodes[SUPERVISOR], graphs_aug, supergraph=SUPERGRAPH)
+    graph = rex.graph.Graph(nodes, nodes[SUPERVISOR], graphs_aug, supergraph=SUPERGRAPH)
 
     # Visualize the graph
     if False:
@@ -254,7 +254,7 @@ if __name__ == "__main__":
 
     config = ppo_config.sweep_pmv2r1zf.replace(TOTAL_TIMESTEPS=5e6, VERBOSE=not JAX_USE_CACHE, EVAL_FREQ=20)
 
-    train = functools.partial(rexv2.ppo.train, env)
+    train = functools.partial(rex.ppo.train, env)
     print("cache-hit?")
     train = jax.jit(train)
     with timer("train"):

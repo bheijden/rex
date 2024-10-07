@@ -22,14 +22,14 @@ import equinox as eqx
 import distrax
 
 import supergraph
-import rexv2
-from rexv2 import base, jax_utils as jutils, constants
-from rexv2.constants import Clock, RealTimeFactor, Scheduling, LogLevel
-from rexv2.utils import timer
-import rexv2.utils as rutils
-from rexv2.jax_utils import same_structure
-from rexv2 import artificial
-import rexv2.evo as evo
+import rex
+from rex import base, jax_utils as jutils, constants
+from rex.constants import Clock, RealTimeFactor, Scheduling, LogLevel
+from rex.utils import timer
+import rex.utils as rutils
+from rex.jax_utils import same_structure
+from rex import artificial
+import rex.evo as evo
 import envs.abstract.systems as systems
 
 
@@ -41,7 +41,7 @@ import matplotlib
 matplotlib.use("TkAgg")
 
 
-def make_loss(graph: rexv2.graph.Graph, rollout: Callable, loss_filter: base.Filter) -> base.Loss:
+def make_loss(graph: rex.graph.Graph, rollout: Callable, loss_filter: base.Filter) -> base.Loss:
     def _loss(opt_params: Dict[str, base.Params], args: base.LossArgs, rng: jax.Array = None) -> Union[float, jax.Array]:
         if rng is None:
             rng = jax.random.PRNGKey(0)
@@ -69,7 +69,7 @@ def make_loss(graph: rexv2.graph.Graph, rollout: Callable, loss_filter: base.Fil
     return _loss
 
 
-def rollout_fn(graph: rexv2.graph.Graph, params: Dict[str, base.Params], rng: jax.Array = None, carry_only: bool = True) -> base.GraphState:
+def rollout_fn(graph: rex.graph.Graph, params: Dict[str, base.Params], rng: jax.Array = None, carry_only: bool = True) -> base.GraphState:
     # Initialize graph state
     gs = graph.init(rng=rng, params=params)
 
@@ -106,7 +106,7 @@ if __name__ == "__main__":
     buffer_sizes = {k: int(v.seq.max()+1) for k, v in graphs_gen.vertices.items()}
 
     # Create graph
-    graph = rexv2.graph.Graph(nodes, nodes[f"{NUM_NODES-1}"], graphs_gen, buffer_sizes=buffer_sizes)
+    graph = rex.graph.Graph(nodes, nodes[f"{NUM_NODES-1}"], graphs_gen, buffer_sizes=buffer_sizes)
 
     # Visualize the graph
     if False:
@@ -150,7 +150,7 @@ if __name__ == "__main__":
     graphs_sysid = artificial.generate_graphs(nodes_sysid, ts_max=TS_MAX, num_episodes=1)
 
     # Create graph
-    graph_sysid = rexv2.graph.Graph(nodes_sysid, nodes_sysid[f"{NUM_NODES-1}"], graphs_sysid)
+    graph_sysid = rex.graph.Graph(nodes_sysid, nodes_sysid[f"{NUM_NODES-1}"], graphs_sysid)
 
     # Visualize the graph
     if False:
@@ -240,7 +240,7 @@ if __name__ == "__main__":
     log_state.plot("loss")
 
     # Visualize output
-    graph_recon = rexv2.graph.Graph(nodes_sysid, nodes_sysid[f"{NUM_NODES - 1}"], graphs_sysid, buffer_sizes=buffer_sizes)
+    graph_recon = rex.graph.Graph(nodes_sysid, nodes_sysid[f"{NUM_NODES - 1}"], graphs_sysid, buffer_sizes=buffer_sizes)
     rollout = rollout_fn(graph_recon, opt_params_trans_inv, rng=rng, carry_only=True)
     rollout_true = rollout_fn(graph_recon, true_params, rng=rng, carry_only=True)
     outputs_recon = {k: jax.tree_util.tree_map(lambda x: x[:rollout.seq[k]], v) for k, v in rollout.buffer.unfreeze().items()}
@@ -256,7 +256,7 @@ if __name__ == "__main__":
 
     # Visualize output
     _plot_y = lambda _ax, _y, _color: _ax.plot(_y, color=_color)
-    fig, y_axes = rexv2.utils.get_subplots(y_recon)
+    fig, y_axes = rex.utils.get_subplots(y_recon)
     jax.tree_util.tree_map(_plot_y, y_axes, y_recon, y_color_recon)
     jax.tree_util.tree_map(_plot_y, y_axes, y_true, y_color_true)
     jax.tree_util.tree_map(_plot_y, y_axes, y, y_color)

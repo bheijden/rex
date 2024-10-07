@@ -2,7 +2,7 @@ from typing import Union, Any
 import jax
 from flax import struct
 
-from rexv2 import base
+from rex import base
 
 
 @struct.dataclass

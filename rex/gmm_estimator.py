@@ -316,7 +316,7 @@ from jax import grad, jit
 from time import time
 import distrax
 
-from rexv2 import base, utils
+from rex import base, utils
 
 
 class GMMEstimator:

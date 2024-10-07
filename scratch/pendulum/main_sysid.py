@@ -34,12 +34,12 @@ if JAX_USE_CACHE:
     jax.config.update("jax_explain_cache_misses", False)  # True --> results in error
 
 import supergraph
-import rexv2
-from rexv2 import base, jax_utils as jutils, constants
-from rexv2.constants import Clock, RealTimeFactor, Scheduling, LogLevel, Supergraph, Jitter
-from rexv2.utils import timer
-import rexv2.utils as rutils
-from rexv2.jax_utils import same_structure
+import rex
+from rex import base, jax_utils as jutils, constants
+from rex.constants import Clock, RealTimeFactor, Scheduling, LogLevel, Supergraph, Jitter
+from rex.utils import timer
+import rex.utils as rutils
+from rex.jax_utils import same_structure
 import envs.pendulum.systems as psys
 
 # plotting
@@ -84,7 +84,7 @@ if __name__ == "__main__":
     #   - Define PPO return value as struct.dataclass and save best policy + final policy.
     #   - Strip GraphState of timings_eps, buffer?
     #   - Add delays via init_inputs
-    #       - rexv2.artificial.augment_graphs is called before rexv2.graph.Graph.init is called
+    #       - rex.artificial.augment_graphs is called before rex.graph.Graph.init is called
     #       - Computation delays are set when initializing a node
     #       - What if you want to change the delays? Annoying to change via graph_state...
     #   - partition_runner.py
@@ -141,10 +141,10 @@ if __name__ == "__main__":
 
     # Generate computation graph
     graphs_real = record.to_graph()
-    graphs_aug = rexv2.artificial.augment_graphs(graphs_real, nodes_sysid, RNG)
+    graphs_aug = rex.artificial.augment_graphs(graphs_real, nodes_sysid, RNG)
 
     # Create compiled graph
-    graph_sysid = rexv2.graph.Graph(nodes_sysid, nodes_sysid[SUPERVISOR], graphs_aug, supergraph=SUPERGRAPH, skip=["supervisor"])
+    graph_sysid = rex.graph.Graph(nodes_sysid, nodes_sysid[SUPERVISOR], graphs_aug, supergraph=SUPERGRAPH, skip=["supervisor"])
 
     # Visualize graph
     if False:
@@ -233,7 +233,7 @@ if __name__ == "__main__":
         # Make control graph
         nodes_ctrl = psys.simulated_system(record, outputs={}, world_rate=WORLD_RATE, use_cam=USE_CAM)
         nodes_ctrl["supervisor"].set_init_method("random")
-        graph_ctrl = rexv2.graph.Graph(nodes_ctrl, nodes_ctrl[SUPERVISOR], graphs_aug, supergraph=SUPERGRAPH, skip=["supervisor"])
+        graph_ctrl = rex.graph.Graph(nodes_ctrl, nodes_ctrl[SUPERVISOR], graphs_aug, supergraph=SUPERGRAPH, skip=["supervisor"])
         # Initialize control graph
         rng_init, rng_eval, rng_solv = jax.random.split(RNG, 3)
         gs = base_init(rng_init, order=("supervisor", "actuator"))

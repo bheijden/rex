@@ -19,16 +19,16 @@ import distrax
 import equinox as eqx
 
 import supergraph
-import rexv2
-from rexv2 import base, jax_utils as jutils, constants
-from rexv2.constants import Clock, RealTimeFactor, Scheduling, LogLevel, Supergraph, Jitter
-from rexv2.utils import timer
-import rexv2.utils as rutils
-from rexv2.jax_utils import same_structure
-from rexv2 import artificial
+import rex
+from rex import base, jax_utils as jutils, constants
+from rex.constants import Clock, RealTimeFactor, Scheduling, LogLevel, Supergraph, Jitter
+from rex.utils import timer
+import rex.utils as rutils
+from rex.jax_utils import same_structure
+from rex import artificial
 import envs.pendulum.systems as psys
 import envs.pendulum.ppo as pend_ppo
-import rexv2.rl as rl
+import rex.rl as rl
 
 # plotting
 import matplotlib.pyplot as plt
@@ -135,8 +135,8 @@ if __name__ == "__main__":
         nodes_sysid["supervisor"].set_init_method("parametrized")
         graphs_real = data_sysid.to_graph()
         rng, rng_aug = jax.random.split(rng, num=2)
-        graphs_aug = rexv2.artificial.augment_graphs(graphs_real, nodes_sysid, rng_aug)
-        graph_sysid = rexv2.graph.Graph(nodes_sysid, nodes_sysid["actuator"], graphs_aug, skip=["supervisor"])
+        graphs_aug = rex.artificial.augment_graphs(graphs_real, nodes_sysid, rng_aug)
+        graph_sysid = rex.graph.Graph(nodes_sysid, nodes_sysid["actuator"], graphs_aug, skip=["supervisor"])
         # Initialize state
         rng, rng_init = jax.random.split(rng, num=2)
         gs = graph_sysid.init(rng_init, order=("supervisor", "actuator"))
@@ -212,8 +212,8 @@ if __name__ == "__main__":
             graphs_real.vertices.pop("sensor")
             graphs_real.edges.pop(("sensor", "estimator"))
         rng, rng_aug = jax.random.split(rng, num=2)
-        graphs_aug = rexv2.artificial.augment_graphs(graphs_real, nodes_train, rng_aug)
-        graph_train = rexv2.graph.Graph(nodes_train, nodes_train["controller"], graphs_aug)
+        graphs_aug = rex.artificial.augment_graphs(graphs_real, nodes_train, rng_aug)
+        graph_train = rex.graph.Graph(nodes_train, nodes_train["controller"], graphs_aug)
         # Modify params if necessary
         params_train = params_sysid.copy()
         params_train["estimator"] = params_train["estimator"].replace(std_th=STD_TH_RL)
@@ -224,7 +224,7 @@ if __name__ == "__main__":
         from envs.pendulum.env import Environment
         env = Environment(graph_train, params=params_train, order=("supervisor", "actuator"), randomize_eps=RANDOMIZE_EPS)
         # Create train function
-        import rexv2.ppo as ppo
+        import rex.ppo as ppo
         ppo_config = pend_ppo.sweep_pmv2r1zf.replace(TOTAL_TIMESTEPS=TOTAL_TIMESTEPS, EVAL_FREQ=EVAL_FREQ)
         train = functools.partial(ppo.train, env)
         train_v = jax.vmap(train, in_axes=(None, 0))
@@ -260,7 +260,7 @@ if __name__ == "__main__":
         nodes_eval["supervisor"].set_init_method("downward")  # Set initialization method
         params_eval = params_train.copy()
         params_eval["supervisor"] = params_eval["supervisor"].replace(tmax=5.0)
-        graph_eval = rexv2.graph.Graph(nodes_eval, nodes_eval["controller"], graphs_aug)
+        graph_eval = rex.graph.Graph(nodes_eval, nodes_eval["controller"], graphs_aug)
 
         # Initialize state
         def evaluate(controller, _rng):
@@ -329,8 +329,8 @@ if __name__ == "__main__":
             graphs_real.vertices.pop("sensor")
             graphs_real.edges.pop(("sensor", "estimator"))
         rng, rng_aug = jax.random.split(rng, num=2)
-        graphs_aug = rexv2.artificial.augment_graphs(graphs_real, nodes_train, rng_aug)
-        graph_train = rexv2.graph.Graph(nodes_train, nodes_train["controller"], graphs_aug)
+        graphs_aug = rex.artificial.augment_graphs(graphs_real, nodes_train, rng_aug)
+        graph_train = rex.graph.Graph(nodes_train, nodes_train["controller"], graphs_aug)
         # Modify params if necessary
         params_train = params_sysid.copy()
         params_train["estimator"] = params_train["estimator"].replace(std_th=STD_TH_RL)
@@ -345,7 +345,7 @@ if __name__ == "__main__":
         # gs = graph_train.init(rng_init, params=params_train, order=("supervisor", "actuator"))
         # print(f"obs_space | shape={env.observation_space(gs).shape}")  # Check observation space
         # Create train function
-        import rexv2.ppo as ppo
+        import rex.ppo as ppo
         ppo_config = pend_ppo.sweep_pmv2r1zf.replace(TOTAL_TIMESTEPS=TOTAL_TIMESTEPS, EVAL_FREQ=EVAL_FREQ)
         train = functools.partial(ppo.train, env)
         train_v = jax.vmap(train, in_axes=(None, 0))
@@ -381,7 +381,7 @@ if __name__ == "__main__":
         nodes_eval["supervisor"].set_init_method("downward")  # Set initialization method
         params_eval = params_train.copy()
         params_eval["supervisor"] = params_eval["supervisor"].replace(tmax=5.0)
-        graph_eval = rexv2.graph.Graph(nodes_eval, nodes_eval["controller"], graphs_aug)
+        graph_eval = rex.graph.Graph(nodes_eval, nodes_eval["controller"], graphs_aug)
 
         # Initialize state
         def evaluate(controller, _rng):
@@ -439,7 +439,7 @@ if __name__ == "__main__":
         nodes_train = psys.no_delay_system(RATES, cscheme=CSCHEME, use_brax=USE_BRAX)
         nodes_train["supervisor"].set_init_method("random")  # Set initialization method
         graphs_gen = artificial.generate_graphs(nodes_train, ts_max=TS_MAX, num_episodes=1)
-        graph_train = rexv2.graph.Graph(nodes_train, nodes_train["controller"], graphs_gen)
+        graph_train = rex.graph.Graph(nodes_train, nodes_train["controller"], graphs_gen)
         params_train = params_sysid.copy()
         # params_train["estimator"] = params_train["estimator"].replace(std_th=STD_TH_RL)
         # params_train["camera"] = params_train["camera"].replace(std_th=STD_TH_RL)
@@ -450,7 +450,7 @@ if __name__ == "__main__":
         from envs.pendulum.env import Environment
         env = Environment(graph_train, params=params_train, order=("supervisor", "actuator"), randomize_eps=False)
         # Create train function
-        import rexv2.ppo as ppo
+        import rex.ppo as ppo
         ppo_config = pend_ppo.sweep_pmv2r1zf.replace(TOTAL_TIMESTEPS=TOTAL_TIMESTEPS, EVAL_FREQ=EVAL_FREQ)
         train = functools.partial(ppo.train, env)
         train_v = jax.vmap(train, in_axes=(None, 0))
@@ -482,7 +482,7 @@ if __name__ == "__main__":
         nodes_eval["supervisor"].set_init_method("downward")  # Set initialization method
         params_eval = params_train.copy()
         params_eval["supervisor"] = params_eval["supervisor"].replace(tmax=5.0)
-        graph_eval = rexv2.graph.Graph(nodes_eval, nodes_eval["controller"], graphs_gen)
+        graph_eval = rex.graph.Graph(nodes_eval, nodes_eval["controller"], graphs_gen)
 
         # Initialize state
         def evaluate(controller, _rng):
@@ -536,7 +536,7 @@ if __name__ == "__main__":
         nodes_train = psys.no_delay_system(RATES, cscheme=CSCHEME, use_brax=USE_BRAX)
         nodes_train["supervisor"].set_init_method("random")  # Set initialization method
         graphs_gen = artificial.generate_graphs(nodes_train, ts_max=TS_MAX, num_episodes=1)
-        graph_train = rexv2.graph.Graph(nodes_train, nodes_train["controller"], graphs_gen)
+        graph_train = rex.graph.Graph(nodes_train, nodes_train["controller"], graphs_gen)
         params_train = params_sysid.copy()
         # params_train["estimator"] = params_train["estimator"].replace(std_th=STD_TH_RL)
         # params_train["camera"] = params_train["camera"].replace(std_th=STD_TH_RL)
@@ -546,7 +546,7 @@ if __name__ == "__main__":
         from envs.pendulum.env import Environment
         env = Environment(graph_train, params=params_train, order=("supervisor", "actuator"), randomize_eps=False)
         # Create train function
-        import rexv2.ppo as ppo
+        import rex.ppo as ppo
         ppo_config = pend_ppo.sweep_pmv2r1zf.replace(TOTAL_TIMESTEPS=TOTAL_TIMESTEPS, EVAL_FREQ=EVAL_FREQ)
         train = functools.partial(ppo.train, env)
         train_v = jax.vmap(train, in_axes=(None, 0))
@@ -578,7 +578,7 @@ if __name__ == "__main__":
         nodes_eval["supervisor"].set_init_method("downward")  # Set initialization method
         params_eval = params_train.copy()
         params_eval["supervisor"] = params_eval["supervisor"].replace(tmax=5.0)
-        graph_eval = rexv2.graph.Graph(nodes_eval, nodes_eval["controller"], graphs_gen)
+        graph_eval = rex.graph.Graph(nodes_eval, nodes_eval["controller"], graphs_gen)
 
         # Initialize state
         def evaluate(controller, _rng):
@@ -633,7 +633,7 @@ if __name__ == "__main__":
                                       use_cam=use_cam, use_pred=use_pred, use_ukf=use_ukf,
                                       include_image=INCLUDE_IMAGES, use_openloop=False)
         nodes_real["supervisor"].set_init_method("downward")  # Set initialization method
-        graph_real = rexv2.asynchronous.AsyncGraph(nodes_real, supervisor=nodes_real["supervisor"], clock=Clock.WALL_CLOCK,
+        graph_real = rex.asynchronous.AsyncGraph(nodes_real, supervisor=nodes_real["supervisor"], clock=Clock.WALL_CLOCK,
                                                    real_time_factor=RealTimeFactor.REAL_TIME)
         # Set record settings
         for n, node in graph_real.nodes.items():

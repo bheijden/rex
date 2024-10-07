@@ -14,7 +14,7 @@ import matplotlib
 matplotlib.use("TkAgg")
 
 
-from rexv2.base import Base
+from rex.base import Base
 from envs.pendulum.ukf import UKFState, UKFParams
 from envs.pendulum.estimator import UKFOde
 

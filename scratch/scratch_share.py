@@ -3,7 +3,7 @@ import functools
 import jax
 import jax.numpy as jnp
 import flax.struct as struct
-import rexv2.base as base
+import rex.base as base
 import equinox as eqx
 
 

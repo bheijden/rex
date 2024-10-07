@@ -10,12 +10,12 @@ from flax.core import FrozenDict
 import equinox as eqx
 import distrax
 
-import rexv2.constants as constants
-import rexv2.jax_utils as rjax
+import rex.constants as constants
+import rex.jax_utils as rjax
 
 
 if TYPE_CHECKING:
-    from rexv2.node import BaseNode
+    from rex.node import BaseNode
 
 
 @struct.dataclass
@@ -583,7 +583,7 @@ class StaticDist(DelayDistribution):
             # raise NotImplementedError("Quantile not tested for Normal distribution.")
             return jax.scipy.special.ndtri(q) * self.dist.scale + self.dist.loc
         elif isinstance(self.dist, distrax.MixtureSameFamily):
-            import rexv2.utils as utils  # Avoid circular import
+            import rex.utils as utils  # Avoid circular import
 
             cdist = self.dist.components_distribution
             qs_component_max = jax.scipy.special.ndtri(0.999) * cdist.scale + cdist.loc
@@ -602,7 +602,7 @@ class StaticDist(DelayDistribution):
             # tfd = tfp.distributions
             #
             # if isinstance(self.dist, tfd.MixtureSameFamily):
-            #     import rexv2.utils as utils  # Avoid circular import
+            #     import rex.utils as utils  # Avoid circular import
             #     shape = q.shape if isinstance(q, (jax.Array, onp.ndarray)) else ()
             #     qs_component_max = self.dist.components_distribution.quantile(0.999).min()
             #     qs_component_min = self.dist.components_distribution.quantile(0.001).max()

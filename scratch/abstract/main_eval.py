@@ -24,15 +24,15 @@ import equinox as eqx
 import distrax
 
 import supergraph
-import rexv2
-from rexv2 import base, jax_utils as jutils, constants
-from rexv2.constants import Clock, RealTimeFactor, Scheduling, LogLevel
-from rexv2.utils import timer
-import rexv2.utils as rutils
-from rexv2.jax_utils import same_structure
-from rexv2 import artificial
-import rexv2.evo as evo
-import rexv2.cem as cem
+import rex
+from rex import base, jax_utils as jutils, constants
+from rex.constants import Clock, RealTimeFactor, Scheduling, LogLevel
+from rex.utils import timer
+import rex.utils as rutils
+from rex.jax_utils import same_structure
+from rex import artificial
+import rex.evo as evo
+import rex.cem as cem
 import envs.abstract.systems as systems
 
 
@@ -44,7 +44,7 @@ import matplotlib
 matplotlib.use("TkAgg")
 
 
-def make_loss(_graph: rexv2.graph.Graph, rollout: Callable, loss_filter: base.Filter, starting_eps: jax.typing.ArrayLike, return_final_gs: bool = False) -> base.Loss:
+def make_loss(_graph: rex.graph.Graph, rollout: Callable, loss_filter: base.Filter, starting_eps: jax.typing.ArrayLike, return_final_gs: bool = False) -> base.Loss:
     def _loss(opt_params: Dict[str, base.Params], args: base.LossArgs, rng: jax.Array = None) -> Union[float, jax.Array]:
         if rng is None:
             rng = jax.random.PRNGKey(0)
@@ -78,7 +78,7 @@ def make_loss(_graph: rexv2.graph.Graph, rollout: Callable, loss_filter: base.Fi
     return _loss
 
 
-def rollout_fn(_graph: rexv2.graph.Graph, params: Dict[str, base.Params], rng: jax.Array = None, starting_eps: jax.typing.ArrayLike = None, carry_only: bool = True) -> base.GraphState:
+def rollout_fn(_graph: rex.graph.Graph, params: Dict[str, base.Params], rng: jax.Array = None, starting_eps: jax.typing.ArrayLike = None, carry_only: bool = True) -> base.GraphState:
     # Initialize graph state
     gs = _graph.init(rng=rng, params=params, starting_eps=starting_eps)
     # jax.debug.print("eps={eps}", eps=gs.eps)
@@ -174,7 +174,7 @@ if __name__ == "__main__":
                     nodes = nodes_lst[0]  # Use arbitrary nodes, but make sure to grab the params for each node_lst later
                     graphs_gen = base.Graph.stack(graphs_gen_lst)
                     supervisor = f"{0}"
-                    graph = rexv2.graph.Graph(nodes, nodes[supervisor], graphs_gen, buffer_sizes=buffer_sizes, prune=False)
+                    graph = rex.graph.Graph(nodes, nodes[supervisor], graphs_gen, buffer_sizes=buffer_sizes, prune=False)
                     print(graph._timings.get_buffer_sizes())  # Print buffer sizes.
 
                     # Visualize the graph
@@ -206,8 +206,8 @@ if __name__ == "__main__":
                     graphs_sysid = artificial.generate_graphs(nodes_sysid, ts_max=TS_MAX, num_episodes=NUM_REPEATS)  # todo: SAVE
 
                     # Create graph
-                    graph_sysid = rexv2.graph.Graph(nodes_sysid, nodes_sysid[supervisor], graphs_sysid, prune=False)
-                    graph_opt = rexv2.graph.Graph(nodes_sysid, nodes_sysid[supervisor], graphs_sysid, buffer_sizes=buffer_sizes, prune=False)
+                    graph_sysid = rex.graph.Graph(nodes_sysid, nodes_sysid[supervisor], graphs_sysid, prune=False)
+                    graph_opt = rex.graph.Graph(nodes_sysid, nodes_sysid[supervisor], graphs_sysid, buffer_sizes=buffer_sizes, prune=False)
 
                     # Visualize the graph
                     if False:

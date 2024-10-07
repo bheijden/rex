@@ -12,8 +12,8 @@ import time
 import supergraph
 from supergraph import EDGE_DATA
 from supergraph import open_colors as oc
-from rexv2.base import Graph, WindowedGraph, Window, Vertex, Edge, WindowedVertex, Timings, SlotVertex, TrainableDist
-from rexv2.constants import LogLevel, Jitter
+from rex.base import Graph, WindowedGraph, Window, Vertex, Edge, WindowedVertex, Timings, SlotVertex, TrainableDist
+from rex.constants import LogLevel, Jitter
 
 from threading import current_thread
 from os import getpid
@@ -22,7 +22,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 if TYPE_CHECKING:
-    from rexv2.node import BaseNode
+    from rex.node import BaseNode
 
 
 # Global log levels

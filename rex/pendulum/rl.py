@@ -3,11 +3,11 @@ import jax
 import jax.numpy as jnp
 import numpy as onp
 import flax.struct as struct
-from rexv2.rl import ResetReturn, StepReturn, BaseEnv, Box
-from rexv2 import base
-from rexv2.graph import Graph
-import rexv2.ppo as ppo
-from rexv2.pendulum.nodes import AgentParams
+from rex.rl import ResetReturn, StepReturn, BaseEnv, Box
+from rex import base
+from rex.graph import Graph
+import rex.ppo as ppo
+from rex.pendulum.nodes import AgentParams
 
 
 class SwingUpEnv(BaseEnv):

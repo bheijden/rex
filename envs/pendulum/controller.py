@@ -9,11 +9,11 @@ import distrax
 from jax import numpy as jnp
 import numpy as onp
 
-from rexv2 import base
-from rexv2.base import GraphState, StepState, Base, InputState
-from rexv2.node import BaseNode
-from rexv2.rl import NormalizeVec, SquashState
-from rexv2.jax_utils import tree_dynamic_slice
+from rex import base
+from rex.base import GraphState, StepState, Base, InputState
+from rex.node import BaseNode
+from rex.rl import NormalizeVec, SquashState
+from rex.jax_utils import tree_dynamic_slice
 from envs.pendulum.base import ActuatorOutput
 
 

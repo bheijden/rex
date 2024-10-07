@@ -5,10 +5,10 @@ import numpy as onp
 import jax.experimental.host_callback as hcb
 
 from flax import struct
-from rexv2.constants import LogLevel
-from rexv2.base import StepState, GraphState, Base
-from rexv2.node import BaseNode
-from rexv2.utils import log
+from rex.constants import LogLevel
+from rex.base import StepState, GraphState, Base
+from rex.node import BaseNode
+from rex.utils import log
 
 try:
     import cv2

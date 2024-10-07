@@ -18,12 +18,12 @@ import equinox as eqx
 import distrax
 
 import supergraph
-import rexv2
-from rexv2 import base, jax_utils as jutils, constants
-from rexv2.constants import Clock, RealTimeFactor, Scheduling, LogLevel
-from rexv2.utils import timer
-import rexv2.utils as rutils
-from rexv2.jax_utils import same_structure
+import rex
+from rex import base, jax_utils as jutils, constants
+from rex.constants import Clock, RealTimeFactor, Scheduling, LogLevel
+from rex.utils import timer
+import rex.utils as rutils
+from rex.jax_utils import same_structure
 import envs.pendulum.systems as psys
 
 # plotting
@@ -101,7 +101,7 @@ if __name__ == "__main__":
     # Create graph
     nodes = psys.real_system(DELAYS_SIM, DELAY_FN, RATES, cscheme=CSCHEME, order=ORDER, use_cam=USE_CAM, include_image=INCLUDE_IMAGE,
                              use_openloop=USE_OPENLOOP)
-    graph = rexv2.asynchronous.AsyncGraph(nodes, supervisor=nodes["supervisor"],
+    graph = rex.asynchronous.AsyncGraph(nodes, supervisor=nodes["supervisor"],
                                           clock=Clock.WALL_CLOCK,
                                           real_time_factor=RealTimeFactor.REAL_TIME)
 

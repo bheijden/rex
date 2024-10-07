@@ -9,12 +9,12 @@ from flax.core import FrozenDict
 from typing import Any, Tuple, List, TypeVar, Dict, Union, Callable
 
 import supergraph as sg
-from rexv2.partition_runner import make_run_partition_excl_supervisor, make_update_state
-from rexv2 import base
-from rexv2.node import BaseNode
-from rexv2 import utils
-from rexv2.constants import Supergraph, Clock, RealTimeFactor
-import rexv2.jax_utils as rjax
+from rex.partition_runner import make_run_partition_excl_supervisor, make_update_state
+from rex import base
+from rex.node import BaseNode
+from rex import utils
+from rex.constants import Supergraph, Clock, RealTimeFactor
+import rex.jax_utils as rjax
 
 
 class Graph:

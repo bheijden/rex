@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 from typing import Dict
 import flax.struct as struct
-import rexv2.ppo as ppo
+import rex.ppo as ppo
 
 
 @struct.dataclass

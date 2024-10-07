@@ -20,12 +20,12 @@ import equinox as eqx
 import distrax
 
 import supergraph
-import rexv2
-from rexv2 import base, jax_utils as jutils, constants
-from rexv2.constants import Clock, RealTimeFactor, Scheduling, LogLevel
-from rexv2.utils import timer
-import rexv2.utils as rutils
-from rexv2.jax_utils import same_structure
+import rex
+from rex import base, jax_utils as jutils, constants
+from rex.constants import Clock, RealTimeFactor, Scheduling, LogLevel
+from rex.utils import timer
+import rex.utils as rutils
+from rex.jax_utils import same_structure
 import envs.crazyflie.systems as csys
 from envs.crazyflie.ode import plot_data
 
@@ -186,7 +186,7 @@ if __name__ == "__main__":
 
     # Create graph
     print(f"MOCK={MOCK}, CLOCK={CLOCK}, REAL_TIME_FACTOR={REAL_TIME_FACTOR}")
-    graph = rexv2.asynchronous.AsyncGraph(nodes, supervisor=nodes["agent"], clock=CLOCK, real_time_factor=REAL_TIME_FACTOR)
+    graph = rex.asynchronous.AsyncGraph(nodes, supervisor=nodes["agent"], clock=CLOCK, real_time_factor=REAL_TIME_FACTOR)
 
     # Initialize graph state
     with timer(f"warmup[graph_state]", log_level=LogLevel.WARN):
