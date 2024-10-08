@@ -1,5 +1,5 @@
 """
-All credits for this approach go to @ericmjl and his dl-workshop. The file can be found here:
+This approach is credited to @ericmjl and his dl-workshop. The original file is available here:
 https://github.com/ericmjl/dl-workshop/blob/6ef9b7feb60dd5f6a4dbdda4dc899337e583a397/src/dl_workshop/gaussian_mixture.py
 """
 

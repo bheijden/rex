@@ -597,24 +597,6 @@ class StaticDist(DelayDistribution):
             )[0]
             return qs.reshape(shape)
         else:
-            # from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
-            #
-            # tfd = tfp.distributions
-            #
-            # if isinstance(self.dist, tfd.MixtureSameFamily):
-            #     import rex.utils as utils  # Avoid circular import
-            #     shape = q.shape if isinstance(q, (jax.Array, onp.ndarray)) else ()
-            #     qs_component_max = self.dist.components_distribution.quantile(0.999).min()
-            #     qs_component_min = self.dist.components_distribution.quantile(0.001).max()
-            #
-            #     qs = utils.mixture_distribution_quantiles(
-            #         dist=self.dist,
-            #         probs=jnp.array(q).reshape(-1),
-            #         N_grid_points=int(1e3),
-            #         grid_min=float(qs_component_min)*0.9,
-            #         grid_max=float(qs_component_max)*1.1,
-            #     )[0]
-            #     return qs.reshape(shape)
             raise NotImplementedError(f"Quantile not implemented for distribution {self.dist}.")
 
     def mean(self) -> float:
@@ -911,19 +893,18 @@ class GraphState:
     :param timings_eps: The timings data structure that describes the execution and partitioning of the graph.
     :param buffer: The output buffer of the graph. It holds the outputs of nodes during the execution. Input buffers are
                    automatically filled with the outputs of previously executed step calls of other nodes.
+    :param aux: Auxiliary data that can be used to store additional information (e.g. records, wrappers etc.).
     """
     # The number of partitions (excl. supervisor) have run in the current episode.
     step: Union[int, ArrayLike] = struct.field(pytree_node=True, default_factory=lambda: onp.int32(0))
     eps: Union[int, ArrayLike] = struct.field(pytree_node=True, default_factory=lambda: onp.int32(0))
     # Step state components for each node in the graph.
-    # nodes: FrozenDict[str, StepState] = struct.field(pytree_node=True, default_factory=lambda: None)
     rng: FrozenDict[str, jax.Array] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
     seq: FrozenDict[str, Union[int, ArrayLike]] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
     ts: FrozenDict[str, Union[float, ArrayLike]] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
     params: FrozenDict[str, Params] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
     state: FrozenDict[str, State] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
     inputs: FrozenDict[str, FrozenDict[str, InputState]] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
-    # timings: Timings = struct.field(pytree_node=False, default_factory=lambda: None)
     # The timings for a single episode (i.e. GraphState.timings[eps]).
     timings_eps: Timings = struct.field(pytree_node=True, default_factory=lambda: None)
     # A ring buffer that holds the outputs for every node's output channel.
@@ -969,15 +950,6 @@ class GraphState:
         step = jnp.clip(step, onp.int32(0), max_step - 1)
         return self.replace(step=step)
 
-    def replace_nodes(self, nodes: Union[Dict[str, StepState], FrozenDict[str, StepState]]):
-        """Replace the step states of the graph.
-
-        :param nodes: The new step states per node (can be an incomplete set).
-        :return: A new GraphState with the updated step states.
-        """
-        raise NotImplementedError("GraphState.replace_nodes refactor to step_state")
-        return self.replace(nodes=self.nodes.copy(nodes))
-
     def replace_step_states(self, step_states: Union[Dict[str, StepState], FrozenDict[str, StepState]]) -> "GraphState":
         rng, seq, ts, params, state, inputs = {}, {}, {}, {}, {}, {}
         for n, ss in step_states.items():
@@ -1004,15 +976,6 @@ class GraphState:
         """
         return self.replace(aux=self.aux.copy(aux))
 
-    def try_get_node(self, node_name: str) -> Union[StepState, None]:
-        """Try to get the step state of a node if it exists.
-
-        :param node_name: The name of the node.
-        :return: The step state of the node if it exists, else None.
-        """
-        raise NotImplementedError("GraphState.try_get_node refactor to step_state")
-        return self.nodes.get(node_name, None)
-
     def try_get_aux(self, aux_name: str) -> Union[Any, None]:
         """Try to get auxillary data of the graph if it exists.
 
@@ -1020,9 +983,6 @@ class GraphState:
         :return: The aux of the node if it exists, else None.
         """
         return self.aux.get(aux_name, None)
-
-
-# StepStates = Union[Dict[str, StepState], FrozenDict[str, StepState]]
 
 
 # LOGGING
@@ -1094,24 +1054,15 @@ class StepRecord:
 
 @struct.dataclass
 class AsyncStepRecord(StepRecord):
-    eps: Union[int, jax.typing.ArrayLike]
-    seq: Union[int, jax.typing.ArrayLike]
     ts_scheduled: Union[float, jax.typing.ArrayLike]
     ts_max: Union[float, jax.typing.ArrayLike]
-    ts_start: Union[float, jax.typing.ArrayLike]  # used to be ts_step
-    ts_end_prev: Union[float, jax.typing.ArrayLike]  # used to be ts_output_prev
-    ts_end: Union[float, jax.typing.ArrayLike]  # used to be ts_output
+    ts_end_prev: Union[float, jax.typing.ArrayLike]
     phase: Union[float, jax.typing.ArrayLike]
     phase_scheduled: Union[float, jax.typing.ArrayLike]
     phase_inputs: Union[float, jax.typing.ArrayLike]
     phase_last: Union[float, jax.typing.ArrayLike]
     sent: Header
-    delay: Union[float, jax.typing.ArrayLike]
     phase_overwrite: Union[float, jax.typing.ArrayLike]
-    rng: jax.Array  # Optionally logged
-    inputs: InputState  # Optionally logged (can become very large)
-    state: Base  # Optionally logged | Before the step call
-    output: Base  # Optionally logged | After the step call
 
 
 @struct.dataclass

@@ -72,7 +72,7 @@ class BaseNode:
 
         :param name: The name of the node (unique).
         :param rate: The rate of the node (Hz).
-        :param delay: The expected computation delay of the node (s).
+        :param delay: The expected computation delay of the node (s). Used to calculate the phase shift.
         :param delay_dist: The computation delay distribution of the node for simulation.
         :param advance: Whether the node's step triggers when all inputs are ready, or throttles until the scheduled time.
         :param scheduling: The scheduling of the node. If FREQUENCY, the node is scheduled at a fixed rate, while ignoring
@@ -174,7 +174,7 @@ class BaseNode:
             inputs={c.output_node.name: c.info for i, c in self.inputs.items()},  # Use name in context of graph, instead of shadow name
             name=self.name,
             cls=self.__class__.__module__ + "/" + self.__class__.__qualname__,
-            color=self.color,
+            color=self.color if self.color is not None else "gray",
             order=self.order,
         )
 
@@ -248,7 +248,7 @@ class BaseNode:
         :param delay_dist: The communication delay distribution of the connection for simulation.
         :param window: The window size of the connection. It determines how many output messages are used as input to
                        the .step() function.
-        :param skip: Whether to skip the connection. It resolves acyclic dependencies, by skipping the output if it arrives
+        :param skip: Whether to skip the connection. It resolves cyclic dependencies, by skipping the output if it arrives
                      at the same time as the start of the .step() function (i.e. step_state.ts).
         :param jitter: How to deal with jitter of the connection. If LATEST, the latest messages are used. If BUFFER, the
                        messages are buffered and used in accordance with the expected delay.
@@ -415,7 +415,10 @@ class BaseNode:
     def startup(self, graph_state: base.GraphState, timeout: float = None) -> bool:
         """Starts the node in the state specified by graph_state.
 
-        Only ran when running asynchronously.
+        This method is called right before an episode starts.
+        It can be used to move (a real) robot to a starting position as specified by the graph_state.
+
+        Not used when running in compiled mode.
         :param graph_state: The graph state.
         :param timeout: The timeout of the startup.
         :return: Whether the node has started successfully.
@@ -425,9 +428,9 @@ class BaseNode:
     def stop(self, timeout: float = None) -> bool:
         """Stopping routine that is called after the episode is done.
 
-        **IMPORTANT** It may happen that stop is called *before* the final step returns, which may cause unsafe behavior when
-        the final step undoes the work of the stop. This is a known issue and should be handled by the user.
-        For example, by stopping "longer" before returning here.
+        **IMPORTANT** It may happen that stop is called *before* the final .step call of an episode returns,
+        which may cause unsafe behavior when the final step undoes the work of the .stop method.
+        This should be handled by the user. For example, by stopping "longer" before returning here.
 
         Only ran when running asynchronously.
         :param timeout: The timeout of the stop
@@ -458,22 +461,25 @@ class BaseNode:
         """
         raise NotImplementedError
 
-    def async_step(self, step_state: base.StepState) -> Tuple[base.StepState, base.Output]:
-        """Async step function that is called when running asynchronously.
-        This function can be overridden/wrapped (e.g. jit) without affecting node.step() directly.
 
-        This can be beneficial when settings (Clock.SIMULATED, Clock.WALL_CLOCK) require different compilation settings.
-        For example, compiling for CPU in real-time, and for GPU in simulation time.
+class BaseWorld(BaseNode):
+    def __init__(self, name: str, rate: float, color: str = None, order: int = None, **kwargs):
+        """Base node class for world (i.e. simulator) nodes.
+
+        A convenience class that pre-sets parameters for nodes that simulate real-world processes. That is, nodes that
+        simulate continuous processes in a discrete manner.
+
+        - The delay distribution is set to the time step of the node (~1/rate). It's currently set slightly below the time
+            step to ensure numerical stability, as else we may unavoidably introduce more delay.
+        - The advance is set to False, as the world node should adhere to the rate of the node.
+        - The scheduling is set to FREQUENCY, as the world node should adhere to the rate of the node.
+
+        :param name: The name of the node (unique).
+        :param rate: The rate of the node (Hz).
+        :param color: The color of the node (for visualization).
+        :param order: The order of the node (for visualization).
         """
-        # with jax.log_compiles():
-        #     same_structure(self._step_state, step_state, tag=self.name)
-        #     new_step_state, output = self.step(step_state)  # Synchronizer or Node
-        new_step_state, output = self.step(step_state)
-
-        # Update step_state (increment sequence number)
-        if new_step_state is not None:
-            new_step_state = new_step_state.replace(seq=new_step_state.seq + 1)
-
-        # Block until output is ready
-        jax.tree_util.tree_map(lambda x: x.block_until_ready() if hasattr(x, "block_until_ready") else True, output)
-        return new_step_state, output
+        delay_dist = distrax.Normal(loc=0.999/rate, scale=0.)
+        delay = float(delay_dist.mean())
+        super().__init__(name=name, rate=rate, delay=delay, delay_dist=delay_dist, advance=False, scheduling=Scheduling.FREQUENCY,
+                         color=color, order=order)

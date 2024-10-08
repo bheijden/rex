@@ -10,7 +10,7 @@ try:
     import rex
     print("Rex already installed")
 except ImportError as e:
-    print("Please install rex via `pip install rex-lib[paper]`. Tested with rex-lib==0.0.3")
+    print("Please install rex via `pip install rex-lib[paper]`. Tested with rex-lib==0.0.5")
     raise e
 
 from IPython.display import HTML
@@ -54,7 +54,10 @@ cpus = itertools.cycle(jax.devices("cpu"))
 # @markdown We will collect some data from the brax system and use it to identify the delays and parameters of a simple ODE model
 # @markdown In another notebook example, we will show how to define nodes.
 # Import the nodes from the pendulum example (see other notebook examples on how to define nodes)
-from rex.pendulum.nodes import Sensor, Agent, Actuator, BraxWorld
+from rex.pendulum.actuator import Actuator
+from rex.pendulum.sensor import Sensor
+from rex.pendulum.agent import Agent
+from rex.pendulum.brax import BraxWorld
 
 # `Color` and `order` arguments are merely for visualization purposes.
 # Delay distributions are used to simulate the delays as if the nodes were real-world systems.
@@ -65,9 +68,8 @@ agent = Agent(name="agent", rate=50, color="teal", order=3,  # Agent that genera
               delay_dist=Normal(loc=0.01, scale=0.003))  # Computation delay of the agent
 actuator = Actuator(name="actuator", rate=50, color="orange", order=2,  # Actuator that applies the action to the pendulum
                     delay_dist=Normal(loc=0.0075, scale=0.003))  # Computation delay of the actuator
-world = BraxWorld(name="world", rate=50, color="grape", order=0,  # Brax world that simulates the pendulum
-                  # Computation delay of the world is the world's step size
-                  delay_dist=Deterministic(loc=0.99/50))  # 0.99 to ensure it's slightly less than the world's step size (numerical stability)
+# Computation delay of the world is the world's step size (i.e. 1/rate)
+world = BraxWorld("world", 50, color="grape", order=0)  # Brax world that simulates the pendulum
 nodes = dict(world=world, sensor=sensor, agent=agent, actuator=actuator)
 
 # Connect nodes
@@ -99,6 +101,14 @@ sensor.connect(world, window=1, name="world",  # Communicate brax's state to the
 #         i.set_delay(delay_dist=Deterministic(loc=0.0), delay=0.0)
 # world.inputs["actuator"].set_delay(delay_dist=Deterministic(loc=0.0), delay=0.0)
 # todo: END - ZERO DELAY
+
+if False:
+    # Plot the system
+    node_infos = {name: n.info for name, n in nodes.items()}
+    fig, ax = plt.subplots(1, 1, figsize=(6, 6))
+    rutils.plot_system(node_infos, ax=ax, k=1)
+    ax.legend()
+    plt.show()
 
 # @title Apply some open-loop control to the pendulum system to gather data (delay, actions, sensor readings, data flow)
 
@@ -258,7 +268,10 @@ if "world" in record.nodes:
 # Prepare the recorded data that we are going to use for system identification
 outputs = {name: n.steps.output[None] for name, n in record.nodes.items()}
 
-from rex.pendulum.nodes import SimSensor, Agent, SimActuator, OdeWorld
+from rex.pendulum.actuator import SimActuator
+from rex.pendulum.sensor import SimSensor
+from rex.pendulum.agent import Agent
+from rex.pendulum.ode import OdeWorld
 
 # By reinitializing the nodes via the `from_info` method, we can reuse the exact same configuration (rate, delay_dist, etc.).
 # We can overwrite (e.g., delay_dist) or specify extra parameters (e.g., outputs) as keyword arguments.

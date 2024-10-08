@@ -153,3 +153,25 @@ def no_weaktype(identifier: str = None):
         return no_weaktype_wrapper
 
     return _no_weaktype
+
+
+# def make_tqdm(*args, **kwargs):
+#     from tqdm import tqdm
+#     pbar = tqdm(*args, **kwargs)
+#
+#     def _update_tqdm(fmt, *args, **kwargs):
+#         """
+#
+#         :param fmt: format string, e.g. ``"hello {x}"``, that will be used to format
+#                     input arguments, like ``str.format``. See the Python docs on
+#                     `string formatting <https://docs.python.org/3/library/stdtypes.html#str.format>`_
+#                     and `format string syntax <https://docs.python.org/3/library/string.html#formatstrings>`_.
+#         :param *args: A list of positional arguments to be formatted, as if passed to ``fmt.format``.
+#         :param **kwargs: Additional keyword arguments to be formatted, as if passed to ``fmt.format``.
+#         :return:
+#         """
+#         # todo: This fn is called repeatedly. how to detect when to close and when to open a new pbar?
+#         # todo: Probably need to define a pbar state and update it accordingly.
+#         pbar.set_postfix_str(fmt.format(*args, **kwargs))
+#         pbar.update(n=1)  # Updates the progress bar (when is it finished?)
+#         pbar.close()  # When to close?

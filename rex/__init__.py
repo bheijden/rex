@@ -13,4 +13,4 @@ import rex.evo as evo  # Requires evosax
 import rex.cem as cem
 import rex.open_colors as open_colors
 
-__version__ = '0.0.4'
+__version__ = '0.0.5'

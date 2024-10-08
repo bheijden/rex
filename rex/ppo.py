@@ -1,3 +1,8 @@
+"""
+PPO implementation based on the PPO implementation from purejaxrl:
+https://github.com/luchris429/purejaxrl
+"""
+
 from typing import Union, Dict, List, Tuple, Any, Sequence, TYPE_CHECKING, Callable
 import jax
 import numpy as onp

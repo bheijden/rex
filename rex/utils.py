@@ -12,7 +12,7 @@ import time
 import supergraph
 from supergraph import EDGE_DATA
 from supergraph import open_colors as oc
-from rex.base import Graph, WindowedGraph, Window, Vertex, Edge, WindowedVertex, Timings, SlotVertex, TrainableDist
+from rex.base import Graph, WindowedGraph, Window, Vertex, Edge, WindowedVertex, Timings, SlotVertex, TrainableDist, NodeInfo
 from rex.constants import LogLevel, Jitter
 
 from threading import current_thread
@@ -562,4 +562,119 @@ def plot_graph(
         new_handles.append(handles[labels.index(k)]), new_labels.append(k)
     ax.legend(handles=new_handles, labels=new_labels, loc='center left', bbox_to_anchor=(1, 0.5))
 
+    return ax
+
+
+def plot_system(
+    node_infos: Dict[str, NodeInfo],
+    pos: Dict[str, Tuple[float, float]] = None,
+    k: float = 1.0,
+    node_size: int = 2000,
+    font_size=9,
+    edge_linewidth=3.0,
+    node_linewidth=3.0,
+    arrowsize=15,
+    arrowstyle="-|>",
+    connectionstyle="arc3,rad=-0.2",
+    ax=None,
+):
+    if ax is None:
+        fig, ax = plt.subplots(nrows=1)
+        fig.set_size_inches(6, 6)
+
+    # Add color of nodes that are not in the cscheme
+    cscheme = {n.name: n.color if n.color is not None else "gray" for k, n in node_infos.items()}
+
+    # Generate node color scheme
+    ecolor, fcolor = oc.cscheme_fn(cscheme)
+
+    # Determine node position
+    if pos is not None:
+        fixed_pos: Dict[str, bool] = {key: True for key in pos.keys()}
+    else:
+        fixed_pos = None
+
+    # Generate graph
+    G = nx.MultiDiGraph()
+    for name, info in node_infos.items():
+        # name = f"{info.name}\n{info.rate} Hz"
+        G.add_node(
+            info.name,
+            kind=info.name,
+            rate=info.rate,
+            advance=info.advance,
+            phase=info.phase,
+            delay=info.delay,
+            edgecolor=ecolor[info.name],
+            facecolor=fcolor[info.name],
+            alpha=1.0,
+        )
+        for input_name, i in info.inputs.items():
+            G.add_edge(
+                i.output,
+                info.name,
+                name=i.name,
+                blocking=i.blocking,
+                skip=i.skip,
+                delay=i.delay,
+                window=i.window,
+                jitter=i.jitter,
+                phase=i.phase,
+                color=oc.ecolor.skip if i.skip else oc.ecolor.normal,
+                linestyle="-" if i.blocking else "--",
+                alpha=1.0,
+            )
+
+    # Get label map and relabel nodes
+    label_map = {v.name: k for k, v in node_infos.items()}
+    G = nx.relabel_nodes(G, label_map)  # Relabel nodes
+
+    # Get labels
+    node_labels = {n: f"{n}\n{data['rate']} Hz" for n, data in G.nodes(data=True)}
+
+    # Get edge and node properties
+    edges = G.edges(data=True)
+    nodes = G.nodes(data=True)
+    edge_color = [data["color"] for u, v, data in edges]
+    edge_alpha = [data["alpha"] for u, v, data in edges]
+    edge_style = [data["linestyle"] for u, v, data in edges]
+    node_alpha = [data["alpha"] for n, data in nodes]
+    node_ecolor = [data["edgecolor"] for n, data in nodes]
+    node_fcolor = [data["facecolor"] for n, data in nodes]
+
+    # Get position
+    pos = nx.spring_layout(G, pos=pos, fixed=fixed_pos, k=k)
+
+    # Draw graph
+    nx.draw_networkx_nodes(
+        G,
+        ax=ax,
+        pos=pos,
+        node_color=node_fcolor,
+        alpha=node_alpha,
+        edgecolors=node_ecolor,
+        node_size=node_size,
+        linewidths=node_linewidth,
+    )
+    nx.draw_networkx_edges(
+        G,
+        ax=ax,
+        pos=pos,
+        edge_color=edge_color,
+        alpha=edge_alpha,
+        style=edge_style,
+        arrowsize=arrowsize,
+        arrowstyle=arrowstyle,
+        connectionstyle=connectionstyle,
+        width=edge_linewidth,
+        node_size=node_size,
+    )
+
+    # Draw labels
+    nx.draw_networkx_labels(G, pos, node_labels, font_size=font_size, font_weight="bold")
+
+    # Add empty plot with correct color and label for each node
+    ax.plot([], [], color=oc.ecolor.normal, label="blocking")
+    ax.plot([], [], color=oc.ecolor.skip, label="skip")
+    ax.plot([], [], color=oc.ecolor.normal, label="non-blocking", linestyle="--")
     return ax

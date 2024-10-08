@@ -7,7 +7,7 @@ from rex.rl import ResetReturn, StepReturn, BaseEnv, Box
 from rex import base
 from rex.graph import Graph
 import rex.ppo as ppo
-from rex.pendulum.nodes import AgentParams
+from rex.pendulum.agent import AgentParams
 
 
 class SwingUpEnv(BaseEnv):
