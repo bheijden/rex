@@ -44,31 +44,64 @@ class Diagnostics(Base):
 
 @struct.dataclass
 class Config(Base):
+    """Configuration for the PPO algorithm.
+
+    Inherit from this class and override the `EVAL_METRICS_JAX_CB` and `EVAL_METRICS_HOST_CB` methods to customize the
+    evaluation metrics and the host-side callback for the evaluation metrics.
+    """
+    # Learning rate
     LR: float = struct.field(default=5e-4)
+    # Number of parallel environments
     NUM_ENVS: int = struct.field(pytree_node=False, default=64)
+    # Number of steps to run in each environment per update
     NUM_STEPS: int = struct.field(pytree_node=False, default=16)
+    # Total number of timesteps to run
     TOTAL_TIMESTEPS: int = struct.field(pytree_node=False, default=1e6)
+    # Number of epochs to run per update
     UPDATE_EPOCHS: int = struct.field(pytree_node=False, default=4)
+    # Number of minibatches to split the data into
     NUM_MINIBATCHES: int = struct.field(pytree_node=False, default=4)
+    # Discount factor
     GAMMA: float = struct.field(default=0.99)
+    # Generalized Advantage Estimation (GAE) parameter
     GAE_LAMBDA: float = struct.field(default=0.95)
+    # Clipping parameter for the ratio in the policy loss
     CLIP_EPS: float = struct.field(default=0.2)
+    # Coefficient of the entropy regularizer
     ENT_COEF: float = struct.field(default=0.01)
+    # Value function coefficient
     VF_COEF: float = struct.field(default=0.5)
+    # Maximum gradient norm
     MAX_GRAD_NORM: float = struct.field(default=0.5)
+    # Number of hidden layers (same for actor and critic)
     NUM_HIDDEN_LAYERS: int = struct.field(pytree_node=False, default=2)
+    # Number of hidden units per layer (same for actor and critic)
     NUM_HIDDEN_UNITS: int = struct.field(pytree_node=False, default=64)
+    # Kernel initialization type (same for actor and critic)
     KERNEL_INIT_TYPE: str = struct.field(pytree_node=False, default="xavier_uniform")
+    # Hidden activation function (same for actor and critic)
     HIDDEN_ACTIVATION: str = struct.field(pytree_node=False, default="tanh")
+    # Whether to use state-independent standard deviation for the actor
     STATE_INDEPENDENT_STD: bool = struct.field(pytree_node=False, default=True)
+    # Whether to squash the action output of the actor
     SQUASH: bool = struct.field(pytree_node=False, default=True)
+    # Whether to anneal the learning rate
     ANNEAL_LR: bool = struct.field(pytree_node=False, default=False)
+    # Whether to normalize the environment (observations and rewards), actions are always normalized
     NORMALIZE_ENV: bool = struct.field(pytree_node=False, default=False)
+    # Whether to use fixed initial states for each parallel environment
+    # If True, states are sampled once and then fixed for the entire run per parallel environment
     FIXED_INIT: bool = struct.field(pytree_node=False, default=True)
+    # Whether to offset the step counter for each parallel environment
+    # If True, parallel environments will start at different steps to avoid temporal correlations
     OFFSET_STEP: bool = struct.field(pytree_node=False, default=False)
+    # Number of evaluation environments
     NUM_EVAL_ENVS: int = struct.field(pytree_node=False, default=20)
+    # Number of evaluations to run per run of training
     EVAL_FREQ: int = struct.field(pytree_node=False, default=10)
+    # Whether to print verbose output
     VERBOSE: bool = struct.field(pytree_node=False, default=True)
+    # Whether to print debug output per step
     DEBUG: bool = struct.field(pytree_node=False, default=False)
 
     @property

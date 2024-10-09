@@ -204,6 +204,16 @@ class _AsyncNodeWrapper:
         return record
 
     def set_record_settings(self, params: bool = None, rng: bool = None, inputs: bool = None, state: bool = None, output: bool = None, max_records: int = None):
+        """ Set the record settings for the node.
+
+        :param params: Whether to record params for each node. Logged once.
+        :param rng: Whether to record rng for each node. Logged each step.
+        :param inputs: Whether to record inputs for each node. Logged each step. Can become very large.
+        :param state: Whether to record state for each node. Logged each step.
+        :param output: Whether to record output for each node. Logged each step.
+        :param max_records: The maximum number of records to keep in memory. If exceeded, the oldest records are discarded.
+        :return:
+        """
         self._record_setting["params"] = params if params is not None else self._record_setting["params"]
         self._record_setting["rng"] = rng if rng is not None else self._record_setting["rng"]
         self._record_setting["inputs"] = inputs if inputs is not None else self._record_setting["inputs"]
@@ -212,6 +222,16 @@ class _AsyncNodeWrapper:
         self._max_records = max_records if max_records is not None else self._max_records
 
     def warmup(self, graph_state: base.GraphState, device_step: jax.Device = None, device_dist: jax.Device = None, jit_step: bool = True, profile: bool = False):
+        """ Warmup the node by running it once to compile the step function and sample the delay distribution.
+
+        :param graph_state: The graph state.
+        :param device_step: The device on which the step function should be compiled.
+        :param device_dist: The device on which the delay distribution should be compiled.
+        :param jit_step: Whether to jit the step function.
+        :param profile: Whether to profile the step function.
+        :return:
+        """
+
         device_step = device_step if device_step is not None else jax.devices('cpu')[0]
         device_dist = device_dist if device_dist is not None else jax.devices('cpu')[0]
 
@@ -1403,6 +1423,7 @@ class AsyncGraph:
                      profile=profile.get(k, False))
 
     def start(self, graph_state: base.GraphState, timeout: float = None) -> base.GraphState:
+        """Starts the graph and all its nodes."""
         # Stop first, if we were previously running.
         self.stop(timeout=timeout)
 
@@ -1432,6 +1453,8 @@ class AsyncGraph:
         return graph_state
 
     def stop(self, timeout: float = None):
+        """Stops the graph and all its nodes."""
+
         # # Initiate stop (this unblocks the root's step, that is waiting for an action).
         # if len(self._synchronizer.action) > 0:
         #     self._synchronizer.action[-1].cancel()
@@ -1563,6 +1586,7 @@ class AsyncGraph:
         return next_graph_state, next_step_state
 
     def get_record(self) -> base.EpisodeRecord:
+        """Returns the episode record for all nodes in the graph."""
         records = {}
         for name, node in self._async_nodes.items():
             records[name] = node.get_record()

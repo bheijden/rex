@@ -34,6 +34,17 @@ def generate_graphs(
 
 
 def augment_graphs(graphs: Graph, nodes: Dict[str, BaseNode], rng: jax.Array = None) -> Graph:
+    """Augment graphs based on the nodes, computation delays, and communication delays.
+
+    With augmenting, the graphs are expanded with additional vertices and edges based on the provided nodes.
+    Nodes not in graphs.vertices are added to the graphs according to the specified delay_dist.
+    Edges between vertices are added for connections not present in graphs.edges.
+
+    :param graphs: Graphs to augment.
+    :param nodes: Dictionary of nodes.
+    :param rng: Random number generator.
+    :return: Augmented graphs.
+    """
     rng = jax.random.PRNGKey(0) if rng is None else rng
 
     # Expand dimension if necessary

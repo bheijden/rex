@@ -300,7 +300,16 @@ class Graph:
                     state: Union[Dict[str, bool], bool] = None,
                     output: Union[Dict[str, bool], bool] = None,
                     ) -> base.GraphState:
-        """Sets the record settings for the nodes in the graph."""
+        """Sets the record settings for the nodes in the graph.
+
+        :param graph_state: The initial graph state from .init().
+        :param params: Whether to record params for each node. Logged once.
+        :param rng: Whether to record rng for each node. Logged each step.
+        :param inputs: Whether to record inputs for each node. Logged each step. Can become very large.
+        :param state: Whether to record state for each node. Logged each step.
+        :param output: Whether to record output for each node. Logged each step.
+        :return: The updated graph state with record settings.
+        """
         assert "record" not in graph_state.aux, "Already initialized record in graph_state.aux."
 
         # Prepare record settings

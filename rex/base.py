@@ -739,6 +739,7 @@ class InputState:
     :param ts_sent: The time the message was sent.
     :param ts_recv: The time the message was received.
     :param data: The message of the connection (arbitrary pytree structure).
+    :param delay_dist: The delay distribution of the connection.
     """
 
     seq: ArrayLike
@@ -803,7 +804,7 @@ class StepState:
     :param state: The state of the node. Usually dynamic during an episode.
     :param params: The parameters of the node. Usually static during an episode.
     :param inputs: The inputs of the node. See InputState.
-    :param eps: The current episode number.
+    :param eps: The current episode number. Relates to the computation graph, not the episode counter of an environment.
     :param seq: The current step number. Automatically increases by 1 every step.
     :param ts: The current time step at the start of the step. Determined by the computation graph.
     """

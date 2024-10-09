@@ -34,7 +34,7 @@ class BraxParams(base.Base):
     offset: Union[float, jax.typing.ArrayLike]
     friction_loss: Union[float, jax.typing.ArrayLike]
     backend: str = struct.field(pytree_node=False)
-    base_sys: Systems = struct.field(pytree_node=False)
+    # base_sys: Systems = struct.field(pytree_node=True)
     dt: Union[float, jax.typing.ArrayLike] = struct.field(pytree_node=False)
 
     @property
@@ -63,17 +63,18 @@ class BraxParams(base.Base):
 
     @property
     def sys(self) -> Systems:
+        base_sys = mjcf.loads(DISK_PENDULUM_XML)
         # Appropriately replace parameters for the disk pendulum
-        itransform = self.base_sys.link.inertia.transform.replace(pos=jnp.array([[0.0, self.offset, 0.0]]))
-        i = self.base_sys.link.inertia.i.at[0, 0, 0].set(
+        itransform = base_sys.link.inertia.transform.replace(pos=jnp.array([[0.0, self.offset, 0.0]]))
+        i = base_sys.link.inertia.i.at[0, 0, 0].set(
             0.5 * self.mass_weight * self.radius_weight**2
         )  # inertia of cylinder in local frame.
-        inertia = self.base_sys.link.inertia.replace(transform=itransform, mass=jnp.array([self.mass_weight]), i=i)
-        link = self.base_sys.link.replace(inertia=inertia)
-        actuator = self.base_sys.actuator.replace(gear=jnp.array([self.gear]))
-        dof = self.base_sys.dof.replace(armature=jnp.array([self.armature]), damping=jnp.array([self.damping]))
-        opt = self.base_sys.opt.replace(timestep=self.dt_substeps)
-        new_sys = self.base_sys.replace(link=link, actuator=actuator, dof=dof, opt=opt)
+        inertia = base_sys.link.inertia.replace(transform=itransform, mass=jnp.array([self.mass_weight]), i=i)
+        link = base_sys.link.replace(inertia=inertia)
+        actuator = base_sys.actuator.replace(gear=jnp.array([self.gear]))
+        dof = base_sys.dof.replace(armature=jnp.array([self.armature]), damping=jnp.array([self.damping]))
+        opt = base_sys.opt.replace(timestep=self.dt_substeps)
+        new_sys = base_sys.replace(link=link, actuator=actuator, dof=dof, opt=opt)
         return new_sys
 
     def step(self, substeps: int, dt_substeps: jax.typing.ArrayLike, x: Pipelines, us: jax.typing.ArrayLike) -> Tuple[Pipelines, Pipelines]:
@@ -123,7 +124,7 @@ class BraxWorld(BaseWorld):  # We inherit from BaseWorld for convenience, but yo
     def __init__(self, *args, backend: str = "generalized", **kwargs):
         super().__init__(*args, **kwargs)
         self.backend = backend
-        self.sys = mjcf.loads(DISK_PENDULUM_XML)
+        # self.sys = mjcf.loads(DISK_PENDULUM_XML)
 
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> BraxParams:
         """Default params of the node."""
@@ -139,7 +140,7 @@ class BraxWorld(BaseWorld):  # We inherit from BaseWorld for convenience, but yo
             friction_loss=0.00097525,
             # Backend parameters
             dt=1/self.rate,
-            base_sys=self.sys,
+            # base_sys=self.sys,
             backend=self.backend,
         )
 
