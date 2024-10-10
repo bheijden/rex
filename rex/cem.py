@@ -28,10 +28,25 @@ class CEMSolver:
     @classmethod
     def init(cls, u_min: Dict[str, Params], u_max: Dict[str, Params], num_samples: int = 100,
              evolution_smoothing: Union[float, jax.typing.ArrayLike] = 0.1, elite_portion: float = 0.1):
+        """ Initialize the Cross-Entropy Method (CEM) Solver.
+
+        :param u_min: (Normalized) Minimum values for the parameters (pytree).
+        :param u_max: (Normalized) Maximum values for the parameters (pytree).
+        :param num_samples: Number of samples per iteration.
+        :param evolution_smoothing: See https://arxiv.org/pdf/1907.03613.pdf for details.
+        :param elite_portion: See https://arxiv.org/pdf/1907.03613.pdf for details.
+        :return:
+        """
         return cls(u_min=u_min, u_max=u_max, evolution_smoothing=evolution_smoothing, elite_portion=elite_portion,
                    num_samples=num_samples)
 
     def init_state(self, mean: Dict[str, Params], stdev: Dict[str, Params] = None) -> CEMState:
+        """ Initialize the state of the CEM Solver.
+
+        :param mean: (Normalized) Mean values for the parameters (pytree).
+        :param stdev: (Normalized) Standard deviation values for the parameters (pytree).
+        :return:
+        """
         if stdev is None:
             stdev = jax.tree_util.tree_map(lambda _x_min, _x_max: (_x_max - _x_min) / 2., self.u_min, self.u_max)
         u_mean = jax.tree_util.tree_map(lambda x: jnp.array(x), mean)
@@ -88,6 +103,18 @@ def cem_update_mean_stdev(solver: CEMSolver, state: CEMState, samples: Dict[str,
 
 def cem(loss: Loss, solver: CEMSolver, init_state: CEMState, transform: Transform,
         max_steps: int = 100, rng: jax.Array = None, verbose: bool = True):
+    """ Run the Cross-Entropy Method (can be jit-compiled).
+
+    :param loss: Loss function.
+    :param solver: CEM Solver.
+    :param init_state: Initial state of the CEM Solver.
+    :param transform: Transform function to go from a normalized set of trainable parameters to the denormalized and
+                      extended set of parameters.
+    :param max_steps: Maximum number of steps to run the CEM Solver.
+    :param rng: Random number generator.
+    :param verbose: Whether to print the progress.
+    :return:
+    """
     if rng is None:
         rng = rnd.PRNGKey(0)
     rngs = jax.random.split(rng, num=max_steps).reshape(max_steps, 2)

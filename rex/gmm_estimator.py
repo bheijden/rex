@@ -321,6 +321,13 @@ from rex import base, utils
 
 class GMMEstimator:
     def __init__(self, data, name="GMM", threshold=1e-7, verbose: bool = True):
+        """ Gaussian Mixture Model Estimator.
+
+        :param data: 1D array of delay data.
+        :param name: Name of the model.
+        :param threshold: Threshold for determining if the data is deterministic.
+        :param verbose: Whether to print progress.
+        """
         self.name = name
         self.data: np.ndarray = data.astype(np.float32)
         self.final_state_norm = None
@@ -332,6 +339,13 @@ class GMMEstimator:
         self._data_norm: np.ndarray = (data - data.mean()) / max(data.std(), 1e-7) if not self.is_deterministic else data
 
     def fit(self, num_steps: int = 100, num_components: int = 2, step_size: float = 0.05, seed: int = 0):
+        """Fit the model to the data.
+
+        :param num_steps: Number of steps to train the model.
+        :param num_components: Number of components in the mixture model.
+        :param step_size: Step size for the optimizer.
+        :param seed: Random seed.
+        """
         if self.is_deterministic:
             if self.verbose:
                 print(
@@ -412,6 +426,18 @@ class GMMEstimator:
         num_points: int = 1000,
         plot_dist: bool = True,
     ):
+        """ Plot the histogram of the data and the fitted distribution.
+
+        :param ax: Axes to plot on.
+        :param edgecolor: Edge color of the histogram.
+        :param facecolor: Face color of the histogram.
+        :param bins: Number of bins for the histogram.
+        :param xmin: Minimum x value for the histogram. Can be used to avoid outliers.
+        :param xmax: Maximum x value for the histogram. Can be used to avoid outliers.
+        :param num_points: Number of points to plot the distribution.
+        :param plot_dist: Whether to plot the fitted distribution.
+        :return:
+        """
         if ax is None:
             fig, ax = plt.subplots()
         ax.hist(self.data, bins=bins, density=True, label="data", edgecolor=edgecolor, facecolor=facecolor, alpha=0.5)
@@ -423,6 +449,12 @@ class GMMEstimator:
         return ax
 
     def plot_loss(self, ax: plt.Axes = None, edgecolor: str = None) -> plt.Axes:
+        """Plot the loss function.
+
+        :param ax: Axes to plot on.
+        :param edgecolor: Edge color of the plot.
+        :return:
+        """
         if ax is None:
             fig, ax = plt.subplots()
 
@@ -475,6 +507,19 @@ class GMMEstimator:
         xmax: float = None,
         num_points: int = 1000,
     ) -> matplotlib.animation.FuncAnimation:
+        """ Animate the training process.
+
+        :param num_frames: Number of frames to animate.
+        :param fig: Figure to plot on.
+        :param ax: Axes to plot on.
+        :param edgecolor: Edge color of the histogram.
+        :param facecolor: Face color of the histogram.
+        :param bins: Number of bins for the histogram.
+        :param xmin: Minimum x value for the histogram. Can be used to avoid outliers.
+        :param xmax: Maximum x value for the histogram. Can be used to avoid outliers.
+        :param num_points: Number of points to plot the distribution.
+        :return:
+        """
         assert not self.is_deterministic, "Model must not be deterministic for animating."
         assert self.final_state_norm is not None, "Must train model before animating."
 
@@ -500,6 +545,11 @@ class GMMEstimator:
         return anim
 
     def get_dist(self, percentile: float = 0.99) -> base.StaticDist:
+        """ Get the distribution.
+
+        :param percentile: A percentile to prune the number of components that do not contribute much.
+        :return:
+        """
         if self.is_deterministic:
             dist = distrax.Deterministic(loc=self.data.mean(dtype="float32"))
             return base.StaticDist.create(dist)

@@ -11,7 +11,6 @@ class Foo:
 def step(_params):
     return _params
 
-
 params = Foo(bar=jax.numpy.arange(4))
 for i in range(2):
     print(f"i: {i}")  # Fails on second iteration

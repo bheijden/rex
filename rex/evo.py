@@ -45,6 +45,15 @@ class EvoSolver:
 
     @classmethod
     def init(cls, u_min: Dict[str, Params], u_max: Dict[str, Params], strategy: str, strategy_kwargs: Dict = None, fitness_kwargs: Dict = None):
+        """ Initialize the Evolutionary Solver.
+
+        :param u_min: (Normalized) Minimum values for the parameters (pytree).
+        :param u_max: (Normalized) Maximum values for the parameters (pytree).
+        :param strategy: Name of the strategy to use from evosax.Strategies.
+        :param strategy_kwargs: Keyword arguments to pass to the strategy.
+        :param fitness_kwargs: Keyword arguments to pass to the fitness function of the strategy.
+        :return:
+        """
         strategy_name = strategy
         strategy_kwargs = strategy_kwargs or dict()
         fitness_kwargs = fitness_kwargs or dict()
@@ -59,26 +68,63 @@ class EvoSolver:
         return cls(strategy_params=strategy_params, strategy=strategy, strategy_name=strategy_name)
 
     def init_state(self, mean: Dict[str, Params], rng: jax.Array = None) -> EvoState:
+        """ Initialize the state of the Evolutionary Solver.
+
+        :param mean: (Normalized) Mean values for the parameters (pytree).
+        :param rng: Random number generator.
+        :return:
+        """
         if rng is None:
             rng = rnd.PRNGKey(0)
         state = self.strategy.initialize(rng, self.strategy_params, mean)
         return state
 
     def init_logger(self, num_generations: int, top_k: int = 5, maximize: bool = False) -> LogState:
+        """ Initialize the logger for the Evolutionary Solver.
+
+        :param num_generations: Number of generations to log.
+        :param top_k: Number of top individuals to log.
+        :param maximize: Whether the strategy is maximizing or minimizing.
+        :return:
+        """
         logger = evx.ESLog(pholder_params=self.strategy.param_reshaper.placeholder_params,
                            num_generations=num_generations, top_k=top_k, maximize=maximize)
         log_state = logger.initialize()
         return LogState(state=log_state, logger=logger)
 
     def flatten(self, tree: Any):
+        """ Flatten the tree of parameters.
+
+        :param tree: Tree of parameters.
+        :return: Flattened parameters.
+        """
         return self.strategy.param_reshaper.flatten_single(tree)
 
     def unflatten(self, x: jax.typing.ArrayLike):
+        """ Unflatten the parameters.
+
+        :param x: Flattened parameters.
+        :return: Tree of parameters.
+        """
         return self.strategy.param_reshaper.reshape_single(x)
 
 
 def evo(loss: Loss, solver: EvoSolver, init_state: evx.strategy.EvoState, transform: Transform,
         max_steps: int = 100, rng: jax.Array = None, verbose: bool = True, logger: LogState = None):
+    """ Run the Evolutionary Solver (can be jit-compiled).
+
+    :param loss: Loss function.
+    :param solver: Evolutionary Solver.
+    :param init_state: Initial state of the Evolutionary Solver.
+    :param transform: Transform function to go from a normalized set of trainable parameters to the denormalized and
+                      extended set of parameters.
+    :param max_steps: Maximum number of steps to run the Evolutionary Solver.
+    :param rng: Random number generator.
+    :param verbose: Whether to print the progress.
+    :param logger: Logger for the Evolutionary Solver.
+    :return:
+    """
+
     if rng is None:
         rng = rnd.PRNGKey(0)
     rngs = jax.random.split(rng, num=max_steps).reshape(max_steps, 2)
