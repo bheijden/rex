@@ -1272,12 +1272,43 @@ class AsyncGraph:
                  clock: Clock = Clock.WALL_CLOCK,
                  real_time_factor: Union[float, int] = RealTimeFactor.REAL_TIME,
                  ):
+        """Creates an interface around all nodes in the graph.
+
+        As a mental model, it helps to think of the graph as dividing the nodes into two groups:
+        1. **Supervisor Node**: The designated node that controls the graph's execution flow.
+        2. **All Other Nodes**: These nodes form the environment the supervisor interacts with.
+
+        This partitioning of nodes essentially creates an **agent-environment** interface, where the supervisor node acts as the
+        agent, and the remaining nodes represent the environment. The graph provides gym-like `.reset` and `.step` methods that
+        mirror reinforcement learning interfaces:
+        - **`.init`**: Initializes the graph state, which includes the state of all nodes.
+        - **`.reset`**: Initializes the system and returns the initial observation as would be seen by the supervisor node.
+        - **`.step`**: Advances the graph by one step (i.e. steps all nodes except the supervisor) and returns the next observation.
+
+        As a result, the timestep of graph.step is determined by the rate of the supervisor node (i.e., 1/supervisor.rate).
+
+        :param nodes: Dictionary of nodes that make up the graph.
+        :param supervisor: The designated node that controls the graph's execution flow.
+        :param clock: Determines how time is managed in the graph. Choices include `Clock.SIMULATED` for virtual simulations
+                      and `Clock.WALL_CLOCK` for real-time applications.
+        :param real_time_factor: Sets the speed of the simulation. It can simulate as fast as possible
+                                 (`RealTimeFactor.FAST_AS_POSSIBLE`), in real-time (`RealTimeFactor.REAL_TIME`), or at any
+                                 custom speed relative to real-time.
+        """
         self.nodes = nodes
         self.nodes[supervisor.name] = supervisor
         self.nodes_excl_supervisor = {k: v for k, v in nodes.items() if v.name != supervisor.name}
         self.supervisor = supervisor
         self.clock = clock
         self.real_time_factor = real_time_factor
+
+        # Check clode modes
+        if self.clock == Clock.COMPILED:
+            raise ValueError("For a COMPILED runtime, use rex.graph.Graph instead.")
+        if self.clock not in [Clock.WALL_CLOCK, Clock.SIMULATED]:
+            raise ValueError("Clock must be either WALL_CLOCK or SIMULATED.")
+        if self.clock == Clock.WALL_CLOCK and self.real_time_factor != RealTimeFactor.REAL_TIME:
+            raise ValueError("When using the WALL_CLOCK, the real-time factor should be set to REAL_TIME.")
 
         # Wrap nodes and connections
         self._async_nodes: Dict[str, _AsyncNodeWrapper] = {k: _AsyncNodeWrapper(v) for k, v in nodes.items()}
