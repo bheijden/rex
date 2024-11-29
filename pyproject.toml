@@ -21,17 +21,17 @@ classifiers = [
 requires-python = ">=3.9"
 dependencies = [
     "supergraph>=0.0.8",
-    "gymnasium>=0.29.1",
+    "gymnasium>=0.29.1",  # todo: remove?
     "tqdm>=4.66.4",
     "dill>=0.3.8",
-    "seaborn>=0.13.2",
+    "seaborn>=0.13.2",  # todo: move to optional
     "matplotlib>=3.7.0",
     "networkx>=3.2.1",
-    "termcolor>=2.4.0",
+    "termcolor>=2.4.0",  # todo: remove?
     "jax>=0.4.30",  # Without CUDA by default
     "equinox>=0.11.4",
     "evosax>=0.1.6",  # Required for evo.py
-    "optax>=0.2.3",  # Reuqired for ppo.py
+    "optax>=0.2.3",  # Required for ppo.py
     "flax>=0.8.5",
     "distrax>=0.1.5"
 ]
@@ -41,6 +41,14 @@ examples = ["brax>=0.10.5"]  # Required for pendulum.py
 
 #[project.scripts]
 #rex-cli = "rex.cli:main"  # Optional: if you want to provide a command-line tool
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8.1",
+]
+tests = [
+    "pytest>=8.3.3",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -57,3 +65,6 @@ packages = ["rex"]
 
 [tool.uv]
 package = true
+default-groups = ["dev"]  # Only "dev" is the default setting
+
+
