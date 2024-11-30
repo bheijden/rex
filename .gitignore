@@ -143,3 +143,4 @@ gmm_comp.gif
 *.pb
 scripts/wandb/
 paper/wandb/
+.all_objects.cache
