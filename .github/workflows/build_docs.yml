@@ -32,9 +32,7 @@ jobs:
         run: uv run pip3 install -r docs/requirements.txt
 
       - name: Build docs
-        run: |
-          mkdocs build
-          mkdocs build  # twice, see https://github.com/patrick-kidger/pytkdocs_tweaks
+        run: make build_docs
 
       - name: Upload docs
         uses: actions/upload-artifact@v4

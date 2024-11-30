@@ -39,23 +39,35 @@ dependencies = [
 [project.optional-dependencies]
 examples = ["brax>=0.10.5"]  # Required for pendulum.py
 
-#[project.scripts]
-#rex-cli = "rex.cli:main"  # Optional: if you want to provide a command-line tool
-
 [dependency-groups]
 dev = [
     "ruff>=0.8.1",
 ]
 tests = [
+    "pytest-cov>=6.0.0",
+    # Make sure that all test dependencies are also included in the testscript in .github/workflows/release.yml
     "pytest>=8.3.3",
+]
+
+#[project.scripts]
+#rex-cli = "rex.cli:main"  # Optional: if you want to provide a command-line tool
+
+[tool.coverage.run]
+branch = false
+source = ["rex"]
+omit = []
+
+[tool.coverage.report]
+exclude_lines = [
+    "raise NotImplementedError",
+    "pass",
+    "if TYPE_CHECKING:",
+    "pragma: no cover",
 ]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-#[tool.hatch.version]
-#path = "rex/__init__.py"
 
 [tool.hatch.build.targets.sdist]
 include = ["rex/**/*"]

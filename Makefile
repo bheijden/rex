@@ -30,6 +30,12 @@ build_docs:
 
 run_tests:
 	# Run tests
-	uv run pytest tests
+	uv run pytest tests \
+			--cov=rex \
+			--cov-report=html \
+			--cov-report=xml \
+			--cov-report=term \
+			--cov-config=pyproject.toml \
+			-v --color=yes
 
 .PHONY: check-codestyle

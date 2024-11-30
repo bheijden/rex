@@ -2,12 +2,15 @@ name: Run tests
 
 on:
   pull_request:
+  push:
+    branches:
+      - master
 
 jobs:
   run-test:
     strategy:
       matrix:
-        python-version: [ 3.9]
+        python-version: [3.11]
         os: [ ubuntu-latest ]
       fail-fast: false
     runs-on: ${{ matrix.os }}
@@ -32,6 +35,6 @@ jobs:
       #        uses: pre-commit/action@v2.0.3
 
       - name: Run tests
-        run: uv run pytest tests
+        run: make run_tests
 
 
