@@ -1,3 +1,5 @@
+import importlib.metadata
+
 import rex.asynchronous as asynchronous
 import rex.gmm_estimator as gmm_estimator
 import rex.constants as constants
@@ -13,4 +15,4 @@ import rex.evo as evo  # Requires evosax
 import rex.cem as cem
 import rex.open_colors as open_colors
 
-__version__ = '0.0.7'
+__version__ = importlib.metadata.version("equinox")
