@@ -128,6 +128,7 @@ class SimActuator(BaseNode):
         # Get action from dataset if available, else use the one provided by the agent
         if self._outputs is not None:  # Use the recorded action (for system identification)
             output = tree_dynamic_slice(self._outputs, jnp.array([step_state.eps, step_state.seq]))
+            output = jax.tree_util.tree_map(lambda _o: _o[0, 0], output)
         else:  # Feedthrough the agent's action (for normal operation, e.g., training)
             output = step_state.inputs["agent"][-1].data
             output = ActuatorOutput(action=output.action)

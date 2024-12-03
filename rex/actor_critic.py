@@ -101,6 +101,7 @@ class Actor(nn.Module):
             raise ValueError(f"Unknown output_activation: {self.output_activation}")
         return pi
 
+
 class Critic(nn.Module):
     num_hidden_units: int = 64
     num_hidden_layers: int = 2

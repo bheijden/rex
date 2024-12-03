@@ -354,6 +354,7 @@ class SimD435iDetector(D435iDetectorBase):
         th_world = step_state.inputs["world"][-1].data.th
 
         output = tree_dynamic_slice(self._outputs, jnp.array([step_state.eps, step_state.seq])) if self._outputs else None
+        output = jax.tree_util.tree_map(lambda _o: _o[0, 0], output) if output else None
         has_bgr: bool = (output is not None and output.bgr is not None)
         has_output: bool = output is not None
         # (1): Apply image processing pipeline if images are available
@@ -415,7 +416,8 @@ class SimD435i(D435iBase):
         eps = graph_state.eps if graph_state else 0
         seq = 0
         # Not actually using bgr, but only using the shape for now. Else, strange this can happen in delay_dist interpolation.
-        bgr = jnp.zeros_like(tree_dynamic_slice(self._outputs.bgr, jnp.array([eps, seq]))) if self._outputs else None
+        bgr = jnp.zeros_like(tree_dynamic_slice(self._outputs.bgr, jnp.array([eps, seq])))[0, 0] if self._outputs else None
+
         world = self.inputs["world"].output_node.init_output(rng, graph_state)  # Get world shape
         # Account for sensor delay
         params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
@@ -435,7 +437,7 @@ class SimD435i(D435iBase):
     def step(self, step_state: base.StepState) -> Tuple[base.StepState, SimImage]:
         """Step the node."""
         # Get recorded output if available
-        bgr = tree_dynamic_slice(self._outputs.bgr, jnp.array([step_state.eps, step_state.seq])) if self._outputs else None
+        bgr = tree_dynamic_slice(self._outputs.bgr, jnp.array([step_state.eps, step_state.seq]))[0, 0] if self._outputs else None
 
         # Adjust ts_start (i.e. step_state.ts) to reflect the timestamp of the world state that generated the image
         ts = step_state.ts - step_state.params.sensor_delay.mean()  # Should be equal to world_interp.ts_sent[-1]?

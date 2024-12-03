@@ -230,6 +230,7 @@ class Sensor(BaseNode):
         # Determine output
         if self._outputs is not None:
             recorded_output = tree_dynamic_slice(self._outputs, jnp.array([step_state.eps, step_state.seq]))
+            recorded_output = jax.tree_util.tree_map(lambda _o: _o[0, 0], recorded_output)
             output = recorded_output.replace(ts=ts)
         else:
             # rng, rng_noise = jax.random.split(rng)
@@ -283,6 +284,7 @@ class Actuator(BaseNode):
         # Get action from dataset or use passed through.
         if self._outputs is not None:
             output = tree_dynamic_slice(self._outputs, jnp.array([step_state.eps, step_state.seq]))
+            output = jax.tree_util.tree_map(lambda _o: _o[0, 0], output)
             action = output.action
         else:
             action = ctrl_output.action

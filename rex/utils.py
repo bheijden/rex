@@ -100,7 +100,7 @@ def apply_window(nodes: Dict[str, "BaseNode"], graphs: Graph) -> WindowedGraph:
             last_window, indexed_windows = jax.lax.scan(scan_body_seq, init_window, e)
 
             # Append init_window
-            extended_indexed_windows = jax.tree_map(
+            extended_indexed_windows = jax.tree_util.tree_map(
                 lambda w_lst, w: jnp.concatenate([w_lst, jnp.array(w)[None]]), indexed_windows, indexed_init_window
             )
 
@@ -120,7 +120,7 @@ def apply_window(nodes: Dict[str, "BaseNode"], graphs: Graph) -> WindowedGraph:
             win_indices = jax.vmap(_get_window_index)(graph.vertices[n2].seq)
 
             # Append
-            window = jax.tree_map(lambda w: w[win_indices], extended_indexed_windows)
+            window = jax.tree_util.tree_map(lambda w: w[win_indices], extended_indexed_windows)
             windows[(n1, n2)] = window
 
         vertices = dict()
@@ -376,6 +376,8 @@ def get_subplots(tree, figsize=(10, 10), sharex=False, sharey=False, major="row"
         else:
             nrows -= 1
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize, sharex=sharex, sharey=sharey)
+    if num == 1:  # Single plot must be c
+        axes = onp.array([[axes]])
     tree_axes = jax.tree_util.tree_unflatten(treedef, axes.flatten()[0:num].tolist())
     if len(axes.flatten()) > num:
         for ax in axes.flatten()[num:]:
@@ -563,6 +565,22 @@ def plot_graph(
     ax.legend(handles=new_handles, labels=new_labels, loc='center left', bbox_to_anchor=(1, 0.5))
 
     return ax
+
+
+def plot_supergraph(S,
+                    node_size: int = 300,
+                    node_fontsize=10,
+                    edge_linewidth=2.0,
+                    node_linewidth=1.5,
+                    arrowsize=10,
+                    arrowstyle="->",
+                    connectionstyle="arc3,rad=0.1",
+                    draw_labels=True,
+                    ax=None,
+                    label_map: Dict = None, ):
+    return supergraph.plot_graph(S, node_size=node_size, node_fontsize=node_fontsize, edge_linewidth=edge_linewidth,
+                                 node_linewidth=node_linewidth, arrowsize=arrowsize, arrowstyle=arrowstyle,
+                                 connectionstyle=connectionstyle, draw_labels=draw_labels, ax=ax, label_map=label_map)
 
 
 def plot_system(

@@ -481,6 +481,7 @@ class PPOAgent(BaseNode):
         # Get action from dataset or use passed through.
         if self._outputs is not None:
             output = tree_dynamic_slice(self._outputs, jnp.array([step_state.eps, step_state.seq]))
+            output = jax.tree_util.tree_map(lambda _o: _o[0, 0], output)
             output = output.replace(state_estimate=est_output)
             return step_state, output  # Return output from dataset
         # Get observation for policy

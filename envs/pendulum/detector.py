@@ -528,6 +528,7 @@ class SimDetector(Detector):
         elif self._outputs is not None:
             # Here, we do not use the camera output, but the outputs provided to the node
             output = tree_dynamic_slice(self._outputs, jnp.array([step_state.eps, step_state.seq]))
+            output = jax.tree_util.tree_map(lambda _o: _o[0, 0], output)
             median, centroid = output.median, output.centroid
 
             # Calculate theta

@@ -7,7 +7,7 @@ import distrax
 # from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
 # tfd = tfp.distributions
 
-from rex.base import Timestamps, Edge, Vertex, Graph, TrainableDist, StaticDist
+from rex.base import Edge, Vertex, Graph, TrainableDist, StaticDist
 from rex import constants
 from rex.node import BaseNode
 

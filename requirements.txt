@@ -17,3 +17,4 @@ flax
 distrax
 
 brax # optional when installing with [examples] extras
+# todo: add jupyterlab, ipython, and other notebook dependencies

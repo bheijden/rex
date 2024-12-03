@@ -179,6 +179,7 @@ class Abstract(BaseNode):
             in_bounds = step_state.seq < max_seq  # num_samples
             seq_mod = step_state.seq % num_samples
             output_target = tree_dynamic_slice(self._outputs, jnp.array([step_state.eps, seq_mod]))
+            output_target = jax.tree_util.tree_map(lambda _o: _o[0, 0], output_target)
             new_loss = new_state.loss + in_bounds*(output.y - output_target.y)**2
             # if self.name in ["1", "2"]:
             #     keys = {}

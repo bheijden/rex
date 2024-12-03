@@ -114,21 +114,6 @@ GraphBuffer = FrozenDict[str, Output]
 
 
 @struct.dataclass
-class Timestamps:
-    """A timestamps data structure that holds the sequence numbers and timestamps of a connection.
-
-    Used to artificially generate graphs.
-
-    Meant for internal use only.
-    """
-
-    seq: Union[int, jax.Array]
-    ts_start: Union[float, jax.Array]
-    ts_end: Union[float, jax.Array]
-    ts_recv: Dict[str, Union[float, jax.Array]] = struct.field(default=None)
-
-
-@struct.dataclass
 class Edge:
     """And edge data structure that holds the sequence numbers and timestamps of a connection.
 
@@ -197,10 +182,10 @@ class Graph:
     def __len__(self):
         """Return the number of episodes."""
         shape = next(iter(self.vertices.values())).seq.shape
-        if len(shape) == 0:
-            return 1
-        else:
+        if len(shape) > 1:
             return shape[0]
+        else:
+            return 1
 
     def __getitem__(self, val):
         """In case the graph is batched, and holds the graphs of multiple episodes,
@@ -208,7 +193,7 @@ class Graph:
         """
         shape = next(iter(self.vertices.values())).seq.shape
         if len(shape) == 0:
-            return self
+            raise ValueError("Graph is not batched.")
         else:
             return jax.tree_util.tree_map(lambda v: v[val], self)
 
@@ -244,8 +229,8 @@ class Graph:
                     if n1 in nodes:
                         connections.add((n1, n2))
             else:  # Only filters vertices, meaning vertices may have more edges than connections in nodes.
-                if n2 in self.nodes:
-                    for n1, v1 in self.nodes[n2].inputs.items():
+                if n2 in self.vertices:
+                    for (n1, _) in filter(lambda x: x[1] == n2, self.edges):
                         if n1 in nodes:
                             connections.add((n1, n2))
 
@@ -624,9 +609,9 @@ class TrainableDist(DelayDistribution):
     def create(cls, delay: Union[float, jax.typing.ArrayLike], min: Union[float, jax.typing.ArrayLike], max: Union[float, jax.typing.ArrayLike], interp: str = "zoh") -> "TrainableDist":
         min = float(min)
         max = float(max)
+        assert min < max, f"min should be less than max, but got min={min} and max={max}."
         alpha = float(TrainableDist._get_alpha(delay, min, max))
         assert 0.0 <= alpha <= 1.0, f"alpha should be between [0, 1], but got {alpha}."
-        assert min < max, f"min should be less than max, but got min={min} and max={max}."
         assert 0.0 <= min, f"min should be greater than or equal to 0, but got {min}."
         assert interp in ["zoh", "linear", "linear_real_only"], f"Interpolation method {interp} not supported."
         return cls(alpha=alpha, min=min, max=max, interp=interp)
@@ -663,6 +648,8 @@ class TrainableDist(DelayDistribution):
             return False  # Different max delay --> affects the window size & computation graph at compile time
         if self.min != other.min:
             return False  # Different min delay --> affects the window size & computation graph at compile time
+        if self.interp != other.interp:  # Different interpolation method --> affects the computation graph at compile time
+            return False
         return True
 
     def apply_delay(self, rate_out: float, input: "InputState", ts_start: Union[float, jax.typing.ArrayLike]) -> "InputState":
@@ -684,8 +671,8 @@ class TrainableDist(DelayDistribution):
             # Slice the input state
             idx_min = idx_max - window
             tb = [input.seq, input.ts_sent, ts_recv, input.data]
-            slice_sizes = jax.tree_map(lambda _tb: list(_tb.shape[1:]), tb)
-            tb_delayed = jax.tree_map(
+            slice_sizes = jax.tree_util.tree_map(lambda _tb: list(_tb.shape[1:]), tb)
+            tb_delayed = jax.tree_util.tree_map(
                 lambda _tb, _size: jax.lax.dynamic_slice(_tb, [idx_min] + [0 * s for s in _size], [window] + _size), tb,
                 slice_sizes)
             delayed_input_state = InputState(*tb_delayed, delay_dist=new_delay_dist)
@@ -714,7 +701,7 @@ class TrainableDist(DelayDistribution):
                 return res.astype(jax.dtypes.canonicalize_dtype(_fp.dtype))  # Ensure that the dtype is the same as the original dtype
 
             # Now, ts_start == ts_recv_interp[-1] should hold.
-            interp_tb = jax.tree_map(interp_maybe_batched, tb)
+            interp_tb = jax.tree_util.tree_map(interp_maybe_batched, tb)
             delayed_input_state = InputState(*interp_tb, delay_dist=new_delay_dist)
         else:
             raise ValueError(f"Interpolation method {self.interp} not supported.")
@@ -764,7 +751,7 @@ class InputState:
         :return: An InputState object, that holds the messages in a ring buffer.
         """
 
-        data = jax.tree_map(lambda *o: jnp.stack(o, axis=0), *outputs) if not is_data else outputs
+        data = jax.tree_util.tree_map(lambda *o: jnp.stack(o, axis=0), *outputs) if not is_data else outputs
         return cls(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, data=data, delay_dist=delay_dist)
 
     def _shift(self, a: ArrayLike, new: ArrayLike):
@@ -780,9 +767,9 @@ class InputState:
 
         # get new values
         if size > 1:
-            new = jax.tree_map(lambda tb, t: self._shift(tb, t), tb, new_t)
+            new = jax.tree_util.tree_map(lambda tb, t: self._shift(tb, t), tb, new_t)
         else:
-            new = jax.tree_map(lambda _tb, _t: jnp.array(_tb).at[0].set(_t), tb, new_t)
+            new = jax.tree_util.tree_map(lambda _tb, _t: jnp.array(_tb).at[0].set(_t), tb, new_t)
         return InputState(*new, delay_dist=self.delay_dist)
 
     def __getitem__(self, val):
@@ -791,7 +778,7 @@ class InputState:
         This is useful for indexing all the values of the ring buffer at a specific index.
         """
         tb = [self.seq, self.ts_sent, self.ts_recv, self.data]
-        return InputState(*jax.tree_map(lambda _tb: _tb[val], tb), delay_dist=self.delay_dist)
+        return InputState(*jax.tree_util.tree_map(lambda _tb: _tb[val], tb), delay_dist=self.delay_dist)
 
 
 @struct.dataclass
@@ -1265,6 +1252,7 @@ class Extend(Transform):
 
 @struct.dataclass
 class Denormalize(Transform):
+    """Denormalize the parameters from [-1, 1] to the original scale."""
     scale: Params
     offset: Params
 

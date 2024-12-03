@@ -59,26 +59,26 @@ def tree_dynamic_slice(tree: Any, start_indices: Union[int, jax.typing.ArrayLike
 
     # Slice the input state
     num_dims = len(slice_sizes)
-    tree_slice_sizes = jax.tree_map(lambda _x: slice_sizes + list(_x.shape[num_dims:]), tree)
+    tree_slice_sizes = jax.tree_util.tree_map(lambda _x: slice_sizes + list(_x.shape[num_dims:]), tree)
 
     # Convert start_indices
     start_indices = (
         jnp.array([start_indices]) if isinstance(start_indices, int) or start_indices.shape == () else start_indices
     )
-    tree_start_indices = jax.tree_map(
+    tree_start_indices = jax.tree_util.tree_map(
         lambda _x: jnp.concatenate([start_indices, onp.zeros_like(_x.shape[num_dims:]).astype(int)]), tree
     )
 
     # Slice the tree
-    res = jax.tree_map(
-        lambda x, start, size: jax.lax.dynamic_slice(x, start, size)[0, 0], tree, tree_start_indices, tree_slice_sizes
+    res = jax.tree_util.tree_map(
+        lambda x, start, size: jax.lax.dynamic_slice(x, start, size), tree, tree_start_indices, tree_slice_sizes
     )
     return res
 
 
 def tree_extend(tree_template, tree, is_leaf=None):
     """Extend tree to match tree_template."""
-    # NOTE! Static data of tree_template and tree must be equal (i.e. tree.node_data())
+    # NOTE! Static data of tree_template and tree must be equal (i.e. treedef.node_data())
     tree_template_flat, tree_template_treedef = jax.tree_util.tree_flatten(tree_template, is_leaf=is_leaf)
     try:
         tree_flat = flatten_axes("tree_match", tree_template_treedef, tree)

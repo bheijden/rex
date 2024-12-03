@@ -37,6 +37,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# todo: add notebook dependencies: jupyter, ipywidgets.
 examples = ["brax>=0.10.5"]  # Required for pendulum.py
 
 [dependency-groups]
@@ -55,7 +56,7 @@ tests = [
 [tool.coverage.run]
 branch = false
 source = ["rex"]
-omit = []
+omit = ["rex/pendulum/*"]
 
 [tool.coverage.report]
 exclude_lines = [
@@ -63,6 +64,9 @@ exclude_lines = [
     "pass",
     "if TYPE_CHECKING:",
     "pragma: no cover",
+    'if __name__ == "__main__":',
+    "raise ",
+    "except ImportError",
 ]
 
 [build-system]

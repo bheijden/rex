@@ -15,6 +15,7 @@ except ImportError as e:
     raise ImportError(f"Failed to import optax: {e}. Please install it with `pip install optax`.")
 from flax.linen.initializers import constant, orthogonal
 from flax import struct
+import distrax
 from typing import Sequence, NamedTuple, Any
 from flax.training.train_state import TrainState
 from rex.base import GraphState, Base

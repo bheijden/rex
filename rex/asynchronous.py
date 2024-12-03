@@ -182,7 +182,7 @@ class _AsyncNodeWrapper:
         if self._record.steps is None:
             to_array = lambda *x: onp.array(x[:-1]) if (len(x) > 0 and x[-1] is None) else onp.array(x)
             # to_array = lambda *x: onp.array([_x for _x in x if _x is not None]) if (len(x) > 0 and x[-1] is None) else onp.array(x)
-            steps = jax.tree_map(to_array, *self._record_steps)
+            steps = jax.tree_util.tree_map(to_array, *self._record_steps)
             self._record = self._record.replace(steps=steps)
 
         # Add the inputs to the record
@@ -838,7 +838,7 @@ class _AsyncConnectionWrapper:
             # Filter received messages meant for steps that were not yet run.
             messages = list(filter(lambda x: x.seq_in <= last_seq_in, self._record_messages))
             # Convert to numpy array
-            messages = jax.tree_map(lambda *x: onp.array(x), *messages)
+            messages = jax.tree_util.tree_map(lambda *x: onp.array(x), *messages)
             self._record = self._record.replace(messages=messages)
         return self._record
 

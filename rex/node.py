@@ -24,7 +24,7 @@ class Connection:
         self.output_node = output_node
         self.blocking = blocking
         self.delay_dist = delay_dist if delay_dist is not None else base.StaticDist.create(distrax.Normal(loc=0., scale=0.))
-        self.delay_dist = base.StaticDist.create(delay_dist) if isinstance(delay_dist, distrax.Distribution) else delay_dist
+        self.delay_dist = base.StaticDist.create(self.delay_dist) if isinstance(self.delay_dist, distrax.Distribution) else self.delay_dist
         assert isinstance(self.delay_dist, base.DelayDistribution), "Delay distribution should be a subclass of DelayDistribution."
         self.delay = delay if delay is not None else float(self.delay_dist.quantile(0.99))
         assert self.delay >= 0, "Delay should be non-negative."
@@ -34,8 +34,8 @@ class Connection:
         self.input_name = input_name if isinstance(input_name, str) else output_node.name
 
     def set_delay(self, delay_dist: Union[base.DelayDistribution, distrax.Distribution] = None, delay: float = None):
-        self.delay_dist = delay_dist if delay_dist is not None else self.delay_dist
-        self.delay_dist = base.StaticDist.create(delay_dist) if isinstance(delay_dist, distrax.Distribution) else delay_dist
+        self.delay_dist = self.delay_dist if delay_dist is not None else self.delay_dist
+        self.delay_dist = base.StaticDist.create(self.delay_dist) if isinstance(self.delay_dist, distrax.Distribution) else self.delay_dist
         assert isinstance(self.delay_dist, base.DelayDistribution), "Delay distribution should be a subclass of DelayDistribution."
         self.delay = delay if delay is not None else self.delay
 
@@ -59,11 +59,13 @@ class Connection:
         return self.output_node.phase_output + self.delay
 
     def disconnect(self):
-        del self.input_node.inputs[self.input_name]
-        del self.output_node.outputs[self.input_node.name]
+        raise NotImplementedError("Clean disconnect is not properly implemented yet.")
+        # del self.input_node.inputs[self.input_name]
+        # del self.output_node.outputs[self.input_node.name]
 
 
 class BaseNode:
+
     def __init__(self, name: str, rate: float, delay: float = None,
                  delay_dist: Union[base.DelayDistribution, distrax.Distribution] = None,
                  advance: bool = False, scheduling: Scheduling = Scheduling.FREQUENCY,
@@ -84,7 +86,7 @@ class BaseNode:
         self.name = name
         self.rate = rate
         self.delay_dist = delay_dist if delay_dist is not None else base.StaticDist.create(distrax.Normal(loc=0., scale=0.))
-        self.delay_dist = base.StaticDist.create(delay_dist) if isinstance(delay_dist, distrax.Distribution) else delay_dist
+        self.delay_dist = base.StaticDist.create(self.delay_dist) if isinstance(self.delay_dist, distrax.Distribution) else self.delay_dist
         if isinstance(self.delay_dist, base.TrainableDist):
             raise NotImplementedError("Cannot have trainable distribution for computation delay.")
         assert isinstance(self.delay_dist, base.DelayDistribution), "Delay distribution should be a subclass of DelayDistribution."
@@ -117,8 +119,8 @@ class BaseNode:
             cls.step = jutil.no_weaktype(identifier=f"{identifier}.step")(cls.step)
 
     def set_delay(self, delay_dist: Union[base.DelayDistribution, distrax.Distribution] = None, delay: float = None):
-        self.delay_dist = delay_dist if delay_dist is not None else self.delay_dist
-        self.delay_dist = base.StaticDist.create(delay_dist) if isinstance(delay_dist, distrax.Distribution) else delay_dist
+        self.delay_dist = self.delay_dist if delay_dist is not None else self.delay_dist
+        self.delay_dist = base.StaticDist.create(self.delay_dist) if isinstance(self.delay_dist, distrax.Distribution) else self.delay_dist
         if isinstance(self.delay_dist, base.TrainableDist):
             raise NotImplementedError("Cannot have trainable distribution for computation delay.")
         assert isinstance(self.delay_dist, base.DelayDistribution), "Delay distribution should be a subclass of DelayDistribution."
@@ -169,7 +171,7 @@ class BaseNode:
             advance=self.advance,
             scheduling=self.scheduling,
             phase=self.phase,
-            delay_dist=self.delay_dist,  # todo: does not neatly pickle
+            delay_dist=self.delay_dist,
             delay=self.delay,
             inputs={c.output_node.name: c.info for i, c in self.inputs.items()},  # Use name in context of graph, instead of shadow name
             name=self.name,
@@ -208,12 +210,15 @@ class BaseNode:
             return max([0.0] + [i.phase * 1.00 for i in self.inputs.values() if not i.skip])
             # return max([0.] + [i.phase for i in self.inputs if i.blocking and not i.skip])
         except RecursionError as e:
-            msg = (
-                "The constructed graph is not DAG. To break an algebraic loop, "
-                "either skip a connection or make the connection non-blocking."
-            )
-            utils.log(self.name, "red", LogLevel.ERROR.value, "ERROR", msg)
-            raise e
+            msg_info = ("Algebraic loop detected. The connection form a cycle in the graph."
+                        "To break the loop, either skip a connection or make the connection non-blocking."
+                        )
+            str_e = str(e)
+            if msg_info not in str_e:
+                msg = msg_info + f"\nLoop: {self.name}"
+            else:
+                msg = str_e + f"->{self.name}"
+            raise RecursionError(msg)
 
     @property
     def phase_output(self) -> float:
@@ -267,10 +272,10 @@ class BaseNode:
 
         :param output_node: The node to disconnect from. Can be the name of the node or the node object.
         """
-        name = output_node if isinstance(output_node, str) else output_node.name
         raise NotImplementedError("Clean disconnect is not properly implemented. "
                                   "Users are advised to create new nodes for each graph, instead of reusing nodes.")
-        self.inputs[name].disconnect()
+        # name = output_node if isinstance(output_node, str) else output_node.name
+        # self.inputs[name].disconnect()
 
     def init_params(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> base.Params:
         """Init params of the node.

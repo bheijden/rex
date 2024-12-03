@@ -176,6 +176,7 @@ class SimSensor(BaseNode):
         # Calculate loss
         if self._outputs is not None:  # Calculate reconstruction loss and aggregate in state
             output_rec = tree_dynamic_slice(self._outputs, jnp.array([step_state.eps, step_state.seq]))
+            output_rec = jax.tree_util.tree_map(lambda _o: _o[0, 0], output_rec)
             th_rec, thdot_rec = output_rec.th, output_rec.thdot
             state = step_state.state
             loss_th = state.loss_th + (jnp.sin(output.th) - jnp.sin(th_rec)) ** 2 + (jnp.cos(output.th) - jnp.cos(th_rec)) ** 2

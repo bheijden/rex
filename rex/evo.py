@@ -39,6 +39,15 @@ class LogState:
 
 @struct.dataclass
 class EvoSolver:
+    """
+    Evolutionary Solver class to manage the evolutionary strategy and its parameters.
+
+    **Attributes**
+
+    - `strategy_params` : Parameters for the evolutionary strategy (evosax.strategy.EvoParams).
+    - `strategy` : Instance of the evolutionary strategy (evosax.strategy.Strategy).
+    - `strategy_name` : Name of the strategy used.
+    """
     strategy_params: evx.strategy.EvoParams
     strategy: evx.strategy.Strategy = struct.field(pytree_node=False)
     strategy_name: str = struct.field(pytree_node=False)
@@ -111,18 +120,24 @@ class EvoSolver:
 
 def evo(loss: Loss, solver: EvoSolver, init_state: evx.strategy.EvoState, transform: Transform,
         max_steps: int = 100, rng: jax.Array = None, verbose: bool = True, logger: LogState = None):
-    """ Run the Evolutionary Solver (can be jit-compiled).
+    """Run the Evolutionary Solver (can be jit-compiled).
 
-    :param loss: Loss function.
-    :param solver: Evolutionary Solver.
-    :param init_state: Initial state of the Evolutionary Solver.
-    :param transform: Transform function to go from a normalized set of trainable parameters to the denormalized and
-                      extended set of parameters.
-    :param max_steps: Maximum number of steps to run the Evolutionary Solver.
-    :param rng: Random number generator.
-    :param verbose: Whether to print the progress.
-    :param logger: Logger for the Evolutionary Solver.
-    :return:
+    **Arguments**
+
+    - 'loss' : Loss function.
+    - 'solver' : Evolutionary Solver.
+    - 'init_state' : Initial state of the Evolutionary Solver.
+    - 'transform' : Transform function to go from a normalized set of trainable parameters to the denormalized and extended set of parameters.
+    - 'max_steps' : Maximum number of steps to run the Evolutionary Solver.
+    - 'rng' : Random number generator.
+    - 'verbose' : Whether to print the progress.
+    - 'logger' : Logger for the Evolutionary Solver.
+
+    **Returns**
+
+    - 'final_state' : Final state of the Evolutionary Solver.
+    - 'logger' : Logger for the Evolutionary Solver.
+    - 'losses' : Losses at each step.
     """
 
     if rng is None:

@@ -26,27 +26,6 @@ class Space:
         raise NotImplementedError
 
 
-class Discrete(Space):
-    """Minimal jittable class for discrete spaces."""
-
-    def __init__(self, num_categories: int):
-        assert num_categories >= 0
-        self.n = num_categories
-        self.shape = ()
-        self.dtype = int
-
-    def sample(self, rng: ArrayLike) -> jax.Array:
-        """Sample random action uniformly from set of categorical choices."""
-        return jax.random.randint(rng, shape=self.shape, minval=0, maxval=self.n).astype(self.dtype)
-
-    def contains(self, x: Union[int, ArrayLike]) -> Union[bool, jax.Array]:
-        """Check whether specific object is within space."""
-        # type_cond = isinstance(x, self.dtype)
-        # shape_cond = (x.shape == self.shape)
-        range_cond = jnp.logical_and(x >= 0, x < self.n)
-        return range_cond
-
-
 class Box(Space):
     """Minimal jittable class for array-shaped spaces."""
 
@@ -455,8 +434,8 @@ class NormalizeVec:
             x = jnp.clip(x, -self.clip, self.clip)
         return x
 
-    def unnormalize(self, x, add_mean=True):
-        """Unnormalize x with variance."""
+    def denormalize(self, x, add_mean=True):
+        """Denormalize x with variance."""
         x = x * jnp.sqrt(self.var + 1e-8)
         if add_mean:
             x = x + self.mean
@@ -619,97 +598,3 @@ def rollout(env: Environment, get_action: Callable[[jax.Array], jax.Array], num_
     # Step
     _, transition = jax.lax.scan(_step, (gs, obs, jnp.array(False)), jnp.arange(num_steps))
     return transition
-
-####################################################################################################
-# Not used yet
-####################################################################################################
-# class BraxGymnaxWrapper:
-#     def __init__(self, env_name, backend="positional"):
-#         env = envs.get_environment(env_name=env_name, backend=backend)
-#         env = EpisodeWrapper(env, episode_length=1000, action_repeat=1)
-#         env = AutoResetWrapper(env)
-#         self._env = env
-#         self.action_size = env.action_size
-#         self.observation_size = (env.observation_size,)
-#
-#     def reset(self, key, params=None):
-#         state = self._env.reset(key)
-#         return state.obs, state
-#
-#     def step(self, key, state, action, params=None):
-#         next_state = self._env.step(state, action)
-#         return next_state.obs, next_state, next_state.reward, next_state.done > 0.5, {}
-#
-#     def observation_space(self, params):
-#         return Box(
-#             low=-jnp.inf,
-#             high=jnp.inf,
-#             shape=(self._env.observation_size,),
-#         )
-#
-#     def action_space(self, params):
-#         return Box(
-#             low=-1.0,
-#             high=1.0,
-#             shape=(self._env.action_size,),
-#         )
-
-# class TransformObservation(BaseWrapper):
-#     def __init__(self, env, transform_obs):
-#         super().__init__(env)
-#         self.transform_obs = transform_obs
-#
-#     def reset(self, key, params=None):
-#         obs, state = self._env.reset(key, params)
-#         return self.transform_obs(obs), state
-#
-#     def step(self, key, state, action, params=None):
-#         obs, state, reward, done, info = self._env.step(key, state, action, params)
-#         return self.transform_obs(obs), state, reward, done, info
-#
-#
-# class TransformReward(BaseWrapper):
-#     def __init__(self, env, transform_reward):
-#         super().__init__(env)
-#         self.transform_reward = transform_reward
-#
-#     def step(self, key, state, action, params=None):
-#         obs, state, reward, done, info = self._env.step(key, state, action, params)
-#         return obs, state, self.transform_reward(reward), done, info
-#
-#
-# class FlattenObservationWrapper(BaseWrapper):
-#     """Flatten the observations of the environment."""
-#
-#     def __init__(self, env: Union[Environment, "BaseWrapper"]):
-#         super().__init__(env)
-#
-#     def observation_space(self, params) -> Box:
-#         obs_space = self._env.observation_space(params)
-#         assert isinstance(obs_space, Box), "Only Box spaces are supported for now."
-#         return Box(
-#             low=obs_space.low,
-#             high=obs_space.high,
-#             shape=(onp.prod(obs_space.shape),),
-#             dtype=obs_space.dtype,
-#         )
-#
-#     @partial(jax.jit, static_argnums=(0,))
-#     def reset(
-#         self, key: jax.Array, params = None
-#     ) -> Tuple[jax.Array, environment.EnvState]:
-#         obs, state = self._env.reset(key, params)
-#         obs = jnp.reshape(obs, (-1,))
-#         return obs, state
-#
-#     @partial(jax.jit, static_argnums=(0,))
-#     def step(
-#         self,
-#         key: jax.Array,
-#         state: environment.EnvState,
-#         action: Union[int, float],
-#         params: Optional[environment.EnvParams] = None,
-#     ) -> Tuple[jax.Array, environment.EnvState, float, bool, dict]:
-#         obs, state, reward, done, info = self._env.step(key, state, action, params)
-#         obs = jnp.reshape(obs, (-1,))
-#         return obs, state, reward, done, info

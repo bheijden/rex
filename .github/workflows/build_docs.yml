@@ -1,3 +1,4 @@
+# This workflow is based on the workflow from https://github.com/patrick-kidger/equinox
 name: Build docs
 
 on:

@@ -558,6 +558,7 @@ class MoCap(BaseNode):
         # Determine output
         if self._outputs is not None:
             recorded_output = tree_dynamic_slice(self._outputs, jnp.array([step_state.eps, step_state.seq]))
+            recorded_output = jax.tree_util.tree_map(lambda _o: _o[0, 0], recorded_output)
             output = recorded_output.replace(ts=ts)
         else:
             # Sample small amount of noise to pos, vel (std=0.05), pos(std=0.005)

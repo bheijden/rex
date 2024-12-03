@@ -43,8 +43,8 @@ def get_buffer_size(buffer: GraphBuffer) -> jnp.int32:
 def update_output(buffer: GraphBuffer, output: Output, seq: int32) -> Output:
     size = get_buffer_size(buffer)
     mod_seq = seq % size
-    # new_buffer = jax.tree_map(lambda _b, _o: rjax.index_update(_b, mod_seq, _o, copy=True), buffer, output)
-    new_buffer = jax.tree_map(lambda _b, _o: jnp.array(_b).at[mod_seq].set(jnp.array(_o)), buffer, output)
+    # new_buffer = jax.tree_util.tree_map(lambda _b, _o: rjax.index_update(_b, mod_seq, _o, copy=True), buffer, output)
+    new_buffer = jax.tree_util.tree_map(lambda _b, _o: jnp.array(_b).at[mod_seq].set(jnp.array(_o)), buffer, output)
     return new_buffer
 
 
@@ -67,7 +67,7 @@ def make_update_state(name: str):
         # Update record
         record = graph_state.aux.get("record", None)
         if record is not None and output_record is not None:
-            new_outputs = jax.tree_map(lambda _b, _o: jnp.array(_b).at[timing.seq].set(jnp.array(_o)),
+            new_outputs = jax.tree_util.tree_map(lambda _b, _o: jnp.array(_b).at[timing.seq].set(jnp.array(_o)),
                                        record.nodes[name].steps.output, output_record)
             new_graph_state = eqx.tree_at(lambda _gs: _gs.aux["record"].nodes[name].steps.output, new_graph_state, new_outputs)
         return new_graph_state
@@ -209,7 +209,7 @@ def make_run_partition_excl_supervisor(
             # Update record
             if record is not None:
                 steps = record.nodes[kind].steps
-                new_steps = jax.tree_map(lambda _b, _o: jnp.array(_b).at[timings_node.seq].set(jnp.array(_o)), steps, new_step_record)
+                new_steps = jax.tree_util.tree_map(lambda _b, _o: jnp.array(_b).at[timings_node.seq].set(jnp.array(_o)), steps, new_step_record)
                 new_records[kind] = record.nodes[kind].replace(steps=new_steps)
 
             # Store new state
@@ -245,10 +245,10 @@ def make_run_partition_excl_supervisor(
         # Determine slice sizes (depends on window size)
         # [1:] because first dimension is step.
         timings_eps = graph_state.timings_eps
-        slice_sizes = jax.tree_map(lambda _tb: list(_tb.shape[1:]), timings_eps)
+        slice_sizes = jax.tree_util.tree_map(lambda _tb: list(_tb.shape[1:]), timings_eps)
 
         # Slice timings
-        timings_mcs = jax.tree_map(
+        timings_mcs = jax.tree_util.tree_map(
             lambda _tb, _size: jax.lax.dynamic_slice(_tb, [step] + [0 * s for s in _size], [1] + _size)[0],
             timings_eps,
             slice_sizes,
@@ -299,7 +299,7 @@ def make_run_partition_excl_supervisor(
             # Therefore, we perform some output abracadabra here.
             # We set output to none to match the static shape of new_step_record.
             # Then, we add the original output back to the record.
-            new_steps = jax.tree_map(lambda _b, _o: jnp.array(_b).at[graph_state.step].set(jnp.array(_o)),
+            new_steps = jax.tree_util.tree_map(lambda _b, _o: jnp.array(_b).at[graph_state.step].set(jnp.array(_o)),
                                      record.nodes[supervisor].steps.replace(output=None), new_step_record)
             new_steps = new_steps.replace(output=record.nodes[supervisor].steps.output)
             graph_state = eqx.tree_at(lambda _gs: _gs.aux["record"].nodes[supervisor].steps, graph_state, new_steps)

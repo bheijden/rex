@@ -344,24 +344,9 @@ class Graph:
 
         node_records = {}
         for name, node in self.nodes.items():
-            # Initialize input record
-            inputs = {}
-            for _, c in node.inputs.items():
-                name_out = c.output_node.name
-                info = c.output_node.info
-                seqs_out = num_seqs[name_out]
-                dummy_arr = onp.ones((seqs_out,), dtype=int) * -1
-                messages = base.MessageRecord(
-                    seq_out=dummy_arr,
-                    seq_in=dummy_arr,
-                    ts_sent=dummy_arr.astype(float),
-                    ts_recv=dummy_arr.astype(float),
-                    delay=dummy_arr.astype(float),
-                )
-                inputs[name_out] = base.InputRecord(info=info, messages=messages)
             # Initialize step record
             rng = graph_state.rng[name] if _record_settings[name]["rng"] else None
-            inputs = inputs if _record_settings[name]["inputs"] else None
+            inputs = graph_state.inputs[name] if _record_settings[name]["inputs"] else None
             state = graph_state.state[name] if _record_settings[name]["state"] else None
             buffer = graph_state.buffer[name] if _record_settings[name]["output"] else None
             output = jax.tree_util.tree_map(lambda x: x[0], buffer) if buffer is not None else None
@@ -379,6 +364,24 @@ class Graph:
                 output=output,
             )
             steps = jax.tree_util.tree_map(lambda x: (jnp.ones((seqs_in,) + x.shape) * -1).astype(jax.dtypes.canonicalize_dtype(x.dtype)), step_record)
+
+            # Initialize input record
+            inputs_record = {}
+            for _, c in node.inputs.items():
+                name_out = c.output_node.name
+                info = c.output_node.info
+                seqs_out = num_seqs[name_out]
+                dummy_arr = onp.ones((seqs_out,), dtype=int) * -1
+                messages = base.MessageRecord(
+                    seq_out=dummy_arr,
+                    seq_in=dummy_arr,
+                    ts_sent=dummy_arr.astype(float),
+                    ts_recv=dummy_arr.astype(float),
+                    delay=dummy_arr.astype(float),
+                )
+                inputs_record[name_out] = base.InputRecord(info=info, messages=messages)
+            _inputs_record = inputs_record if _record_settings[name]["inputs"] else None # todo: Add to node_records
+
             # Initialize node record
             node_records[name] = base.NodeRecord(
                 info=node.info,
@@ -387,7 +390,7 @@ class Graph:
                 ts_start=0.0,
                 params=graph_state.params[name] if _record_settings[name]["params"] else None,
                 steps=steps,
-                inputs=None,  # todo: use inputs instead of None (currently not logged).
+                inputs=None,  # todo: Use inputs_record instead of None (currently not logged in partition_runner.py).
             )
         new_aux = graph_state.aux.copy({"record": base.EpisodeRecord(nodes=node_records)})
         new_gs = graph_state.replace(aux=new_aux)

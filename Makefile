@@ -2,10 +2,6 @@
 #
 #SHELL=/bin/bash
 #LINT_PATHS=${PACKAGE_NAME}/
-#
-#coverage-badge:
-#	# Generate coverage badge
-#	poetry run python ./scripts/generate_coverage_badge.py
 
 #check-codestyle:
 #	# Reformat using black
@@ -31,6 +27,29 @@ build_docs:
 run_tests:
 	# Run tests
 	uv run pytest tests \
+			--cov=rex \
+			--cov-report=html \
+			--cov-report=xml \
+			--cov-report=term \
+			--cov-config=pyproject.toml \
+			-v --color=yes
+
+run_unit_tests:
+	# Run tests
+	uv run pytest tests \
+			--ignore tests/integration \
+			--cov=rex \
+			--cov-report=html \
+			--cov-report=xml \
+			--cov-report=term \
+			--cov-config=pyproject.toml \
+			-v --color=yes
+
+TEST_FILE ?= tests/unit/test_jax_utils.py
+run_test:
+	# Run specific test
+	uv run pytest $(TEST_FILE) \
+			--ignore tests/integration \
 			--cov=rex \
 			--cov-report=html \
 			--cov-report=xml \
