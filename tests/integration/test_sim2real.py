@@ -210,7 +210,7 @@ def test_sim2real():
     for i in tqdm.tqdm(range(num_steps), desc="brax | gather data"):
         # Access the last sensor message of the input buffer
         # -1 is the most recent message, -2 the second most recent, etc. up until the window size
-        sensor_msg = ss.inputs["sensor"][-1].data  # .data grabs the pytree message object
+        sensor_msg = ss.inputs["sensor"][-1].data  # .data grabs the pytree message object # noqa
         action = actions[i]  # Get the action for the current time step
         output = ss.params.to_output(action)  # Convert the action to an output message
         # Step the graph (i.e., executes the next time step by sending the output message to the actuator node)
@@ -221,7 +221,7 @@ def test_sim2real():
     record = graph.get_record()  # Gets the records of all nodes
 
     # Filter out the world node, as it would not be available in a real-world system
-    rollout_real = record.nodes["world"].steps.state
+    rollout_real = record.nodes["world"].steps.state  # noqa
     nodes_real = {name: n for name, n in nodes.items() if name != "world"}
     record = record.filter(nodes_real)
 
@@ -423,7 +423,7 @@ def test_sim2real():
     # Get initial graph state (aggregate of all node states)
     rng, rng_init = jax.random.split(rng)
     gs_init = graph_sim.init(rng_init, order=("agent",))
-    gs_init_sim = gs_init
+    gs_init_sim = gs_init  # noqa
 
     # Define the set of trainable parameters and the initial values
     # We only want to optimize for a subset of the parameters, e.g., the delays and the parameters of the ODE system.
@@ -661,7 +661,7 @@ def test_sim2real():
 
     fig_ppo, axes_ppo = plt.subplots(1, 3, figsize=(12, 3))
     total_steps = res.metrics["train/total_steps"].transpose()
-    mean, std = res.metrics["eval/mean_returns"].transpose(), res.metrics["eval/std_returns"].transpose()
+    mean, _std = res.metrics["eval/mean_returns"].transpose(), res.metrics["eval/std_returns"].transpose()
     axes_ppo[0].plot(total_steps, mean, label="mean")
     axes_ppo[0].set_title("Returns")
     axes_ppo[0].set_xlabel("Total steps")
@@ -671,7 +671,7 @@ def test_sim2real():
     axes_ppo[1].set_title(r"Success ($\cos(\theta) > 0.95$ & $|\dot{\theta}| < 0.5$)")
     axes_ppo[1].set_xlabel("Total steps")
     axes_ppo[1].set_ylabel("Upright [% of steps]")
-    mean, std = res.metrics["train/mean_approxkl"].transpose(), res.metrics["train/std_approxkl"].transpose()
+    mean, _std = res.metrics["train/mean_approxkl"].transpose(), res.metrics["train/std_approxkl"].transpose()
     axes_ppo[2].plot(total_steps, mean, label="mean")
     axes_ppo[2].set_title("Policy KL")
     axes_ppo[2].set_xlabel("Total steps")

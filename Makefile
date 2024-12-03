@@ -22,11 +22,9 @@ lint:
 	# Lint the code
 	uv run ruff check --fix
 
-
 format:
 	# Reformat using black
 	uv run ruff format
-
 
 # Make sure you install the docs requirements first
 # In the project directory (../rex) run `uv run pip3 install -r docs/requirements.txt`

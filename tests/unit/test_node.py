@@ -111,7 +111,6 @@ def test_node_reloading():
     node1 = BaseNode(name="node1", rate=50, color="pink", order=1, delay_dist=Normal(0.01, 0.01))
     node2 = BaseNode(name="node2", rate=50, color="teal", order=3, delay_dist=Normal(0.01, 0.01))
     node2.connect(node1, window=3, name="node1", blocking=True, delay_dist=Normal(0.01, 0.01))
-    nodes = {node1.name: node1, node2.name: node2}
 
     # Get infos
     infos = {node2.name: node2.info, node1.name: node1.info}
@@ -154,7 +153,7 @@ def test_logging_api():
 
 
 def test_base_world():
-    world = BaseWorld(name="world", rate=50, color="grape", order=0)
+    BaseWorld(name="world", rate=50, color="grape", order=0)  # noqa F841
 
 
 def test_base_api():

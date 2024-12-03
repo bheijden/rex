@@ -109,4 +109,4 @@ def test_train(graph: Graph, offset_step: bool, anneal_lr: bool, debug, stochast
     policy = res.policy
     obs = env.get_observation(graph_state=None)  # In this test case, graph_state is not used
     rng = None if not stochastic_action else jax.random.PRNGKey(0)
-    action = policy.get_action(obs, rng=rng)
+    action = policy.get_action(obs, rng=rng)  # noqa: F841

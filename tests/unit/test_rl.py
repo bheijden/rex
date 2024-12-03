@@ -163,4 +163,4 @@ def test_rollout(graph: Graph):
     def get_action(_obs: jax.Array) -> jax.Array:
         return jnp.array([0.5])
 
-    rollout = rl.rollout(env, get_action, num_steps=10)
+    rollout = rl.rollout(env, get_action, num_steps=10)  # noqa: F841

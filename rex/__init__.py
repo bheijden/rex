@@ -16,4 +16,4 @@ import rex.rl as rl
 import rex.utils as utils
 
 
-__version__ = importlib.metadata.version("rex")
+__version__ = importlib.metadata.version("equinox")

@@ -329,8 +329,6 @@ def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
 
     # INIT ENV
     rng, _rng = jax.random.split(rng)
-    reset_rng = jax.random.split(_rng, config.NUM_ENVS)
-    # env_state, obsv, _ = env.reset(reset_rng)
     env_state = gsv
 
     # UPDATE LOOP

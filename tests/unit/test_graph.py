@@ -66,8 +66,7 @@ def exp_record(nodes_mixed) -> ExperimentRecord:
     return exp_record
 
 
-def test_filtering(nodes_mixed: Dict[str, Node], exp_record: ExperimentRecord):
-    nodes = nodes_mixed
+def test_filtering(exp_record: ExperimentRecord):
     # Test graph filtering with a subset of nodes and connections
     fnode1 = Node(name="node1", rate=10, delay_dist=Deterministic(0.01), advance=False)
     fnode2 = Node(name="node2", rate=11, delay_dist=Deterministic(0.01), advance=False)
@@ -144,7 +143,7 @@ def test_graph_plotting():
 def test_subplots(num):
     some_tree = list(range(num))
     major = "row" if num % 2 == 0 else "col"
-    fig, tree_axes = get_subplots(some_tree)
+    fig, tree_axes = get_subplots(some_tree, major=major)  # noqa: F841
 
 
 @pytest.mark.parametrize("batch", ["single", "multiple"])
@@ -176,4 +175,4 @@ def test_augment_graphs(batch, nodes_mixed: Dict[str, Node], exp_record: Experim
     nodes["node2"].connect(nodes["node5"], window=1, delay_dist=TrainableDist.create(0.01, 0.0, 0.01), blocking=False)
 
     # Augment graphs
-    cgraphs_aug = augment_graphs(cgraphs, nodes)
+    augment_graphs(cgraphs, nodes)

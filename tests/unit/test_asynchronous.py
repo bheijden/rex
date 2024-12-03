@@ -85,4 +85,4 @@ def test_run_and_recording_api():
     graph.stop()
 
     # Get records
-    record = graph.get_record()
+    _record = graph.get_record()

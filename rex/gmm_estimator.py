@@ -286,7 +286,7 @@ def component_probs_loglike(log_component_probs, log_concentration, num_componen
 
 
 def joint_loglike(log_component_weights, log_concentration, num_components, component_mus, log_component_scales, data):
-    component_probs = np.exp(log_component_weights)
+    _component_probs = np.exp(log_component_weights)
     probs_ll = component_probs_loglike(log_component_weights, log_concentration, num_components)
 
     mix_ll = mixture_loglike(log_component_weights, component_mus, log_component_scales, data)
