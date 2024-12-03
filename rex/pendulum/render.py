@@ -71,7 +71,7 @@ DISK_PENDULUM_VISUAL_XML = """
         <motor joint="hinge_joint" ctrllimited="false" ctrlrange="-3.0 3.0"  gear="0.01"/>
     </actuator>
 </mujoco>
-"""
+"""  # noqa: E501
 
 
 def save(path, json_rollout):

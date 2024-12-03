@@ -87,9 +87,9 @@ def tree_extend(tree_template, tree, is_leaf=None):
         # Extend to this error message that Static data of tree_template and tree must be equal (i.e. tree.node_data())
         # More info: https://github.com/google/jax/issues/19729
         raise ValueError(
-            f"Hint: ensure that tree_template.node_data() == tree.node_data() when extending a tree. "
-            f"This means all static fields (e.g. marked with pytree_node=False) must be equal. "
-            f"Best is to derive tree from tree_template to ensure they share the static fields. "
+            "Hint: ensure that tree_template.node_data() == tree.node_data() when extending a tree. "
+            "This means all static fields (e.g. marked with pytree_node=False) must be equal. "
+            "Best is to derive tree from tree_template to ensure they share the static fields. "
         ) from e
     tree_extended = jax.tree_util.tree_unflatten(tree_template_treedef, tree_flat)
     return tree_extended

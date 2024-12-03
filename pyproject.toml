@@ -76,7 +76,7 @@ line-length = 127
 indent-width = 4
 
 [tool.ruff.lint]
-fixable = ["I001", "F401"]
+#fixable = ["I001", "F401"]
 ignore = ["E402", "E721", "E731", "E741", "F722"]
 select = ["E", "F", "I001"]
 

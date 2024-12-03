@@ -289,7 +289,7 @@ class AutoResetWrapper(BaseWrapper):
             if len(names) == 0:
                 names = list(gs.rng.keys())
                 print(
-                    f"rl.AutoResetWrapper.step(...) | Warning: No node found in graph state. May not actually be fully randomizing..."
+                    "rl.AutoResetWrapper.step(...) | Warning: No node found in graph state. May not actually be fully randomizing..."
                 )
             name = names[0]  # Grab arbitrary node not in preset params
             new_rng, rng_init = jax.random.split(gs.rng[name])

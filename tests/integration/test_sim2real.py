@@ -403,7 +403,7 @@ def test_sim2real():
         label_loc="center",
     )
     supergraph.plot_graph(G, max_x=0.5, ax=axes[1])
-    fig.suptitle(f"Computation graph (extended with simulator nodes)")
+    fig.suptitle("Computation graph (extended with simulator nodes)")
     axes[-1].set_xlabel("Time [s]")
 
     # @title Define Subset of Trainable Parameters (Delays and ODE Parameters)

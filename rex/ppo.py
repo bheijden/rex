@@ -16,7 +16,6 @@ try:
     import optax
 except ImportError as e:
     raise ImportError(f"Failed to import optax: {e}. Please install it with `pip install optax`.")
-from typing import Any
 
 import distrax
 from flax import struct
@@ -626,14 +625,14 @@ if __name__ == "__main__":
     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
     ax[0].plot(return_values.mean(axis=0))
     ax[0].set_xlabel("Episode")
-    ax[0].set_ylabel(f"Mean Return (train)")
+    ax[0].set_ylabel("Mean Return (train)")
     ax[1].plot(eval_total_steps, eval_return_values)
     ax[1].fill_between(eval_total_steps, eval_return_values - eval_return_std, eval_return_values + eval_return_std, alpha=0.5)
     ax[1].set_xlabel("Timesteps")
-    ax[1].set_ylabel(f"Mean Return (eval)")
+    ax[1].set_ylabel("Mean Return (eval)")
     ax[2].plot(approxkl.mean(axis=0))
     ax[2].set_xlabel("Updates")
-    ax[2].set_ylabel(f"Mean Approx KL")
+    ax[2].set_ylabel("Mean Approx KL")
     fig.suptitle(f"Pendulum-v0, LR={config.LR}, over {num_seeds} seeds")
     plt.show()
     exit()
