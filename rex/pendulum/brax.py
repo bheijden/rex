@@ -39,11 +39,7 @@ class BraxParams(base.Base):
 
     @property
     def substeps(self) -> int:
-        dt_substeps_per_backend = {
-            "generalized": 1 / 100,
-            "spring": 1 / 100,
-            "positional": 1 / 100
-        }[self.backend]
+        dt_substeps_per_backend = {"generalized": 1 / 100, "spring": 1 / 100, "positional": 1 / 100}[self.backend]
         substeps = ceil(self.dt / dt_substeps_per_backend)
         return int(substeps)
 
@@ -55,11 +51,7 @@ class BraxParams(base.Base):
 
     @property
     def pipeline(self) -> Pipelines:
-        return {
-            "generalized": gen_pipeline,
-            "spring": spring_pipeline,
-            "positional": pos_pipeline
-        }[self.backend]
+        return {"generalized": gen_pipeline, "spring": spring_pipeline, "positional": pos_pipeline}[self.backend]
 
     @property
     def sys(self) -> Systems:
@@ -77,7 +69,9 @@ class BraxParams(base.Base):
         new_sys = base_sys.replace(link=link, actuator=actuator, dof=dof, opt=opt)
         return new_sys
 
-    def step(self, substeps: int, dt_substeps: jax.typing.ArrayLike, x: Pipelines, us: jax.typing.ArrayLike) -> Tuple[Pipelines, Pipelines]:
+    def step(
+        self, substeps: int, dt_substeps: jax.typing.ArrayLike, x: Pipelines, us: jax.typing.ArrayLike
+    ) -> Tuple[Pipelines, Pipelines]:
         """Step the pendulum ode."""
         # Appropriately replace timestep for the disk pendulum
         sys = self.sys.replace(opt=self.sys.opt.replace(timestep=dt_substeps))
@@ -101,6 +95,7 @@ class BraxParams(base.Base):
 @struct.dataclass
 class BraxState(base.Base):
     """Pendulum state definition"""
+
     loss_task: Union[float, jax.typing.ArrayLike]
     pipeline_state: Pipelines
 
@@ -116,6 +111,7 @@ class BraxState(base.Base):
 @struct.dataclass
 class BraxOutput(base.Base):
     """World output definition"""
+
     th: Union[float, jax.typing.ArrayLike]
     thdot: Union[float, jax.typing.ArrayLike]
 
@@ -139,7 +135,7 @@ class BraxWorld(BaseWorld):  # We inherit from BaseWorld for convenience, but yo
             offset=0.04161447,
             friction_loss=0.00097525,
             # Backend parameters
-            dt=1/self.rate,
+            dt=1 / self.rate,
             # base_sys=self.sys,
             backend=self.backend,
         )
@@ -151,7 +147,7 @@ class BraxWorld(BaseWorld):  # We inherit from BaseWorld for convenience, but yo
         # Try to grab state from graph_state
         state = graph_state.state.get("agent", None)
         init_th = state.init_th if state is not None else jnp.pi
-        init_thdot = state.init_thdot if state is not None else 0.
+        init_thdot = state.init_thdot if state is not None else 0.0
 
         # Set the initial state of the disk pendulum
         params = graph_state.params.get(self.name, self.init_params(rng, graph_state))
@@ -185,8 +181,7 @@ class BraxWorld(BaseWorld):  # We inherit from BaseWorld for convenience, but yo
 
         # Calculate cost (penalize angle error, angular velocity and input voltage)
         norm_next_th = next_th - 2 * jnp.pi * jnp.floor((next_th + jnp.pi) / (2 * jnp.pi))
-        loss_task = state.loss_task + norm_next_th ** 2 + 0.1 * (
-                    next_thdot / (1 + 10 * abs(norm_next_th))) ** 2 + 0.01 * u ** 2
+        loss_task = state.loss_task + norm_next_th**2 + 0.1 * (next_thdot / (1 + 10 * abs(norm_next_th))) ** 2 + 0.01 * u**2
 
         # Update state
         new_state = new_state.replace(loss_task=loss_task)

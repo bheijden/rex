@@ -13,6 +13,7 @@ class Async(Enum):
         STOPPING: The system is in the process of stopping.
         STOPPED: The system has been stopped.
     """
+
     READY = auto()
     STARTING = auto()
     READY_TO_START = auto()
@@ -52,6 +53,7 @@ class Scheduling(Enum):
         PHASE: Scheduling is based on both frequency and phase relative to the clock.
         FREQUENCY: Scheduling is based strictly on frequency, ignoring phase shifts.
     """
+
     PHASE = auto()
     FREQUENCY = auto()
 
@@ -76,6 +78,7 @@ class Clock(Enum):
         WALL_CLOCK: The actual wall clock for real-time operations.
         COMPILED: A clock compiled into a deterministic schedule.
     """
+
     SIMULATED = auto()
     WALL_CLOCK = auto()
     COMPILED = auto()
@@ -102,8 +105,9 @@ class RealTimeFactor:
         FAST_AS_POSSIBLE: Simulates the system as fast as possible (factor 0).
         REAL_TIME: Runs the simulation at real-time speed (factor 1.0).
     """
+
     FAST_AS_POSSIBLE = 0
-    REAL_TIME = 1.
+    REAL_TIME = 1.0
 
 
 class Jitter(Enum):
@@ -128,6 +132,7 @@ class Jitter(Enum):
         LATEST: Uses the most recent message in the presence of jitter.
         BUFFER: Buffers messages to account for expected delays, smoothing their arrival.
     """
+
     LATEST = auto()
     BUFFER = auto()
 
@@ -164,6 +169,7 @@ class LogLevel:
         ERROR: Log errors in the system.
         FATAL: Log critical errors leading to a system failure.
     """
+
     SILENT = 0
     DEBUG = 10
     INFO = 20
@@ -181,6 +187,7 @@ class Supergraph(Enum):
         GENERATIONAL: Less efficient than MCS but sometimes faster to compile.
         TOPOLOGICAL: Generally less efficient than GENERATIONAL.
     """
+
     MCS = auto()
     GENERATIONAL = auto()
     TOPOLOGICAL = auto()

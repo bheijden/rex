@@ -22,14 +22,14 @@ class LogState:
     state: Dict
     logger: ESLog = struct.field(pytree_node=False)
 
-    def update(self, x: jnp.ndarray, fitness: jnp.ndarray) -> 'LogState':
+    def update(self, x: jnp.ndarray, fitness: jnp.ndarray) -> "LogState":
         new_log_state = self.logger.update(self.state, x, fitness)
         return self.replace(state=new_log_state)
 
     def save(self, filename: str):
         return self.logger.save(self.state, filename)
 
-    def load(self, filename: str) -> 'LogState':
+    def load(self, filename: str) -> "LogState":
         new_state = self.logger.load(filename)
         return self.replace(state=new_state)
 
@@ -48,13 +48,21 @@ class EvoSolver:
     - `strategy` : Instance of the evolutionary strategy (evosax.strategy.Strategy).
     - `strategy_name` : Name of the strategy used.
     """
+
     strategy_params: evx.strategy.EvoParams
     strategy: evx.strategy.Strategy = struct.field(pytree_node=False)
     strategy_name: str = struct.field(pytree_node=False)
 
     @classmethod
-    def init(cls, u_min: Dict[str, Params], u_max: Dict[str, Params], strategy: str, strategy_kwargs: Dict = None, fitness_kwargs: Dict = None):
-        """ Initialize the Evolutionary Solver.
+    def init(
+        cls,
+        u_min: Dict[str, Params],
+        u_max: Dict[str, Params],
+        strategy: str,
+        strategy_kwargs: Dict = None,
+        fitness_kwargs: Dict = None,
+    ):
+        """Initialize the Evolutionary Solver.
 
         :param u_min: (Normalized) Minimum values for the parameters (pytree).
         :param u_max: (Normalized) Maximum values for the parameters (pytree).
@@ -66,8 +74,12 @@ class EvoSolver:
         strategy_name = strategy
         strategy_kwargs = strategy_kwargs or dict()
         fitness_kwargs = fitness_kwargs or dict()
-        assert "num_dim" not in strategy_kwargs, "u_min is used as `pholder_params`, so `num_dim` cannot be provided in strategy_kwargs."
-        assert "pholder_params" not in strategy_kwargs, "u_min is used as `pholder_params`, so `pholder_params` it cannot be provided in strategy_kwargs."
+        assert (
+            "num_dim" not in strategy_kwargs
+        ), "u_min is used as `pholder_params`, so `num_dim` cannot be provided in strategy_kwargs."
+        assert (
+            "pholder_params" not in strategy_kwargs
+        ), "u_min is used as `pholder_params`, so `pholder_params` it cannot be provided in strategy_kwargs."
         strategy_cls = evx.Strategies[strategy]
         strategy = strategy_cls(pholder_params=u_min, **strategy_kwargs, **fitness_kwargs)
         strategy_params = strategy.default_params
@@ -77,7 +89,7 @@ class EvoSolver:
         return cls(strategy_params=strategy_params, strategy=strategy, strategy_name=strategy_name)
 
     def init_state(self, mean: Dict[str, Params], rng: jax.Array = None) -> EvoState:
-        """ Initialize the state of the Evolutionary Solver.
+        """Initialize the state of the Evolutionary Solver.
 
         :param mean: (Normalized) Mean values for the parameters (pytree).
         :param rng: Random number generator.
@@ -89,20 +101,24 @@ class EvoSolver:
         return state
 
     def init_logger(self, num_generations: int, top_k: int = 5, maximize: bool = False) -> LogState:
-        """ Initialize the logger for the Evolutionary Solver.
+        """Initialize the logger for the Evolutionary Solver.
 
         :param num_generations: Number of generations to log.
         :param top_k: Number of top individuals to log.
         :param maximize: Whether the strategy is maximizing or minimizing.
         :return:
         """
-        logger = evx.ESLog(pholder_params=self.strategy.param_reshaper.placeholder_params,
-                           num_generations=num_generations, top_k=top_k, maximize=maximize)
+        logger = evx.ESLog(
+            pholder_params=self.strategy.param_reshaper.placeholder_params,
+            num_generations=num_generations,
+            top_k=top_k,
+            maximize=maximize,
+        )
         log_state = logger.initialize()
         return LogState(state=log_state, logger=logger)
 
     def flatten(self, tree: Any):
-        """ Flatten the tree of parameters.
+        """Flatten the tree of parameters.
 
         :param tree: Tree of parameters.
         :return: Flattened parameters.
@@ -110,7 +126,7 @@ class EvoSolver:
         return self.strategy.param_reshaper.flatten_single(tree)
 
     def unflatten(self, x: jax.typing.ArrayLike):
-        """ Unflatten the parameters.
+        """Unflatten the parameters.
 
         :param x: Flattened parameters.
         :return: Tree of parameters.
@@ -118,8 +134,16 @@ class EvoSolver:
         return self.strategy.param_reshaper.reshape_single(x)
 
 
-def evo(loss: Loss, solver: EvoSolver, init_state: evx.strategy.EvoState, transform: Transform,
-        max_steps: int = 100, rng: jax.Array = None, verbose: bool = True, logger: LogState = None):
+def evo(
+    loss: Loss,
+    solver: EvoSolver,
+    init_state: evx.strategy.EvoState,
+    transform: Transform,
+    max_steps: int = 100,
+    rng: jax.Array = None,
+    verbose: bool = True,
+    logger: LogState = None,
+):
     """Run the Evolutionary Solver (can be jit-compiled).
 
     **Arguments**
@@ -157,20 +181,32 @@ def evo(loss: Loss, solver: EvoSolver, init_state: evx.strategy.EvoState, transf
             total_samples = (i + 1) * solver.strategy.popsize
             jax.debug.print(
                 "step: {step} | min_loss: {min_loss} | mean_loss: {mean_loss} | max_loss: {max_loss} | bestsofar_loss: {bestsofar_loss} | total_samples: {total_samples}",
-                step=i, min_loss=min_loss, mean_loss=mean_loss, max_loss=max_loss, bestsofar_loss=new_evo_state.best_fitness,
-                total_samples=total_samples)
+                step=i,
+                min_loss=min_loss,
+                mean_loss=mean_loss,
+                max_loss=max_loss,
+                bestsofar_loss=new_evo_state.best_fitness,
+                total_samples=total_samples,
+            )
         return new_state, losses
 
     final_state, losses = jax.lax.scan(_evo_step, (init_state, logger), (jnp.arange(max_steps), rngs))
     return *final_state, losses
 
 
-def evo_step(loss: Loss, solver: EvoSolver, state: evx.strategy.EvoState, transform: Transform, rng: jax.Array = None, logger: LogState = None):
+def evo_step(
+    loss: Loss,
+    solver: EvoSolver,
+    state: evx.strategy.EvoState,
+    transform: Transform,
+    rng: jax.Array = None,
+    logger: LogState = None,
+):
     if rng is None:
         rng = rnd.PRNGKey(0)
 
     # Split the rng
-    rngs = jax.random.split(rng, num=1+solver.strategy.popsize)
+    rngs = jax.random.split(rng, num=1 + solver.strategy.popsize)
 
     # Generate the population
     x, state = solver.strategy.ask(rngs[0], state, solver.strategy_params)

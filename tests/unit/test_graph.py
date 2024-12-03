@@ -173,9 +173,7 @@ def test_augment_graphs(batch, nodes_mixed: Dict[str, Node], exp_record: Experim
     # Add a node
     nodes["node5"] = Node(name="node5", rate=14, delay_dist=Deterministic(0.01), advance=False)
     nodes["node1"].connect(nodes["node5"], window=1, delay_dist=Deterministic(0.01), blocking=False)
-    nodes["node2"].connect(nodes["node5"], window=1, delay_dist=TrainableDist.create(0.01, 0., 0.01), blocking=False)
+    nodes["node2"].connect(nodes["node5"], window=1, delay_dist=TrainableDist.create(0.01, 0.0, 0.01), blocking=False)
 
     # Augment graphs
     cgraphs_aug = augment_graphs(cgraphs, nodes)
-
-

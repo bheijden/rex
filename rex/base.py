@@ -26,6 +26,7 @@ class Base:
 
     *Note*: Credits to the authors of the brax library for this implementation.
     """
+
     def __repr__(self):  # todo: this is not inherited by subclasses...
         return eqx.tree_pformat(self, short_arrays=False)
 
@@ -84,25 +85,22 @@ class Base:
         return jax.tree_util.tree_map(lambda x: x[beg:end], self)
 
     def take(self, i, axis=0) -> Any:
-        return jax.tree_util.tree_map(lambda x: jnp.take(x, i, axis=axis, mode='wrap'), self)
+        return jax.tree_util.tree_map(lambda x: jnp.take(x, i, axis=axis, mode="wrap"), self)
 
     def concatenate(self, *others: Any, axis: int = 0) -> Any:
         return jax.tree_util.tree_map(lambda *x: jnp.concatenate(x, axis=axis), self, *others)
 
-    def index_set(
-            self, idx: Union[jax.Array, Sequence[jax.Array]], o: Any
-    ) -> Any:
+    def index_set(self, idx: Union[jax.Array, Sequence[jax.Array]], o: Any) -> Any:
         return jax.tree_util.tree_map(lambda x, y: x.at[idx].set(y), self, o)
 
-    def index_sum(
-            self, idx: Union[jax.Array, Sequence[jax.Array]], o: Any
-    ) -> Any:
+    def index_sum(self, idx: Union[jax.Array, Sequence[jax.Array]], o: Any) -> Any:
         return jax.tree_util.tree_map(lambda x, y: x.at[idx].add(y), self, o)
 
 
 @struct.dataclass
 class Empty(Base):
     """Empty class."""
+
     pass
 
 
@@ -230,7 +228,7 @@ class Graph:
                         connections.add((n1, n2))
             else:  # Only filters vertices, meaning vertices may have more edges than connections in nodes.
                 if n2 in self.vertices:
-                    for (n1, _) in filter(lambda x: x[1] == n2, self.edges):
+                    for n1, _ in filter(lambda x: x[1] == n2, self.edges):
                         if n1 in nodes:
                             connections.add((n1, n2))
 
@@ -242,7 +240,7 @@ class Graph:
         for k in v_names:
             if k not in nodes:
                 vertices.pop(k)
-        for (n1, n2) in e_names:
+        for n1, n2 in e_names:
             if (n1, n2) not in connections:
                 edges.pop((n1, n2))
         return Graph(vertices=vertices, edges=edges)
@@ -497,7 +495,6 @@ class Timings:
 
 @struct.dataclass
 class DelayDistribution:
-
     def reset(self, rng: jax.Array) -> "DelayDistribution":
         raise NotImplementedError("DelayDistribution.reset is not implemented.")
 
@@ -606,7 +603,13 @@ class TrainableDist(DelayDistribution):
         return self
 
     @classmethod
-    def create(cls, delay: Union[float, jax.typing.ArrayLike], min: Union[float, jax.typing.ArrayLike], max: Union[float, jax.typing.ArrayLike], interp: str = "zoh") -> "TrainableDist":
+    def create(
+        cls,
+        delay: Union[float, jax.typing.ArrayLike],
+        min: Union[float, jax.typing.ArrayLike],
+        max: Union[float, jax.typing.ArrayLike],
+        interp: str = "zoh",
+    ) -> "TrainableDist":
         min = float(min)
         max = float(max)
         assert min < max, f"min should be less than max, but got min={min} and max={max}."
@@ -673,8 +676,10 @@ class TrainableDist(DelayDistribution):
             tb = [input.seq, input.ts_sent, ts_recv, input.data]
             slice_sizes = jax.tree_util.tree_map(lambda _tb: list(_tb.shape[1:]), tb)
             tb_delayed = jax.tree_util.tree_map(
-                lambda _tb, _size: jax.lax.dynamic_slice(_tb, [idx_min] + [0 * s for s in _size], [window] + _size), tb,
-                slice_sizes)
+                lambda _tb, _size: jax.lax.dynamic_slice(_tb, [idx_min] + [0 * s for s in _size], [window] + _size),
+                tb,
+                slice_sizes,
+            )
             delayed_input_state = InputState(*tb_delayed, delay_dist=new_delay_dist)
         elif self.interp in ["linear", "linear_real_only"]:
             idx_min = idx_max - window
@@ -695,10 +700,19 @@ class TrainableDist(DelayDistribution):
                     _fp_shape = _fp.shape
                     _fp_batch = _fp.reshape(_fp_shape[0], -1)  # Flatten all but the first dimension
                     _f_shape = (window,) + _fp_shape[1:]  # This is the shape of the output
-                    res = jax.vmap(jnp.interp, in_axes=(None, None, 1,))(ts_recv_interp, ts_recv_mask, _fp_batch).reshape(_f_shape)
+                    res = jax.vmap(
+                        jnp.interp,
+                        in_axes=(
+                            None,
+                            None,
+                            1,
+                        ),
+                    )(ts_recv_interp, ts_recv_mask, _fp_batch).reshape(_f_shape)
                 else:
                     res = jnp.interp(ts_recv_interp, ts_recv_mask, _fp)
-                return res.astype(jax.dtypes.canonicalize_dtype(_fp.dtype))  # Ensure that the dtype is the same as the original dtype
+                return res.astype(
+                    jax.dtypes.canonicalize_dtype(_fp.dtype)
+                )  # Ensure that the dtype is the same as the original dtype
 
             # Now, ts_start == ts_recv_interp[-1] should hold.
             interp_tb = jax.tree_util.tree_map(interp_maybe_batched, tb)
@@ -711,7 +725,11 @@ class TrainableDist(DelayDistribution):
         return jnp.clip(self._get_alpha(delay, self.min, self.max), 0.0, 1.0)
 
     @staticmethod
-    def _get_alpha(delay: Union[float, jax.typing.ArrayLike], min: Union[float, jax.typing.ArrayLike], max: Union[float, jax.typing.ArrayLike]) -> Union[float, jax.typing.ArrayLike]:
+    def _get_alpha(
+        delay: Union[float, jax.typing.ArrayLike],
+        min: Union[float, jax.typing.ArrayLike],
+        max: Union[float, jax.typing.ArrayLike],
+    ) -> Union[float, jax.typing.ArrayLike]:
         return (delay - min) / (max - min)
 
 
@@ -737,7 +755,13 @@ class InputState:
 
     @classmethod
     def from_outputs(
-        cls, seq: ArrayLike, ts_sent: ArrayLike, ts_recv: ArrayLike, outputs: Any, delay_dist: DelayDistribution, is_data: bool = False
+        cls,
+        seq: ArrayLike,
+        ts_sent: ArrayLike,
+        ts_recv: ArrayLike,
+        outputs: Any,
+        delay_dist: DelayDistribution,
+        is_data: bool = False,
     ) -> "InputState":
         """Create an InputState from a list of messages, timestamps, and sequence numbers.
 
@@ -883,6 +907,7 @@ class GraphState:
                    automatically filled with the outputs of previously executed step calls of other nodes.
     :param aux: Auxiliary data that can be used to store additional information (e.g. records, wrappers etc.).
     """
+
     # The number of partitions (excl. supervisor) have run in the current episode.
     step: Union[int, ArrayLike] = struct.field(pytree_node=True, default_factory=lambda: onp.int32(0))
     eps: Union[int, ArrayLike] = struct.field(pytree_node=True, default_factory=lambda: onp.int32(0))
@@ -892,7 +917,9 @@ class GraphState:
     ts: FrozenDict[str, Union[float, ArrayLike]] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
     params: FrozenDict[str, Params] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
     state: FrozenDict[str, State] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
-    inputs: FrozenDict[str, FrozenDict[str, InputState]] = struct.field(pytree_node=True, default_factory=lambda: FrozenDict({}))
+    inputs: FrozenDict[str, FrozenDict[str, InputState]] = struct.field(
+        pytree_node=True, default_factory=lambda: FrozenDict({})
+    )
     # The timings for a single episode (i.e. GraphState.timings[eps]).
     timings_eps: Timings = struct.field(pytree_node=True, default_factory=lambda: None)
     # A ring buffer that holds the outputs for every node's output channel.
@@ -1084,7 +1111,8 @@ class EpisodeRecord:
             if v2.inputs is None:
                 raise NotImplementedError(
                     "'inputs' not available. Records logged in Clock.COMPILED mode do not log inputs, "
-                    "so the graph cannot be reconstructed.")
+                    "so the graph cannot be reconstructed."
+                )
             if filter_connections:  # Also filter connections that only exist between nodes in `nodes`
                 for n1, i in v2.inputs.items():
                     if n1 in nodes:
@@ -1105,13 +1133,16 @@ class EpisodeRecord:
         return EpisodeRecord(nodes=new_nodes)
 
     def to_graph(self) -> Graph:
-        vertices = {n: Vertex(seq=v.steps.seq, ts_start=v.steps.ts_start, ts_end=v.steps.ts_end) for n, v in self.nodes.items()}
+        vertices = {
+            n: Vertex(seq=v.steps.seq, ts_start=v.steps.ts_start, ts_end=v.steps.ts_end) for n, v in self.nodes.items()
+        }
         edges = dict()
         for n2, v2 in self.nodes.items():
             if v2.inputs is None:
                 raise NotImplementedError(
                     "'inputs' not available. Records logged in Clock.COMPILED mode do not log inputs, "
-                    "so the graph cannot be reconstructed.")
+                    "so the graph cannot be reconstructed."
+                )
             for n1, i in v2.inputs.items():
                 seq_in = i.messages.seq_in
                 seq_out = i.messages.seq_out
@@ -1144,7 +1175,6 @@ class ExperimentRecord:
             raise NotImplementedError(f"Method {method} not implemented.")
 
     def _padded_stack(self, fill_value) -> EpisodeRecord:
-
         def _pad(*x):
             try:
                 res = onp.array(x)
@@ -1152,7 +1182,9 @@ class ExperimentRecord:
                 _max_len = max(len(arr) for arr in x)
                 zero_pad_widths = [(0, 0)] * (x[0].ndim - 1)
                 # Pad with -1
-                _padded = list(onp.pad(arr, [(0, _max_len - len(arr))] + zero_pad_widths, constant_values=fill_value) for arr in x)
+                _padded = list(
+                    onp.pad(arr, [(0, _max_len - len(arr))] + zero_pad_widths, constant_values=fill_value) for arr in x
+                )
                 res = onp.array(_padded)
             return res
 
@@ -1231,8 +1263,9 @@ class Extend(Transform):
 
     def extend(self, params: Params) -> Params:
         params_extended_pytree = rjax.tree_extend(self.base_params, params)
-        params_extended = jax.tree_util.tree_map(lambda base_x, ex_x: base_x if ex_x is None else ex_x,
-                                                 self.base_params, params_extended_pytree)
+        params_extended = jax.tree_util.tree_map(
+            lambda base_x, ex_x: base_x if ex_x is None else ex_x, self.base_params, params_extended_pytree
+        )
         return params_extended
 
     def filter(self, params_extended: Params) -> Params:
@@ -1253,30 +1286,35 @@ class Extend(Transform):
 @struct.dataclass
 class Denormalize(Transform):
     """Denormalize the parameters from [-1, 1] to the original scale."""
+
     scale: Params
     offset: Params
 
     @classmethod
     def init(cls, min_params: Params, max_params: Params):
-        offset = jax.tree_util.tree_map(lambda _min, _max: (_min + _max) / 2., min_params, max_params)
+        offset = jax.tree_util.tree_map(lambda _min, _max: (_min + _max) / 2.0, min_params, max_params)
         scale = jax.tree_util.tree_map(lambda _min, _max: (_max - _min) / 2, min_params, max_params)
-        zero_filter = jax.tree_util.tree_map(lambda _scale: _scale == 0., scale)
+        zero_filter = jax.tree_util.tree_map(lambda _scale: _scale == 0.0, scale)
         try:
             if onp.array(jax.tree_util.tree_reduce(jnp.logical_or, zero_filter)).all():
-                raise ValueError("The scale cannot be zero. Hint: Check if there are leafs with 'True' in the following zero_filter: "
-                                 f"{zero_filter}")
+                raise ValueError(
+                    "The scale cannot be zero. Hint: Check if there are leafs with 'True' in the following zero_filter: "
+                    f"{zero_filter}"
+                )
         except jax.errors.TracerArrayConversionError:
             pass
         return cls(scale=scale, offset=offset)
 
     def normalize(self, params: Params) -> Params:
-        params_norm = jax.tree_util.tree_map(lambda _params, _offset, _scale: (_params - _offset) / _scale, params,
-                                             self.offset, self.scale)
+        params_norm = jax.tree_util.tree_map(
+            lambda _params, _offset, _scale: (_params - _offset) / _scale, params, self.offset, self.scale
+        )
         return params_norm
 
     def denormalize(self, params: Params) -> Params:
-        params_unnorm = jax.tree_util.tree_map(lambda _params, _offset, _scale: _params * _scale + _offset, params,
-                                               self.offset, self.scale)
+        params_unnorm = jax.tree_util.tree_map(
+            lambda _params, _offset, _scale: _params * _scale + _offset, params, self.offset, self.scale
+        )
         return params_unnorm
 
     def apply(self, params: Params) -> Params:
@@ -1306,8 +1344,12 @@ class Shared(Transform):
     inverse_fn: Callable[[Any], Union[Any, Sequence[Any]]] = struct.field(pytree_node=False)
 
     @classmethod
-    def init(cls, where: Callable[[Any], Union[Any, Sequence[Any]]], replace_fn: Callable[[Any], Union[Any, Sequence[Any]]],
-             inverse_fn: Callable[[Any], Union[Any, Sequence[Any]]] = lambda _tree: None) -> 'Shared':
+    def init(
+        cls,
+        where: Callable[[Any], Union[Any, Sequence[Any]]],
+        replace_fn: Callable[[Any], Union[Any, Sequence[Any]]],
+        inverse_fn: Callable[[Any], Union[Any, Sequence[Any]]] = lambda _tree: None,
+    ) -> "Shared":
         return cls(where=where, replace_fn=replace_fn, inverse_fn=inverse_fn)
 
     def apply(self, params: Params) -> Params:

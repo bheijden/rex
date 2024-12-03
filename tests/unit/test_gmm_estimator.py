@@ -10,7 +10,7 @@ def test_estimator(is_deterministic):
     if is_deterministic:
         data = onp.ones(20)
     else:  # Else, create random non-negative data
-        data = onp.clip(onp.random.randn(20)+2, 0, None)
+        data = onp.clip(onp.random.randn(20) + 2, 0, None)
 
     # Create estimator
     estimator = gmm_estimator.GMMEstimator(data)
@@ -33,4 +33,4 @@ def test_estimator(is_deterministic):
 
         # Save animation to a temporary file
         with tempfile.NamedTemporaryFile(suffix=".gif", delete=True) as temp_file:
-            ani.save(temp_file.name, writer='pillow', fps=30)
+            ani.save(temp_file.name, writer="pillow", fps=30)

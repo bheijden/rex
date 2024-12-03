@@ -83,7 +83,11 @@ def save(path, json_rollout):
     path.write_text(json_rollout)
 
 
-def render(rollout: Union[BraxState, OdeState], dt: Union[float, jax.typing.ArrayLike] = 0.02, xml_string: str = DISK_PENDULUM_VISUAL_XML):
+def render(
+    rollout: Union[BraxState, OdeState],
+    dt: Union[float, jax.typing.ArrayLike] = 0.02,
+    xml_string: str = DISK_PENDULUM_VISUAL_XML,
+):
     """Render the rollout as an HTML file.
 
     :param rollout: Rollout to render

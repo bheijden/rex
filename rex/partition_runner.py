@@ -49,7 +49,9 @@ def update_output(buffer: GraphBuffer, output: Output, seq: int32) -> Output:
 
 
 def make_update_state(name: str):
-    def _update_state(graph_state: GraphState, timing: SlotVertex, step_state: StepState, output: Any, output_record: Any) -> GraphState:
+    def _update_state(
+        graph_state: GraphState, timing: SlotVertex, step_state: StepState, output: Any, output_record: Any
+    ) -> GraphState:
         # Define node's step state update
         new_step_states = dict()
         new_outputs = dict()
@@ -67,8 +69,9 @@ def make_update_state(name: str):
         # Update record
         record = graph_state.aux.get("record", None)
         if record is not None and output_record is not None:
-            new_outputs = jax.tree_util.tree_map(lambda _b, _o: jnp.array(_b).at[timing.seq].set(jnp.array(_o)),
-                                       record.nodes[name].steps.output, output_record)
+            new_outputs = jax.tree_util.tree_map(
+                lambda _b, _o: jnp.array(_b).at[timing.seq].set(jnp.array(_o)), record.nodes[name].steps.output, output_record
+            )
             new_graph_state = eqx.tree_at(lambda _gs: _gs.aux["record"].nodes[name].steps.output, new_graph_state, new_outputs)
         return new_graph_state
 
@@ -88,12 +91,18 @@ def make_update_inputs(node: "BaseNode"):
             size = get_buffer_size(buffer)
             mod_seq = t.seq % size
             inputs = rjax.tree_take(buffer, mod_seq)
-            prev_delay_dist = ss.inputs[input_name].delay_dist  # This is important, as it substitutes the delay_dist with the previous one.
-            _inputs_undelayed = InputState.from_outputs(t.seq, t.ts_sent, t.ts_recv, inputs, delay_dist=prev_delay_dist, is_data=True)
+            prev_delay_dist = ss.inputs[
+                input_name
+            ].delay_dist  # This is important, as it substitutes the delay_dist with the previous one.
+            _inputs_undelayed = InputState.from_outputs(
+                t.seq, t.ts_sent, t.ts_recv, inputs, delay_dist=prev_delay_dist, is_data=True
+            )
             if not c.delay_dist.equivalent(_inputs_undelayed.delay_dist):
-                raise ValueError(f"Delay distributions are not equivalent for input `{input_name}` of node `{node.name}`: "
-                                 f"{c.delay_dist} != {_inputs_undelayed.delay_dist}. \n"
-                                 f"Compare the delay distributions provided to .connect(dela_dist=...) with graph_state.inputs[{node.name}][{c.output_node.name}].delay_dist.")
+                raise ValueError(
+                    f"Delay distributions are not equivalent for input `{input_name}` of node `{node.name}`: "
+                    f"{c.delay_dist} != {_inputs_undelayed.delay_dist}. \n"
+                    f"Compare the delay distributions provided to .connect(dela_dist=...) with graph_state.inputs[{node.name}][{c.output_node.name}].delay_dist."
+                )
             _inputs = _inputs_undelayed.delay_dist.apply_delay(c.output_node.rate, _inputs_undelayed, ts_start)
             new_inputs[input_name] = _inputs
         return ss.replace(eps=eps, seq=seq, ts=ts_start, inputs=FrozenDict(new_inputs))
@@ -202,14 +211,16 @@ def make_run_partition_excl_supervisor(
             try:
                 new_ss, output, new_step_record = jax.lax.cond(pred, node_step_fns[kind], no_op, graph_state, timings_node)
             except TypeError as e:
-                print(f"TypeError: kind={kind}:",  e)
+                print(f"TypeError: kind={kind}:", e)
                 new_ss, output, new_step_record = node_step_fns[kind](graph_state, timings_node)
                 raise e
 
             # Update record
             if record is not None:
                 steps = record.nodes[kind].steps
-                new_steps = jax.tree_util.tree_map(lambda _b, _o: jnp.array(_b).at[timings_node.seq].set(jnp.array(_o)), steps, new_step_record)
+                new_steps = jax.tree_util.tree_map(
+                    lambda _b, _o: jnp.array(_b).at[timings_node.seq].set(jnp.array(_o)), steps, new_step_record
+                )
                 new_records[kind] = record.nodes[kind].replace(steps=new_steps)
 
             # Store new state
@@ -299,8 +310,11 @@ def make_run_partition_excl_supervisor(
             # Therefore, we perform some output abracadabra here.
             # We set output to none to match the static shape of new_step_record.
             # Then, we add the original output back to the record.
-            new_steps = jax.tree_util.tree_map(lambda _b, _o: jnp.array(_b).at[graph_state.step].set(jnp.array(_o)),
-                                     record.nodes[supervisor].steps.replace(output=None), new_step_record)
+            new_steps = jax.tree_util.tree_map(
+                lambda _b, _o: jnp.array(_b).at[graph_state.step].set(jnp.array(_o)),
+                record.nodes[supervisor].steps.replace(output=None),
+                new_step_record,
+            )
             new_steps = new_steps.replace(output=record.nodes[supervisor].steps.output)
             graph_state = eqx.tree_at(lambda _gs: _gs.aux["record"].nodes[supervisor].steps, graph_state, new_steps)
 

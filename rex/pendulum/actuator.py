@@ -13,12 +13,14 @@ from rex.node import BaseNode
 @struct.dataclass
 class ActuatorOutput(base.Base):
     """Pendulum actuator output"""
+
     action: jax.typing.ArrayLike  # Torque to apply to the pendulum
 
 
 @struct.dataclass
 class ActuatorParams(base.Base):
     """Pendulum actuator param definition"""
+
     actuator_delay: Union[float, jax.typing.ArrayLike]
 
 

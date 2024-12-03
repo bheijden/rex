@@ -19,7 +19,7 @@ def nodes() -> Dict[str, Node]:
 
     # Connect nodes
     node1.connect(node2, window=1, blocking=False, delay_dist=Deterministic(0.01))
-    node2.connect(node3, window=2, blocking=False, delay_dist=TrainableDist.create(0.005, 0., 0.01))
+    node2.connect(node3, window=2, blocking=False, delay_dist=TrainableDist.create(0.005, 0.0, 0.01))
     node3.connect(node4, window=3, blocking=False, delay_dist=Deterministic(0.01))
     node4.connect(node1, window=4, blocking=False, skip=True, delay_dist=Deterministic(0.01))
     return nodes

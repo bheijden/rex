@@ -321,7 +321,7 @@ from rex import base, utils
 
 class GMMEstimator:
     def __init__(self, data, name="GMM", threshold=1e-7, verbose: bool = True):
-        """ Gaussian Mixture Model Estimator.
+        """Gaussian Mixture Model Estimator.
 
         :param data: 1D array of delay data.
         :param name: Name of the model.
@@ -426,7 +426,7 @@ class GMMEstimator:
         num_points: int = 1000,
         plot_dist: bool = True,
     ):
-        """ Plot the histogram of the data and the fitted distribution.
+        """Plot the histogram of the data and the fitted distribution.
 
         :param ax: Axes to plot on.
         :param edgecolor: Edge color of the histogram.
@@ -507,7 +507,7 @@ class GMMEstimator:
         xmax: float = None,
         num_points: int = 1000,
     ) -> matplotlib.animation.FuncAnimation:
-        """ Animate the training process.
+        """Animate the training process.
 
         :param num_frames: Number of frames to animate.
         :param fig: Figure to plot on.
@@ -545,7 +545,7 @@ class GMMEstimator:
         return anim
 
     def get_dist(self, percentile: float = 0.99) -> base.StaticDist:
-        """ Get the distribution.
+        """Get the distribution.
 
         :param percentile: A percentile to prune the number of components that do not contribute much.
         :return:

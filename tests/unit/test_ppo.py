@@ -10,12 +10,15 @@ from rex.actor_critic import Actor, Critic, ActorCritic
 from tests.unit.test_utils import Env
 
 
-@pytest.mark.parametrize("state_independent_std,hidden_activation,output_activation", [
-    (state_independent_std, hidden_activation, output_activation)
-    for state_independent_std in [True, False]
-    for hidden_activation in ["relu", "tanh", "gelu", "softplus"]
-    for output_activation in ["identity", "tanh", "gaussian"]
-])
+@pytest.mark.parametrize(
+    "state_independent_std,hidden_activation,output_activation",
+    [
+        (state_independent_std, hidden_activation, output_activation)
+        for state_independent_std in [True, False]
+        for hidden_activation in ["relu", "tanh", "gelu", "softplus"]
+        for output_activation in ["identity", "tanh", "gaussian"]
+    ],
+)
 def test_actor_critic(state_independent_std: bool, hidden_activation: str, output_activation: str):
     actor = Actor(
         num_output_units=2,
@@ -46,11 +49,14 @@ def test_actor_critic(state_independent_std: bool, hidden_activation: str, outpu
     _, _ = ac.apply(ac_params, obs)
 
 
-@pytest.mark.parametrize("offset_step,anneal_lr, debug, stochastic_action", [
-    [True, False, False, False],
-    [False, True, False, False],
-    [False, False, True, True],
-])
+@pytest.mark.parametrize(
+    "offset_step,anneal_lr, debug, stochastic_action",
+    [
+        [True, False, False, False],
+        [False, True, False, False],
+        [False, False, True, True],
+    ],
+)
 def test_train(graph: Graph, offset_step: bool, anneal_lr: bool, debug, stochastic_action: bool):
     # Create env
     env = Env(graph)
@@ -104,6 +110,3 @@ def test_train(graph: Graph, offset_step: bool, anneal_lr: bool, debug, stochast
     obs = env.get_observation(graph_state=None)  # In this test case, graph_state is not used
     rng = None if not stochastic_action else jax.random.PRNGKey(0)
     action = policy.get_action(obs, rng=rng)
-
-
-

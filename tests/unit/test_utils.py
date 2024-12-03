@@ -12,18 +12,21 @@ import rex.rl as rl
 @struct.dataclass
 class Params(Base):
     """Arbitrary dataclass."""
+
     a: jax.Array
 
 
 @struct.dataclass
 class State(Base):
     """Arbitrary dataclass."""
+
     a: jax.Array
 
 
 @struct.dataclass
 class Output(Base):
     """Arbitrary dataclass."""
+
     a: jax.Array
 
 

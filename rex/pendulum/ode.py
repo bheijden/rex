@@ -12,6 +12,7 @@ from rex.node import BaseWorld
 @struct.dataclass
 class OdeParams(base.Base):
     """Pendulum ode param definition"""
+
     max_speed: Union[float, jax.typing.ArrayLike]
     J: Union[float, jax.typing.ArrayLike]
     mass: Union[float, jax.typing.ArrayLike]
@@ -34,7 +35,9 @@ class OdeParams(base.Base):
         dt_substeps = self.dt / substeps
         return dt_substeps
 
-    def step(self, substeps: int, dt_substeps: jax.typing.ArrayLike, x: "OdeState", us: jax.typing.ArrayLike) -> Tuple["OdeState", "OdeState"]:
+    def step(
+        self, substeps: int, dt_substeps: jax.typing.ArrayLike, x: "OdeState", us: jax.typing.ArrayLike
+    ) -> Tuple["OdeState", "OdeState"]:
         """Step the pendulum ode."""
 
         def _scan_fn(_x, _u):
@@ -67,6 +70,7 @@ class OdeParams(base.Base):
 @struct.dataclass
 class OdeState(base.Base):
     """Pendulum state definition"""
+
     loss_task: Union[float, jax.typing.ArrayLike]
     th: Union[float, jax.typing.ArrayLike]
     thdot: Union[float, jax.typing.ArrayLike]
@@ -75,6 +79,7 @@ class OdeState(base.Base):
 @struct.dataclass
 class OdeOutput(base.Base):
     """World output definition"""
+
     th: Union[float, jax.typing.ArrayLike]
     thdot: Union[float, jax.typing.ArrayLike]
 
@@ -103,7 +108,7 @@ class OdeWorld(BaseWorld):  # We inherit from BaseWorld for convenience, but you
         # Try to grab state from graph_state
         state = graph_state.state.get("agent", None)
         init_th = state.init_th if state is not None else jnp.pi
-        init_thdot = state.init_thdot if state is not None else 0.
+        init_thdot = state.init_thdot if state is not None else 0.0
         return OdeState(th=init_th, thdot=init_thdot, loss_task=0.0)
 
     def init_output(self, rng: jax.Array = None, graph_state: GraphState = None) -> OdeOutput:
@@ -113,7 +118,9 @@ class OdeWorld(BaseWorld):  # We inherit from BaseWorld for convenience, but you
         world_state = graph_state.state.get(self.name, self.init_state(rng, graph_state))
         return OdeOutput(th=world_state.th, thdot=world_state.thdot)
 
-    def init_delays(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> Dict[str, Union[float, jax.typing.ArrayLike]]:
+    def init_delays(
+        self, rng: jax.Array = None, graph_state: base.GraphState = None
+    ) -> Dict[str, Union[float, jax.typing.ArrayLike]]:
         graph_state = graph_state or GraphState()
         params = graph_state.params.get("actuator")
         delays = {}
@@ -135,8 +142,7 @@ class OdeWorld(BaseWorld):  # We inherit from BaseWorld for convenience, but you
 
         # Calculate cost (penalize angle error, angular velocity and input voltage)
         norm_next_th = next_th - 2 * jnp.pi * jnp.floor((next_th + jnp.pi) / (2 * jnp.pi))
-        loss_task = state.loss_task + norm_next_th ** 2 + 0.1 * (
-                    next_thdot / (1 + 10 * abs(norm_next_th))) ** 2 + 0.01 * u ** 2
+        loss_task = state.loss_task + norm_next_th**2 + 0.1 * (next_thdot / (1 + 10 * abs(norm_next_th))) ** 2 + 0.01 * u**2
 
         # Update state
         new_state = new_state.replace(loss_task=loss_task)

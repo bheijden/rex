@@ -65,7 +65,9 @@ def test_run_and_recording_api():
     node4.connect(node1, window=3, name="node1", delay_dist=Deterministic(0.01), blocking=True, skip=True)
 
     # Create graph
-    graph = AsyncGraph(nodes=nodes, supervisor=node1, clock=const.Clock.SIMULATED, real_time_factor=const.RealTimeFactor.FAST_AS_POSSIBLE)
+    graph = AsyncGraph(
+        nodes=nodes, supervisor=node1, clock=const.Clock.SIMULATED, real_time_factor=const.RealTimeFactor.FAST_AS_POSSIBLE
+    )
 
     # Test API
     _ = graph.max_eps

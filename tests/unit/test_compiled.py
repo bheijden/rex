@@ -133,6 +133,3 @@ def test_uniform_supergraph(nodes: Dict[str, Node], cgraphs: CGraph):
 
     # Run for one step
     gs = graph.run(gs)
-
-
-

@@ -18,8 +18,13 @@
 #	# exit-zero treats all errors as warnings.
 #	poetry run flake8 ${LINT_PATHS} --count --exit-zero --statistics
 
+format:
+	# Reformat using black
+	uv run ruff format
 
 
+# Make sure you install the docs requirements first
+# In the project directory (../rex) run `uv run pip3 install -r docs/requirements.txt`
 build_docs:
 	# Build the documentation
 	uv run mkdocs build

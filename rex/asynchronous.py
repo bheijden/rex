@@ -20,8 +20,12 @@ from rex import utils
 class _AsyncNodeWrapper:
     def __init__(self, node: BaseNode):
         self.node = node
-        self.outputs: Dict[str, _AsyncConnectionWrapper] = {}  # Outgoing edges. Keys are the actual node names incident to the edge.
-        self.inputs: Dict[str, _AsyncConnectionWrapper] = {}  # Incoming edges. Keys are the input_names of the nodes from which the edge originates. May be different from the actual node names.
+        self.outputs: Dict[
+            str, _AsyncConnectionWrapper
+        ] = {}  # Outgoing edges. Keys are the actual node names incident to the edge.
+        self.inputs: Dict[
+            str, _AsyncConnectionWrapper
+        ] = {}  # Incoming edges. Keys are the input_names of the nodes from which the edge originates. May be different from the actual node names.
 
         # Record settings
         self._record_setting = dict(params=False, rng=False, inputs=False, state=False, output=False)
@@ -103,7 +107,9 @@ class _AsyncNodeWrapper:
 
     def wrap_connections(self, nodes: Dict[str, "_AsyncNodeWrapper"]):
         for c in self.node.outputs.values():
-            assert c.output_node.name == self.node.name, f"Output node name {c.output_node.name} does not match node name {self.node.name}"
+            assert (
+                c.output_node.name == self.node.name
+            ), f"Output node name {c.output_node.name} does not match node name {self.node.name}"
             output_node = nodes[c.output_node.name]  # should be equal to self
             input_node = nodes[c.input_node.name]
             connection = _AsyncConnectionWrapper(c, output_node, input_node)
@@ -161,7 +167,9 @@ class _AsyncNodeWrapper:
             wc_sleep = max(0.0, wc_passed_target - wc_passed)
             time.sleep(wc_sleep)
 
-    def get_record(self, params: bool = True, rng: bool = True, inputs: bool = True, state: bool = True, output: bool = True) -> base.NodeRecord:
+    def get_record(
+        self, params: bool = True, rng: bool = True, inputs: bool = True, state: bool = True, output: bool = True
+    ) -> base.NodeRecord:
         params = self.record_setting["params"] and params
         rng = self.record_setting["rng"] and rng
         inputs = self.record_setting["inputs"] and inputs
@@ -171,7 +179,9 @@ class _AsyncNodeWrapper:
         # If records were discarded, warn the user that the record is incomplete.
         if self._discarded > 0:
             self.log(
-                "WARNING", f"Discarded {self._discarded} records. Incomplete records may lead to errors when tracing.", LogLevel.WARN
+                "WARNING",
+                f"Discarded {self._discarded} records. Incomplete records may lead to errors when tracing.",
+                LogLevel.WARN,
             )
 
         # If the record is incomplete, warn the user that the record is incomplete.
@@ -197,14 +207,19 @@ class _AsyncNodeWrapper:
         steps = steps.replace(inputs=steps.inputs if inputs else None)
         steps = steps.replace(state=steps.state if state else None)
         steps = steps.replace(output=steps.output if output else None)
-        record = self._record.replace(
-            steps=steps,
-            params=self._record.params if params else None
-        )
+        record = self._record.replace(steps=steps, params=self._record.params if params else None)
         return record
 
-    def set_record_settings(self, params: bool = None, rng: bool = None, inputs: bool = None, state: bool = None, output: bool = None, max_records: int = None):
-        """ Set the record settings for the node.
+    def set_record_settings(
+        self,
+        params: bool = None,
+        rng: bool = None,
+        inputs: bool = None,
+        state: bool = None,
+        output: bool = None,
+        max_records: int = None,
+    ):
+        """Set the record settings for the node.
 
         :param params: Whether to record params for each node. Logged once.
         :param rng: Whether to record rng for each node. Logged each step.
@@ -221,8 +236,15 @@ class _AsyncNodeWrapper:
         self._record_setting["output"] = output if output is not None else self._record_setting["output"]
         self._max_records = max_records if max_records is not None else self._max_records
 
-    def warmup(self, graph_state: base.GraphState, device_step: jax.Device = None, device_dist: jax.Device = None, jit_step: bool = True, profile: bool = False):
-        """ Warmup the node by running it once to compile the step function and sample the delay distribution.
+    def warmup(
+        self,
+        graph_state: base.GraphState,
+        device_step: jax.Device = None,
+        device_dist: jax.Device = None,
+        jit_step: bool = True,
+        profile: bool = False,
+    ):
+        """Warmup the node by running it once to compile the step function and sample the delay distribution.
 
         :param graph_state: The graph state.
         :param device_step: The device on which the step function should be compiled.
@@ -232,8 +254,8 @@ class _AsyncNodeWrapper:
         :return:
         """
 
-        device_step = device_step if device_step is not None else jax.devices('cpu')[0]
-        device_dist = device_dist if device_dist is not None else jax.devices('cpu')[0]
+        device_step = device_step if device_step is not None else jax.devices("cpu")[0]
+        device_dist = device_dist if device_dist is not None else jax.devices("cpu")[0]
 
         # Jit step function
         ss = graph_state.step_state[self.node.name]
@@ -271,7 +293,9 @@ class _AsyncNodeWrapper:
 
     def _reset(self, graph_state: base.GraphState, clock: Clock, real_time_factor: float):
         assert self._state in [Async.STOPPED, Async.READY], f"{self.node.name} must first be stopped, before it can be reset"
-        assert (real_time_factor > 0 or clock == Clock.SIMULATED), "Real time factor must be greater than zero if clock is not simulated"
+        assert (
+            real_time_factor > 0 or clock == Clock.SIMULATED
+        ), "Real time factor must be greater than zero if clock is not simulated"
 
         # Determine whether to run synchronously or asynchronously
         # self._sync = SYNC if clock == SIMULATED else ASYNC
@@ -286,18 +310,23 @@ class _AsyncNodeWrapper:
             # because it would mean this node would run infinitely fast, which deadlocks downstream nodes that depend
             # on it asynchronously).
             if not self.node.delay_dist.mean() > 0.0:
-                raise ValueError(f"Node `{self.node.name}` cannot run with advance=True in SIMULATED mode with zero simulated computation delay and zero blocking connections. "
-                                 f"This would mean that this node would run infinitely fast, which deadlocks connected nodes with blocking=False.")
+                raise ValueError(
+                    f"Node `{self.node.name}` cannot run with advance=True in SIMULATED mode with zero simulated computation delay and zero blocking connections. "
+                    f"This would mean that this node would run infinitely fast, which deadlocks connected nodes with blocking=False."
+                )
             else:
                 # We could overwrite advance to False, and run the node asynchronously according to the simulated computation delay?
                 # For now, we just raise an error and ask the user to set advance to False.
-                raise NotImplementedError(f"Node `{self.node.name}` is running with advance=True in SIMULATED mode with non-zero simulated computation delay and zero blocking connections. "
-                                          f"This is not yet supported. Please set advance to False.")
+                raise NotImplementedError(
+                    f"Node `{self.node.name}` is running with advance=True in SIMULATED mode with non-zero simulated computation delay and zero blocking connections. "
+                    f"This is not yet supported. Please set advance to False."
+                )
 
         # Warmup the node
         if not self._has_warmed_up:
-            raise RuntimeError(f"Node `{self.node.name}` must first be warmed up, before it can be reset. "
-                               f"Call graph.warmup() first.")
+            raise RuntimeError(
+                f"Node `{self.node.name}` must first be warmed up, before it can be reset. " f"Call graph.warmup() first."
+            )
 
         # Save run configuration
         self._clock = clock  #: Simulate timesteps
@@ -409,7 +438,9 @@ class _AsyncNodeWrapper:
         return f
 
     def _start(self, start: float):
-        assert self._state in [Async.READY_TO_START], f"{self.node.name} must first be ready to start (i.e. call ._startup), before it can start running."
+        assert self._state in [
+            Async.READY_TO_START
+        ], f"{self.node.name} must first be ready to start (i.e. call ._startup), before it can start running."
         assert self._has_warmed_up, f"{self.node.name} must first be warmed up, before it can start running."
 
         # Set running state
@@ -574,7 +605,7 @@ class _AsyncNodeWrapper:
                 phase_last=phase_last,
                 sent=None,  # Filled in .push_step()
                 delay=None,  # Filled in .push_step()
-                phase_overwrite=0.,  # May be overwritten in _step --> see push_step
+                phase_overwrite=0.0,  # May be overwritten in _step --> see push_step
                 rng=None,  # Filled in .push_step()
                 inputs=None,  # Filled in .push_step()
                 state=None,  # Filled in .push_step()
@@ -681,16 +712,22 @@ class _AsyncNodeWrapper:
                 ts_end_sc = self.now()
                 # ts_step_sc (i.e. step_state.ts) may be overwritten in the step function (i.e. to adjust to later time when sensor data was taken).
                 # Therefore, we use the potentially overwritten step_state.ts to calculate the delay.
-                new_start_ts_sc = ts_start_sc if ts_start_sc_promoted == new_ts_start_sc_promoted else float(new_ts_start_sc_promoted)
+                new_start_ts_sc = (
+                    ts_start_sc if ts_start_sc_promoted == new_ts_start_sc_promoted else float(new_ts_start_sc_promoted)
+                )
                 if new_start_ts_sc < ts_start_sc:
-                    msg = ("Did you overwrite `step_state.ts` in the step function? Make sure it's not smaller than the original `step_state.ts`. "
-                           "Are the clocks producing the adjusted step_state.ts and the original step_state.ts consistent?")
+                    msg = (
+                        "Did you overwrite `step_state.ts` in the step function? Make sure it's not smaller than the original `step_state.ts`. "
+                        "Are the clocks producing the adjusted step_state.ts and the original step_state.ts consistent?"
+                    )
                     self.log("timestamps", msg, log_level=LogLevel.ERROR)
                     raise ValueError(msg)
                 delay_sc = ts_end_sc - new_start_ts_sc
                 if delay_sc <= 0:
-                    msg = ("Did you overwrite `step_state.ts` in the step function? Make sure it does not exceed the current time (i.e. `self.now()`)"
-                        "Are the clocks producing the adjusted step_state.ts and the original step_state.ts consistent?")
+                    msg = (
+                        "Did you overwrite `step_state.ts` in the step function? Make sure it does not exceed the current time (i.e. `self.now()`)"
+                        "Are the clocks producing the adjusted step_state.ts and the original step_state.ts consistent?"
+                    )
                     self.log("timestamps", msg, log_level=LogLevel.ERROR)
                     raise ValueError(msg)
 
@@ -718,7 +755,9 @@ class _AsyncNodeWrapper:
             )
 
             # Push output
-            if not isinstance(output, _SkippedSteps) and self._state in [Async.RUNNING]:  # Agent returns _SkippedSteps when we are stopping/resetting.
+            if not isinstance(output, _SkippedSteps) and self._state in [
+                Async.RUNNING
+            ]:  # Agent returns _SkippedSteps when we are stopping/resetting.
                 [i._submit(i.push_input, output, header) for i in self.outputs.values()]
 
             # Add step record
@@ -727,7 +766,9 @@ class _AsyncNodeWrapper:
                 # To ensure that the record has a consistent shape, we replace the _SkippedSteps with a None tree.
                 if len(self._record_steps) > 0 and (self._record_steps[-1].output is None) != (record_step.output is None):
                     assert isinstance(output, _SkippedSteps), "Output should be _SkippedSteps when we are stopping/resetting."
-                    if output.skipped_steps == 1:  # Only append the final step we are stopping/resetting, not the ones that follow.
+                    if (
+                        output.skipped_steps == 1
+                    ):  # Only append the final step we are stopping/resetting, not the ones that follow.
                         record_step = record_step.replace(
                             output=jax.tree_util.tree_map(lambda x: None, self._record_steps[0].output)
                         )  # Should only happen for the last step of the supervisor.
@@ -738,7 +779,7 @@ class _AsyncNodeWrapper:
                 self.log(
                     "recording",
                     "Reached max number of records (timings, outputs, step_state). So no longer recording.",
-                    log_level=LogLevel.WARN
+                    log_level=LogLevel.WARN,
                 )
                 self._discarded += 1
             else:
@@ -769,8 +810,12 @@ class _AsyncConnectionWrapper:
         self._has_warmed_up = False
 
         # Executor
-        node_name = self.connection.input_node if isinstance(self.connection.input_node, str) else self.connection.input_node.name  # todo: str only if pickled (can be removed if not pickling)
-        output_name = self.connection.output_node if isinstance(self.connection.output_node, str) else self.connection.output_node.name  # todo: str only if pickled (can be removed if not pickling)
+        node_name = (
+            self.connection.input_node if isinstance(self.connection.input_node, str) else self.connection.input_node.name
+        )  # todo: str only if pickled (can be removed if not pickling)
+        output_name = (
+            self.connection.output_node if isinstance(self.connection.output_node, str) else self.connection.output_node.name
+        )  # todo: str only if pickled (can be removed if not pickling)
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"{node_name}/{output_name}")
         self._q_task: Deque[Tuple[Future, Callable, Any, Any]] = deque(maxlen=10)
         self._lock = RLock()
@@ -808,7 +853,13 @@ class _AsyncConnectionWrapper:
             return
         log_level = self.connection.input_node.log_level if log_level is None else log_level
         color = self.connection.input_node.log_color
-        utils.log(f"{self.connection.output_node.name}/{self.connection.input_node.name}", color, min(log_level, self.log_level), id, value)
+        utils.log(
+            f"{self.connection.output_node.name}/{self.connection.input_node.name}",
+            color,
+            min(log_level, self.log_level),
+            id,
+            value,
+        )
 
     def _submit(self, fn, *args, stopping: bool = False, **kwargs):
         with self._lock:
@@ -826,12 +877,20 @@ class _AsyncConnectionWrapper:
         e = f.exception()
         if e is not None and e is not CancelledError:
             error_msg = "".join(traceback.format_exception(None, e, e.__traceback__))
-            utils.log(f"{self.connection.output_node.name}/{self.connection.input_node.name}", "red", LogLevel.ERROR, "ERROR", error_msg)
+            utils.log(
+                f"{self.connection.output_node.name}/{self.connection.input_node.name}",
+                "red",
+                LogLevel.ERROR,
+                "ERROR",
+                error_msg,
+            )
 
     def get_record(self, last_seq_in: int) -> base.InputRecord:
         # If the record is incomplete, warn the user that the record is incomplete.
         if self._record is None:
-            raise RuntimeError(f"No record has been created yet for the input {self.connection.output_node.name} ({self.connection.input_name}) of {self.connection.input_node.name}.")
+            raise RuntimeError(
+                f"No record has been created yet for the input {self.connection.output_node.name} ({self.connection.input_name}) of {self.connection.input_node.name}."
+            )
 
         # Add the steps to the record
         if self._record.messages is None:
@@ -846,7 +905,7 @@ class _AsyncConnectionWrapper:
         # Warmup input update
         self._jit_update_input_state = jax.jit(update_input_state, device=device_step)
         i = graph_state.inputs[self.connection.input_node.name][self.connection.input_name]
-        new_i = self._jit_update_input_state(i, 0, 0., 0., i[0].data)
+        new_i = self._jit_update_input_state(i, 0, 0.0, 0.0, i[0].data)
 
         # Warms-up jitted functions in the output (i.e. pre-compiles)
         self._jit_reset = jax.jit(i.delay_dist.reset, device=device_dist)
@@ -865,7 +924,9 @@ class _AsyncConnectionWrapper:
         self._has_warmed_up = True
 
     def reset(self, rng: jnp.ndarray, input_state: base.InputState):
-        assert self._state in [Async.STOPPED, Async.READY], f"Input `{self.connection.output_node.name}` (`{self.connection.input_name}`) of node `{self.connection.input_node.name}` must first be stopped, before it can be reset."
+        assert (
+            self._state in [Async.STOPPED, Async.READY]
+        ), f"Input `{self.connection.output_node.name}` (`{self.connection.input_name}`) of node `{self.connection.input_node.name}` must first be stopped, before it can be reset."
 
         # Empty queues
         self._tick = 0
@@ -891,7 +952,9 @@ class _AsyncConnectionWrapper:
         self.log(self._state, log_level=LogLevel.DEBUG)
 
     def stop(self) -> Future:
-        assert self._state in [Async.RUNNING], f"Input `{self.connection.output_node.name}` (`{self.connection.input_name}`) of node `{self.connection.input_node.name}` must be running in order to stop."
+        assert (
+            self._state in [Async.RUNNING]
+        ), f"Input `{self.connection.output_node.name}` (`{self.connection.input_name}`) of node `{self.connection.input_node.name}` must be running in order to stop."
 
         def _stopping():
             # Set running state
@@ -908,7 +971,9 @@ class _AsyncConnectionWrapper:
         return f
 
     def start(self):
-        assert self._state in [Async.READY], f"Input `{self.connection.output_node.name}` (`{self.connection.input_name}`) of node `{self.connection.input_node.name}` must first be reset, before it can start running."
+        assert (
+            self._state in [Async.READY]
+        ), f"Input `{self.connection.output_node.name}` (`{self.connection.input_name}`) of node `{self.connection.input_node.name}` must first be reset, before it can start running."
         assert self._has_warmed_up, f"Input `{self.connection.output_node.name}` (`{self.connection.input_name}`) of node `{self.connection.input_node.name}` must first be warmed up, before it can start."
 
         # Set running state
@@ -1153,7 +1218,7 @@ class _AsyncConnectionWrapper:
     def push_selection(self):
         has_expected = len(self.q_expected_select) > 0
         if has_expected:
-            has_recv_all_expected = (len(self.q_msgs) >= self.q_expected_select[0][1])
+            has_recv_all_expected = len(self.q_msgs) >= self.q_expected_select[0][1]
             if has_recv_all_expected:
                 ts_next_step, num_msgs = self.q_expected_select.popleft()
                 log_msg = f"blocking={self.connection.blocking} | step_ts={ts_next_step: .2f} | num_msgs={num_msgs}"
@@ -1185,7 +1250,7 @@ class _AsyncConnectionWrapper:
                     grouped.append((seq, ts_sent, ts_recv, msg))
 
                 # Add grouped message to queue
-                self.q_grouped.append(grouped[-self.connection.window:])
+                self.q_grouped.append(grouped[-self.connection.window :])
 
                 # Push step (must be called from node thread)
                 self.input_node._submit(self.input_node.push_step)
@@ -1266,12 +1331,13 @@ class _Synchronizer:
 
 
 class AsyncGraph:
-    def __init__(self,
-                 nodes: Dict[str, BaseNode],
-                 supervisor: BaseNode,
-                 clock: Clock = Clock.WALL_CLOCK,
-                 real_time_factor: Union[float, int] = RealTimeFactor.REAL_TIME,
-                 ):
+    def __init__(
+        self,
+        nodes: Dict[str, BaseNode],
+        supervisor: BaseNode,
+        clock: Clock = Clock.WALL_CLOCK,
+        real_time_factor: Union[float, int] = RealTimeFactor.REAL_TIME,
+    ):
         """Creates an interface around all nodes in the graph.
 
         As a mental model, it helps to think of the graph as dividing the nodes into two groups:
@@ -1367,7 +1433,9 @@ class AsyncGraph:
         ts = FrozenDict({k: onp.float32(0.0) for k in order})
         state = {}
         inputs = {}
-        graph_state = base.GraphState(eps=onp.int32(0), rng=rngs_step, seq=seq, ts=ts, params=params, state=state, inputs=inputs)
+        graph_state = base.GraphState(
+            eps=onp.int32(0), rng=rngs_step, seq=seq, ts=ts, params=params, state=state, inputs=inputs
+        )
 
         # Initialize params
         rngs = jax.random.split(rng_params, num=len(order))
@@ -1388,14 +1456,15 @@ class AsyncGraph:
         new_gs = graph_state.replace(params=FrozenDict(params), state=FrozenDict(state), inputs=FrozenDict(inputs))
         return new_gs
 
-    def set_record_settings(self,
-                            params: Union[Dict[str, bool], bool] = None,
-                            rng: Union[Dict[str, bool], bool] = None,
-                            inputs: Union[Dict[str, bool], bool] = None,
-                            state: Union[Dict[str, bool], bool] = None,
-                            output: Union[Dict[str, bool], bool] = None,
-                            max_records: Union[Dict[str, int], int] = None,
-                        ):
+    def set_record_settings(
+        self,
+        params: Union[Dict[str, bool], bool] = None,
+        rng: Union[Dict[str, bool], bool] = None,
+        inputs: Union[Dict[str, bool], bool] = None,
+        state: Union[Dict[str, bool], bool] = None,
+        output: Union[Dict[str, bool], bool] = None,
+        max_records: Union[Dict[str, int], int] = None,
+    ):
         """Sets the record settings for the nodes in the graph."""
         params = params if params is not None else {}
         rng = rng if rng is not None else {}
@@ -1419,12 +1488,14 @@ class AsyncGraph:
                 max_records=max_records.get(name, None),
             )
 
-    def warmup(self, graph_state: base.GraphState,
-               device_step: Union[Dict[str, jax.Device], jax.Device] = None,
-               device_dist: Union[Dict[str, jax.Device], jax.Device] = None,
-               jit_step: Union[Dict[str, bool], bool] = True,
-               profile: Union[Dict[str, bool], bool] = False,
-               ):
+    def warmup(
+        self,
+        graph_state: base.GraphState,
+        device_step: Union[Dict[str, jax.Device], jax.Device] = None,
+        device_dist: Union[Dict[str, jax.Device], jax.Device] = None,
+        jit_step: Union[Dict[str, bool], bool] = True,
+        profile: Union[Dict[str, bool], bool] = False,
+    ):
         """Ahead-of-time compilation of step and I/O functions to avoid latency at runtime.
 
         :param graph_state: The graph state that is expected to be used during runtime.
@@ -1447,11 +1518,13 @@ class AsyncGraph:
         device_step = device_step if isinstance(device_step, dict) else {k: device_step for k in self._async_nodes.keys()}
         device_dist = device_dist if isinstance(device_dist, dict) else {k: device_dist for k in self._async_nodes.keys()}
         for k, n in self._async_nodes.items():
-            n.warmup(graph_state,
-                     device_step=device_step.get(k, None),
-                     device_dist=device_dist.get(k, None),
-                     jit_step=jit_step.get(k, True),
-                     profile=profile.get(k, False))
+            n.warmup(
+                graph_state,
+                device_step=device_step.get(k, None),
+                device_dist=device_dist.get(k, None),
+                jit_step=jit_step.get(k, True),
+                profile=profile.get(k, False),
+            )
 
     def start(self, graph_state: base.GraphState, timeout: float = None) -> base.GraphState:
         """Starts the graph and all its nodes."""
@@ -1525,7 +1598,9 @@ class AsyncGraph:
 
         Internal use only. Use reset(), step(), run(), or rollout() instead.
         """
-        assert (step_state is None) == (output is None), "Either both step_state and output must be None or both must be not None."
+        assert (step_state is None) == (
+            output is None
+        ), "Either both step_state and output must be None or both must be not None."
         # If run_root is run before run_until_root, we skip.
         if self._initial_step:
             return graph_state
@@ -1622,4 +1697,3 @@ class AsyncGraph:
         for name, node in self._async_nodes.items():
             records[name] = node.get_record()
         return base.EpisodeRecord(nodes=records)
-

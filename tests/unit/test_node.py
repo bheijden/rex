@@ -8,7 +8,6 @@ from rex.constants import LogLevel
 from rex.utils import set_log_level
 
 
-
 def test_node_basic_api():
     """Test basic API methods of Node."""
     node1 = BaseNode(name="node1", rate=50, color="pink", order=1)
@@ -161,6 +160,7 @@ def test_base_api():
     @struct.dataclass
     class Pytree(Base):
         """Arbitrary dataclass."""
+
         a: jax.Array
 
     # Create Pytree objects
