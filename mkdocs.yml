@@ -27,8 +27,8 @@ theme:
     custom_dir: "docs/_overrides"  # Overriding part of the HTML
 
     # These additions are my own custom ones, having overridden a partial.
-#    twitter_name: "@PatrickKidger"
-#    twitter_url: "https://twitter.com/PatrickKidger"
+#    twitter_name: "@SomeTwitterHandle"
+#    twitter_url: "https://twitter.com/SomeTwitterHandle"
 
 site_name: Rex
 site_description: The documentation for the Rex software library.
@@ -81,8 +81,8 @@ plugins:
                 setup_commands:
                     - import pytkdocs_tweaks
                     - pytkdocs_tweaks.main()
-                    - import jaxtyping
-                    - jaxtyping.set_array_name_format("array")
+#                    - import jaxtyping
+#                    - jaxtyping.set_array_name_format("array")
                     - import jax
                     - jax.ShapeDtypeStruct.__module__ = "jax"
                     - jax.core.ClosedJaxpr.__module__ = "jax.core"
@@ -109,15 +109,15 @@ nav:
               - Sim2real with a pendulum: 'examples/sim2real.ipynb'
 
     - Usage:
-        - 'plotting.md'  # open_colors, utils.plot_...
-        - 'logging.md'   # utils.log_..., etc..
+#        - 'plotting.md'  # open_colors, utils.plot_...
+#        - 'logging.md'   # utils.log_..., etc..
 #        - Nodes:
 #            - 'api/node.md'
-        - Graphs:
-            - 'api/asynchronous.md'
-            - 'api/graph.md'
-            - 'api/artificial.md'
-            - 'api/partition_runner.md'
+#        - Graphs:
+#            - 'api/asynchronous.md'
+#            - 'api/graph.md'
+#            - 'api/artificial.md'
+#            - 'api/partition_runner.md'
 #        - Delay Estimation:
 #            - 'api/gmm_estimator.md'
 #            - 'api/hidden.md'
