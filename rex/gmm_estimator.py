@@ -473,7 +473,7 @@ class GMMEstimator:
             self.log_component_scales_history_norm,
         ):
             prm = (w, c, m, s)
-            l = self.joint_loss(prm, self._data_norm)
+            l = self.joint_loss(prm, self._data_norm)  # noqa: E741
             losses.append(l)
 
         ax.plot(losses, label="loss", color=edgecolor)

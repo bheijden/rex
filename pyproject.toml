@@ -79,12 +79,9 @@ indent-width = 4
 #fixable = ["I001", "F401"]
 
 ignore = [
-    "E402",  # module level import not at top of file
+    "E402",  # module level import not at top of file  --> Makes code less readable in some cases (notebooks)
     "E501",  # line too long --> handled by ruff formatting
-    "E721",  # do not compare types, use 'isinstance()'
-    "E731",  # do not assign a lambda expression, use a def
-    "E741",  # ambiguous variable name
-    "F722"   # syntax error in forward annotation
+    "E731",  # do not assign a lambda expression, use a def --> Very common in JAX
 ]
 select = ["E", "F", "I001"]
 

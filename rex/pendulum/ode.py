@@ -61,7 +61,7 @@ class OdeParams(base.Base):
     def _ode(self, x: "OdeState", u: jax.typing.ArrayLike) -> "OdeState":
         """dx function for the pendulum ode"""
         # Downward := [pi, 0], Upward := [0, 0]
-        g, J, m, l, b, K, R, c = 9.81, self.J, self.mass, self.length, self.b, self.K, self.R, self.c
+        g, J, m, l, b, K, R, c = 9.81, self.J, self.mass, self.length, self.b, self.K, self.R, self.c  # noqa: E741
         th, thdot = x.th, x.thdot
         activation = jnp.sign(thdot)
         ddx = (u * K / R + m * g * l * jnp.sin(th) - b * thdot - thdot * K * K / R - c * activation) / J
