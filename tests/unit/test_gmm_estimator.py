@@ -1,6 +1,5 @@
 import pytest
-import jax
-import jax.numpy as jnp
+import tempfile
 import numpy as onp
 import rex.gmm_estimator as gmm_estimator
 
@@ -31,4 +30,7 @@ def test_estimator(is_deterministic):
     # Test animation
     if not is_deterministic:
         ani = estimator.animate_training(num_frames=4, xmin=0, xmax=4, num_points=1000)
-        ani.to_html5_video()
+
+        # Save animation to a temporary file
+        with tempfile.NamedTemporaryFile(suffix=".gif", delete=True) as temp_file:
+            ani.save(temp_file.name, writer='pillow', fps=30)

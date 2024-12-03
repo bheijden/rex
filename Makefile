@@ -18,6 +18,8 @@
 #	# exit-zero treats all errors as warnings.
 #	poetry run flake8 ${LINT_PATHS} --count --exit-zero --statistics
 
+
+
 build_docs:
 	# Build the documentation
 	uv run mkdocs build

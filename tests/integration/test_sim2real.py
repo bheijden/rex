@@ -252,7 +252,10 @@ def test_sim2real():
     # If you are running into an AttributeError regarding "_val_or_rc", skip the HTML display and run the next cell.
     # This seems to be a Python 3.10 + matplotlib 3.9.x issue.
     # Resolve by downgrading matplotlib to 3.7.x. Run `!pip install matplotlib==3.7.5`.
-    ani.to_html5_video()
+    # Save animation to a temporary file
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".gif", delete=True) as temp_file:
+        ani.save(temp_file.name, writer='pillow', fps=30)
 
     # @title Visualize Data Flow in the Real-World System
     # @markdown The top plot shows how long each node takes to process data and forward it to the next node.
