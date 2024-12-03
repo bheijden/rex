@@ -1,25 +1,24 @@
-from typing import Any, Tuple, List, TypeVar, Dict, Union, Callable, TYPE_CHECKING
 import functools
+import time
+from os import getpid
+from threading import current_thread
+from typing import Any, Callable, Dict, List, Tuple, TYPE_CHECKING, Union
 
 import distrax
-import networkx as nx
 import jax
 import jax.numpy as jnp
-import numpy as onp
-from flax import struct
-import time
-
-import supergraph
-from supergraph import EDGE_DATA
-from supergraph import open_colors as oc
-from rex.base import Graph, WindowedGraph, Window, Vertex, Edge, WindowedVertex, Timings, SlotVertex, TrainableDist, NodeInfo
-from rex.constants import LogLevel, Jitter
-
-from threading import current_thread
-from os import getpid
-from termcolor import colored
 import matplotlib
 import matplotlib.pyplot as plt
+import networkx as nx
+import numpy as onp
+import supergraph
+from flax import struct
+from supergraph import EDGE_DATA, open_colors as oc
+from termcolor import colored
+
+from rex.base import Edge, Graph, NodeInfo, SlotVertex, Timings, TrainableDist, Vertex, Window, WindowedGraph, WindowedVertex
+from rex.constants import Jitter, LogLevel
+
 
 if TYPE_CHECKING:
     from rex.node import BaseNode

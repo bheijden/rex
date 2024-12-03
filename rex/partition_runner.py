@@ -1,15 +1,17 @@
-from typing import Any, Dict, List, Tuple, Callable, Union
 import functools
-import networkx as nx
-from flax.core import FrozenDict
+from typing import Any, Dict, List, Union
+
+import equinox as eqx
 import jax
 import jax.numpy as jnp
+import networkx as nx
 import numpy as onp
+from flax.core import FrozenDict
+
 import rex.jax_utils as rjax
-import equinox as eqx
-from rex.utils import check_generations_uniformity
+from rex.base import EpisodeRecord, GraphBuffer, GraphState, InputState, Output, SlotVertex, StepRecord, StepState, Timings
 from rex.node import BaseNode
-from rex.base import InputState, StepState, GraphState, Output, GraphBuffer, Timings, SlotVertex, EpisodeRecord, StepRecord
+from rex.utils import check_generations_uniformity
 
 
 int32 = Union[jnp.int32, onp.int32]

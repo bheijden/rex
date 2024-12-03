@@ -1,13 +1,13 @@
-import pytest
 from typing import Dict
 
+import pytest
 from distrax import Deterministic
 
 import rex.constants as const
-from rex.utils import plot_graph, get_subplots, to_networkx_graph, plot_system
 from rex.artificial import augment_graphs, generate_graphs
 from rex.asynchronous import AsyncGraph
 from rex.base import ExperimentRecord, Graph, TrainableDist
+from rex.utils import get_subplots, plot_graph, plot_system, to_networkx_graph
 from tests.unit.test_utils import Node
 
 

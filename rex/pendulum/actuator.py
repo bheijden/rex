@@ -1,12 +1,13 @@
-from typing import Union, Tuple
+from typing import Tuple, Union
 
 import jax
+import numpy as onp
 from flax import struct
 from jax import numpy as jnp
-import numpy as onp
+
 from rex import base
+from rex.base import GraphState, StepState
 from rex.jax_utils import tree_dynamic_slice
-from rex.base import StepState, GraphState
 from rex.node import BaseNode
 
 

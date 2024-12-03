@@ -1,10 +1,11 @@
 import functools
-from typing import Any, Union, Sequence
-import numpy as onp
+from typing import Any, Sequence, Union
+
 import jax
-from jax.interpreters import xla
-from jax._src.api_util import flatten_axes
 import jax.numpy as jnp
+import numpy as onp
+from jax._src.api_util import flatten_axes
+from jax.interpreters import xla
 
 
 def tree_dot(tree1: Any, tree2: Any) -> Union[float, jax.Array]:

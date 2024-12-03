@@ -1,10 +1,11 @@
 import jax
 import jax.numpy as jnp
-from flax import struct as struct
 from distrax import Normal
-from rex.base import GraphState, TrainableDist, Base
-from rex.node import BaseNode, BaseWorld
+from flax import struct as struct
+
+from rex.base import Base, GraphState, TrainableDist
 from rex.constants import LogLevel
+from rex.node import BaseNode, BaseWorld
 from rex.utils import set_log_level
 
 

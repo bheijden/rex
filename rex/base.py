@@ -1,14 +1,15 @@
-from typing import Any, Tuple, List, TypeVar, Dict, Union, TYPE_CHECKING, Sequence, Callable
 import functools
+from typing import Any, Callable, Dict, List, Sequence, Tuple, TYPE_CHECKING, Union
+
+import distrax
+import equinox as eqx
 import jax
-from jax import numpy as jnp
-from jax.typing import ArrayLike
 import numpy as onp
-from numpy import ma as ma
 from flax import struct
 from flax.core import FrozenDict
-import equinox as eqx
-import distrax
+from jax import numpy as jnp
+from jax.typing import ArrayLike
+from numpy import ma as ma
 
 import rex.constants as constants
 import rex.jax_utils as rjax

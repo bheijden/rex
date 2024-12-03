@@ -1,14 +1,16 @@
-from typing import Tuple, Dict
-from math import ceil
 import functools
+from math import ceil
+from typing import Dict
+
+import distrax
 import jax
 import jax.numpy as jnp
-import distrax
+
+from rex import constants
+
 # from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
 # tfd = tfp.distributions
-
-from rex.base import Edge, Vertex, Graph, TrainableDist, StaticDist
-from rex import constants
+from rex.base import Edge, Graph, StaticDist, TrainableDist, Vertex
 from rex.node import BaseNode
 
 

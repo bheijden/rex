@@ -1,16 +1,13 @@
-from typing import Any, Tuple, List, TypeVar, Dict, Union, Callable, Optional
-import time
-from concurrent.futures import Future
-import jax
-import jax.numpy as jnp
-import numpy as onp
-from flax.core import FrozenDict
-from rex import base
-from rex.constants import Scheduling, Jitter, LogLevel, Async
-from rex import utils
-from rex import jax_utils as jutil
-import supergraph.open_colors as oc
+from typing import Any, Callable, Dict, Optional, Tuple, Union
+
 import distrax
+import jax
+import numpy as onp
+import supergraph.open_colors as oc
+from flax.core import FrozenDict
+
+from rex import base, jax_utils as jutil, utils
+from rex.constants import Async, Jitter, LogLevel, Scheduling
 
 
 class Connection:

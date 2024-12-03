@@ -4,6 +4,7 @@ https://github.com/ericmjl/dl-workshop/blob/6ef9b7feb60dd5f6a4dbdda4dc899337e583
 """
 
 import itertools
+
 import jax.numpy as np
 from jax.scipy import stats
 
@@ -163,8 +164,8 @@ def plot_component_norm_pdfs(
     return artists
 
 
-import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import matplotlib.pyplot as plt
 from jax import lax
 
 
@@ -310,13 +311,14 @@ def make_joint_loss(num_components):
     return inner
 
 
-import matplotlib.animation
-from jax.example_libraries.optimizers import adam
-from jax import grad, jit
 from time import time
-import distrax
 
-from rex import base, utils
+import distrax
+import matplotlib.animation
+from jax import grad, jit
+from jax.example_libraries.optimizers import adam
+
+from rex import base
 
 
 class GMMEstimator:

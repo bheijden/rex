@@ -1,6 +1,7 @@
 import itertools
 from typing import Dict, Tuple
 
+
 EDGE_INDEX = 9
 FACE_INDEX = 6
 CANVAS_INDEX = 2

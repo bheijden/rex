@@ -1,6 +1,3 @@
-import pytest
-
-
 def test_sim2real():
     """
     Integration test for sim2real functionality.
@@ -12,38 +9,37 @@ def test_sim2real():
     # @markdown This cell installs the required libraries for the project.
     # @markdown If you are running this notebook in Google Colab, most libraries should already be installed.
 
-    import os
     import multiprocessing
+    import os
 
     os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count={}".format(max(multiprocessing.cpu_count(), 1))
     os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
-    import rex
-
     # @title Import Libraries & Check GPU Availability
     # @markdown We import all necessary libraries here, including JAX, numpy, and others.
     # @markdown Additionally, we check if a GPU is available and display the number of CPU cores.
-
     import functools
-    import jax
     import itertools
-    import tqdm
-    import jax.numpy as jnp
+
     import equinox as eqx
-    import numpy as onp
-    from distrax import Deterministic, Normal
-    import supergraph
+    import jax
+    import jax.numpy as jnp
     import matplotlib
     import matplotlib.pyplot as plt
     import seaborn as sns
+    import supergraph
+    import tqdm
+    from distrax import Normal
+
+    import rex
 
     sns.set()
 
-    import rex.utils as rutils
     import rex.base as base
-    from rex.open_colors import ecolor, fcolor
-    from rex.constants import RealTimeFactor, Clock
+    import rex.utils as rutils
     from rex.base import TrainableDist
+    from rex.constants import Clock, RealTimeFactor
+    from rex.open_colors import ecolor, fcolor
 
     # Check if we have a GPU
     try:
@@ -69,9 +65,9 @@ def test_sim2real():
     # @markdown In a separate notebook, we demonstrate how to define nodes.
     # @markdown Optionally, you can test the system with zero delays by uncommenting the relevant code.
     from rex.pendulum.actuator import Actuator
-    from rex.pendulum.sensor import Sensor
     from rex.pendulum.agent import Agent
     from rex.pendulum.brax import BraxWorld
+    from rex.pendulum.sensor import Sensor
 
     # `Color` and `order` arguments are merely for visualization purposes.
     # Delay distributions are used to simulate the delays as if the nodes were real-world systems.
@@ -167,9 +163,9 @@ def test_sim2real():
     # Note that one of the nodes is designated as the supervisor (agent).
     # To make a comparison with the standard Gym-like approach, the supervisor node is the agent, and the other nodes are the environment.
     # This means that the graph will be executed in a step-by-step manner, where the agent's rate determines the rate of the environment.
-    from rex.utils import set_log_level
-    from rex.constants import LogLevel
     from rex.asynchronous import AsyncGraph
+    from rex.constants import LogLevel
+    from rex.utils import set_log_level
 
     graph = AsyncGraph(
         nodes=nodes,
@@ -335,9 +331,9 @@ def test_sim2real():
     # We can overwrite (e.g., delay_dist) or specify extra parameters (e.g., outputs) as keyword arguments.
     # The info data is stored in the record, but can also be obtained from the nodes themselves with node.info.
     from rex.pendulum.actuator import SimActuator
-    from rex.pendulum.sensor import SimSensor
     from rex.pendulum.agent import Agent
     from rex.pendulum.ode import OdeWorld
+    from rex.pendulum.sensor import SimSensor
 
     actuator = SimActuator.from_info(
         record.nodes["actuator"].info, outputs=outputs["actuator"]
@@ -626,7 +622,7 @@ def test_sim2real():
     graph_rl = rex.graph.Graph(nodes_rl, nodes_rl["agent"], cg)
 
     # Define the environment
-    from rex.pendulum.rl import SwingUpEnv, sweep_pmv2r1zf
+    from rex.pendulum.rl import sweep_pmv2r1zf, SwingUpEnv
 
     env = SwingUpEnv(graph=graph_rl)
 

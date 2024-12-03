@@ -1,9 +1,7 @@
-import pytest
-import jax
 import jax.numpy as jnp
-from typing import Dict
 
-from rex.base import Identity, Chain, Extend, Denormalize, ExpTransform, Shared
+from rex.base import Chain, Denormalize, ExpTransform, Extend, Identity, Shared
+
 
 # Sample data for testing
 min_params = {"a": None, "b": jnp.array(1.0)}

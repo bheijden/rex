@@ -1,8 +1,10 @@
 import functools
+
 import jax
 import jax.numpy as jnp
+
 from rex.base import Identity
-from rex.evo import EvoSolver, EvoState, evo
+from rex.evo import evo, EvoSolver
 
 
 def dummy_loss(params, transform, rng):

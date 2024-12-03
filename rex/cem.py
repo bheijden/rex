@@ -1,11 +1,12 @@
-from typing import Union, Dict
+from typing import Dict, Union
+
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as rnd
-import equinox as eqx
 from flax import struct
 
-from rex.base import Loss, Transform, Params
+from rex.base import Loss, Params, Transform
 
 
 @struct.dataclass

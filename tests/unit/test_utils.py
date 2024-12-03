@@ -4,9 +4,9 @@ import jax
 from flax import struct as struct
 from jax import numpy as jnp
 
+import rex.rl as rl
 from rex.base import Base, GraphState, StepState
 from rex.node import BaseNode
-import rex.rl as rl
 
 
 @struct.dataclass

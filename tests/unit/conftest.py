@@ -1,7 +1,8 @@
-import pytest
 from typing import Dict
 
+import pytest
 from distrax import Deterministic
+
 from rex.artificial import generate_graphs
 from rex.base import Graph as CGraph, TrainableDist
 from rex.graph import Graph

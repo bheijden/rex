@@ -1,5 +1,5 @@
 from math import ceil
-from typing import Union, Tuple
+from typing import Tuple, Union
 
 import jax
 from flax import struct
@@ -9,12 +9,13 @@ from rex import base
 from rex.base import GraphState, StepState
 from rex.node import BaseWorld
 
+
 try:
+    from brax.base import State, System
     from brax.generalized import pipeline as gen_pipeline
-    from brax.spring import pipeline as spring_pipeline
-    from brax.positional import pipeline as pos_pipeline
-    from brax.base import System, State
     from brax.io import mjcf
+    from brax.positional import pipeline as pos_pipeline
+    from brax.spring import pipeline as spring_pipeline
 
     Systems = Union[gen_pipeline.System, spring_pipeline.System, pos_pipeline.System]
     Pipelines = Union[gen_pipeline.State, spring_pipeline.State, pos_pipeline.State]

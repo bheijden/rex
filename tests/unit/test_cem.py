@@ -1,8 +1,10 @@
 import functools
+
 import jax
 import jax.numpy as jnp
+
 from rex.base import Identity
-from rex.cem import CEMSolver, CEMState, cem
+from rex.cem import cem, CEMSolver, CEMState
 
 
 def dummy_loss(params, transform, rng):

@@ -1,10 +1,9 @@
-import pytest
-
 import jax
 import jax.numpy as jnp
+import pytest
 
-from rex.graph import Graph
 import rex.rl as rl
+from rex.graph import Graph
 from tests.unit.test_utils import Env
 
 

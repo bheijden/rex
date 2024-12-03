@@ -1,11 +1,10 @@
-import pytest
-
 import jax.numpy as jnp
+import pytest
 from distrax import Deterministic
+from test_utils import Node, Output
 
 import rex.constants as const
 from rex.asynchronous import AsyncGraph
-from test_utils import Node, Output
 
 
 @pytest.mark.parametrize(

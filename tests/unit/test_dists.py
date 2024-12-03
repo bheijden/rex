@@ -1,9 +1,10 @@
-import pytest
 import jax
 import jax.numpy as jnp
 import numpy as onp
-from distrax import Deterministic, Normal, MixtureSameFamily, Categorical
-from rex.base import StaticDist, TrainableDist, DelayDistribution, InputState
+import pytest
+from distrax import Categorical, Deterministic, MixtureSameFamily, Normal
+
+from rex.base import DelayDistribution, InputState, StaticDist, TrainableDist
 
 
 @pytest.mark.parametrize("static_dist", ["Deterministic", "Normal", "MixtureSameFamily"])

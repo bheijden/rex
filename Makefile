@@ -18,6 +18,11 @@
 #	# exit-zero treats all errors as warnings.
 #	poetry run flake8 ${LINT_PATHS} --count --exit-zero --statistics
 
+lint:
+	# Lint the code
+	uv run ruff check --fix
+
+
 format:
 	# Reformat using black
 	uv run ruff format

@@ -1,11 +1,13 @@
-from typing import Union, Tuple, Callable, Any, Dict
+from typing import Any, Dict
+
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as rnd
-import equinox as eqx
 from flax import struct
 
-from rex.base import Params, Loss, Transform
+from rex.base import Loss, Params, Transform
+
 
 try:
     import evosax as evx

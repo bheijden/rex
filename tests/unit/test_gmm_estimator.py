@@ -1,6 +1,8 @@
-import pytest
 import tempfile
+
 import numpy as onp
+import pytest
+
 import rex.gmm_estimator as gmm_estimator
 
 

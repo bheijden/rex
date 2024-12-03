@@ -1,20 +1,17 @@
-from math import ceil
-import functools
-import networkx as nx
+from typing import Dict, List, Tuple, Union
+
 import jax
 import jax.numpy as jnp
+import networkx as nx
 import numpy as onp
-from flax import struct
-from flax.core import FrozenDict
-from typing import Any, Tuple, List, TypeVar, Dict, Union, Callable
-
 import supergraph as sg
-from rex.partition_runner import make_run_partition_excl_supervisor, make_update_state
-from rex import base
-from rex.node import BaseNode
-from rex import utils
-from rex.constants import Supergraph, Clock, RealTimeFactor
+from flax.core import FrozenDict
+
 import rex.jax_utils as rjax
+from rex import base, utils
+from rex.constants import Clock, RealTimeFactor, Supergraph
+from rex.node import BaseNode
+from rex.partition_runner import make_run_partition_excl_supervisor, make_update_state
 
 
 class Graph:

@@ -1,13 +1,13 @@
-import pytest
 from typing import Dict
 
 import jax
 import jax.numpy as jnp
+import pytest
 
 import rex.constants as const
-from rex.utils import plot_supergraph, check_generations_uniformity
-from rex.graph import Graph
 from rex.base import Graph as CGraph
+from rex.graph import Graph
+from rex.utils import check_generations_uniformity, plot_supergraph
 from tests.unit.test_utils import Node, Output
 
 

@@ -1,11 +1,12 @@
-from typing import Union, Tuple
+from typing import Tuple, Union
 
 import jax
 from flax import struct
 from flax.core import FrozenDict
 from jax import numpy as jnp
+
 from rex import base
-from rex.base import StepState, GraphState
+from rex.base import GraphState, StepState
 from rex.node import BaseNode
 from rex.ppo import Policy
 

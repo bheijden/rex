@@ -1,20 +1,19 @@
-from typing import Tuple, Deque, Dict, Union, List, Callable, Any, Optional
 import time
-from collections import deque
-from threading import RLock
-from concurrent.futures import ThreadPoolExecutor, Future, CancelledError
-from collections import deque
 import traceback
-from flax.core import FrozenDict
+from collections import deque
+from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
+from threading import RLock
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple, Union
+
 import jax
 import jax.numpy as jnp
 import jax.random as rnd
 import numpy as onp
+from flax.core import FrozenDict
 
-from rex.constants import Clock, RealTimeFactor, Async, LogLevel, Scheduling, Jitter
-from rex import base
+from rex import base, utils
+from rex.constants import Async, Clock, Jitter, LogLevel, RealTimeFactor, Scheduling
 from rex.node import BaseNode, Connection
-from rex import utils
 
 
 class _AsyncNodeWrapper:

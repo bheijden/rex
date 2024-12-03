@@ -1,8 +1,9 @@
 from math import ceil
-from typing import Union, Tuple, Dict
+from typing import Dict, Tuple, Union
+
 import jax
-from jax import numpy as jnp
 from flax import struct
+from jax import numpy as jnp
 
 from rex import base
 from rex.base import GraphState, StepState

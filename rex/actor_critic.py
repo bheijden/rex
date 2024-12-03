@@ -1,15 +1,11 @@
-from typing import Callable, Union
-import jax
-import jax.numpy as jnp
-import numpy as onp
-import flax.linen as nn
-from flax.linen.initializers import constant, orthogonal
-from typing import Sequence, NamedTuple, Any
-from flax.training.train_state import TrainState
+from typing import Union
 
 # import tensorflow_probability.substrates.jax as tfp
 # tfd = tfp.distributions
 import distrax
+import flax.linen as nn
+import jax
+import jax.numpy as jnp
 
 
 KERNEL_INIT_FN = {

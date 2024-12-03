@@ -1,11 +1,12 @@
 from typing import Union
+
 import jax
 from jax import numpy as jnp
 
+
 try:
     from brax.generalized import pipeline as gen_pipeline
-    from brax.io import mjcf
-    from brax.io import html
+    from brax.io import html, mjcf
 except ModuleNotFoundError as e:
     print("Brax not installed. Install it with `pip install brax`")
     raise e

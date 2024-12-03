@@ -1,13 +1,14 @@
-from typing import Dict, Any, Union
+from typing import Any, Dict, Union
+
+import flax.struct as struct
 import jax
 import jax.numpy as jnp
-import numpy as onp
-import flax.struct as struct
-from rex.rl import ResetReturn, StepReturn, BaseEnv, Box
+
+import rex.ppo as ppo
 from rex import base
 from rex.graph import Graph
-import rex.ppo as ppo
 from rex.pendulum.agent import AgentParams
+from rex.rl import BaseEnv, Box, ResetReturn, StepReturn
 
 
 class SwingUpEnv(BaseEnv):

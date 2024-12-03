@@ -3,36 +3,38 @@ PPO implementation based on the PPO implementation from purejaxrl:
 https://github.com/luchris429/purejaxrl
 """
 
-from typing import Union, Dict, List, Tuple, Any, Sequence, TYPE_CHECKING, Callable
-import jax
-import numpy as onp
-import jax.numpy as jnp
+from typing import Any, Dict, Union
+
 import flax.linen as nn
+import jax
+import jax.numpy as jnp
 import numpy as np
+import numpy as onp
+
 
 try:
     import optax
 except ImportError as e:
     raise ImportError(f"Failed to import optax: {e}. Please install it with `pip install optax`.")
-from flax.linen.initializers import constant, orthogonal
-from flax import struct
+from typing import Any
+
 import distrax
-from typing import Sequence, NamedTuple, Any
+from flax import struct
 from flax.training.train_state import TrainState
-from rex.base import GraphState, Base
+
+from rex.actor_critic import Actor, ActorCritic, Critic
+from rex.base import Base, GraphState
 from rex.rl import (
+    AutoResetWrapper,
     Environment,
     LogWrapper,
-    AutoResetWrapper,
-    VecEnv,
+    NormalizeVec,
     NormalizeVecObservation,
     NormalizeVecReward,
-    Box,
     SquashAction,
     SquashState,
-    NormalizeVec,
+    VecEnv,
 )
-from rex.actor_critic import Actor, Critic, ActorCritic
 
 
 @struct.dataclass
@@ -588,7 +590,7 @@ if __name__ == "__main__":
     )
     config = Config(**config)
 
-    from rex.pendulum.nodes import TestDiskPendulum, TestGymnaxPendulum
+    from rex.pendulum.nodes import TestDiskPendulum
 
     env = TestDiskPendulum()
 

@@ -1,12 +1,12 @@
-import pytest
 import functools
+
 import jax
 import jax.numpy as jnp
+import pytest
 
-from rex.graph import Graph
 import rex.ppo as ppo
-from rex.base import GraphState
-from rex.actor_critic import Actor, Critic, ActorCritic
+from rex.actor_critic import Actor, ActorCritic, Critic
+from rex.graph import Graph
 from tests.unit.test_utils import Env
 
 

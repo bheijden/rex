@@ -1,15 +1,15 @@
-import pytest
 import jax
-import equinox as eqx
 import jax.numpy as jnp
+import pytest
+
 from rex.jax_utils import (
+    no_weaktype,
+    promote_to_no_weak_type,
+    same_structure,
     tree_dot,
-    tree_take,
     tree_dynamic_slice,
     tree_extend,
-    same_structure,
-    promote_to_no_weak_type,
-    no_weaktype,
+    tree_take,
 )
 
 
