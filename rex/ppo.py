@@ -635,7 +635,7 @@ if __name__ == "__main__":
     plt.show()
     exit()
 
-    rng = jax.random.PRNGKey(0)
-    train_jit = jax.jit(make_train(config, env=env))
-    with jax.disable_jit(False):
-        out = train_jit(rng)
+    # rng = jax.random.PRNGKey(0)
+    # train_jit = jax.jit(make_train(config, env=env))
+    # with jax.disable_jit(False):
+    #     out = train_jit(rng)

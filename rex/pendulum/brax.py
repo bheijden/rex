@@ -11,7 +11,6 @@ from rex.node import BaseWorld
 
 
 try:
-    from brax.base import State, System
     from brax.generalized import pipeline as gen_pipeline
     from brax.io import mjcf
     from brax.positional import pipeline as pos_pipeline
