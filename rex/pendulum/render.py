@@ -1,11 +1,12 @@
 from typing import Union
+
 import jax
 from jax import numpy as jnp
 
+
 try:
     from brax.generalized import pipeline as gen_pipeline
-    from brax.io import mjcf
-    from brax.io import html
+    from brax.io import html, mjcf
 except ModuleNotFoundError as e:
     print("Brax not installed. Install it with `pip install brax`")
     raise e
@@ -70,7 +71,7 @@ DISK_PENDULUM_VISUAL_XML = """
         <motor joint="hinge_joint" ctrllimited="false" ctrlrange="-3.0 3.0"  gear="0.01"/>
     </actuator>
 </mujoco>
-"""
+"""  # noqa: E501
 
 
 def save(path, json_rollout):
@@ -83,7 +84,11 @@ def save(path, json_rollout):
     path.write_text(json_rollout)
 
 
-def render(rollout: Union[BraxState, OdeState], dt: Union[float, jax.typing.ArrayLike] = 0.02, xml_string: str = DISK_PENDULUM_VISUAL_XML):
+def render(
+    rollout: Union[BraxState, OdeState],
+    dt: Union[float, jax.typing.ArrayLike] = 0.02,
+    xml_string: str = DISK_PENDULUM_VISUAL_XML,
+):
     """Render the rollout as an HTML file.
 
     :param rollout: Rollout to render

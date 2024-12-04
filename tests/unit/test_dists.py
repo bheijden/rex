@@ -1,9 +1,10 @@
-import pytest
 import jax
 import jax.numpy as jnp
 import numpy as onp
-from distrax import Deterministic, Normal, MixtureSameFamily, Categorical
-from rex.base import StaticDist, TrainableDist, DelayDistribution, InputState
+import pytest
+from distrax import Categorical, Deterministic, MixtureSameFamily, Normal
+
+from rex.base import DelayDistribution, InputState, StaticDist, TrainableDist
 
 
 @pytest.mark.parametrize("static_dist", ["Deterministic", "Normal", "MixtureSameFamily"])
@@ -15,8 +16,7 @@ def test_static_dist_quantile(static_dist):
     elif static_dist == "MixtureSameFamily":
         static_dist = MixtureSameFamily(
             mixture_distribution=Categorical(probs=jnp.array([0.5, 0.5])),
-            components_distribution=Normal(loc=jnp.array([1.0, 1.0]),
-                                           scale=jnp.array([0.1, 0.1]))
+            components_distribution=Normal(loc=jnp.array([1.0, 1.0]), scale=jnp.array([0.1, 0.1])),
         )
     dist = StaticDist.create(static_dist)
     q = dist.quantile(0.5)
@@ -128,7 +128,7 @@ def test_trainable_dist_api():
     assert not dist.equivalent(dist.replace(interp="linear"))
 
     # Test window
-    assert dist.window(rate_out=10.) == 20
+    assert dist.window(rate_out=10.0) == 20
     noop_dist = TrainableDist(alpha=0.0, min=1.0, max=1.0)
     assert noop_dist.window(rate_out=10) == 0
 
@@ -137,7 +137,9 @@ def test_trainable_dist_api():
     ts_sent = onp.array([0.0, 0.0, 0.0, 0.1, 0.2, 0.3])
     ts_recv = ts_sent + dist.mean()
     data = onp.array([-100, -100, 0.0, 1.0, 2.0, 3.0])[:, None]
-    input_state = InputState.from_outputs(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, outputs=data, delay_dist=noop_dist, is_data=True)
+    input_state = InputState.from_outputs(
+        seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, outputs=data, delay_dist=noop_dist, is_data=True
+    )
     interp_input_state = input_state.delay_dist.apply_delay(10.0, input_state, ts_start=0.0)
     assert interp_input_state.seq.shape == input_state.seq.shape
 
@@ -151,11 +153,15 @@ def test_trainable_dist_apply_delay(interp_method):
     ts_sent = onp.array([0.0, 0.0, 0.0, 0.1, 0.2, 0.3])
     ts_recv = ts_sent + dist.mean()  # I believe, this has no influence, as it's overridden in apply_delay.
     data = onp.array([-100, -100, 0.0, 1.0, 2.0, 3.0])[:, None]
-    input_state = InputState.from_outputs(seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, outputs=data, delay_dist=dist, is_data=True)
+    input_state = InputState.from_outputs(
+        seq=seq, ts_sent=ts_sent, ts_recv=ts_recv, outputs=data, delay_dist=dist, is_data=True
+    )
 
     # Test apply_delay
     rate_out = 10
     ts_start = 0.0
-    interp_input_state = input_state.delay_dist.apply_delay(rate_out, input_state, ts_start + dist.mean()+0.15)
+    interp_input_state = input_state.delay_dist.apply_delay(rate_out, input_state, ts_start + dist.mean() + 0.15)
     print(f"{interp_method}: ", interp_input_state)
-    assert interp_input_state.seq.shape == (2,)  # Only 2 samples should be left after delay application (i.e. original window was 2)
+    assert interp_input_state.seq.shape == (
+        2,
+    )  # Only 2 samples should be left after delay application (i.e. original window was 2)

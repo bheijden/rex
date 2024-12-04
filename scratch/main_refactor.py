@@ -87,10 +87,10 @@ if __name__ == "__main__":
 
     # Set log levels
     utils.set_log_level(LogLevel.WARN)
-    utils.set_log_level(LogLevel.DEBUG, world, "blue")
-    utils.set_log_level(LogLevel.SILENT, sensor, "blue")
-    utils.set_log_level(LogLevel.SILENT, actuator, "blue")
-    utils.set_log_level(LogLevel.DEBUG, agent, "cyan")
+    utils.set_log_level(LogLevel.DEBUG, world)
+    utils.set_log_level(LogLevel.SILENT, sensor)
+    utils.set_log_level(LogLevel.SILENT, actuator)
+    utils.set_log_level(LogLevel.DEBUG, agent)
 
     # Create the graph
     from rex.asynchronous import AsyncGraph

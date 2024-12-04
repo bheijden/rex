@@ -1,14 +1,16 @@
-from typing import Tuple, Dict
-from math import ceil
 import functools
+from math import ceil
+from typing import Dict
+
+import distrax
 import jax
 import jax.numpy as jnp
-import distrax
+
+from rex import constants
+
 # from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
 # tfd = tfp.distributions
-
-from rex.base import Edge, Vertex, Graph, TrainableDist, StaticDist
-from rex import constants
+from rex.base import Edge, Graph, StaticDist, TrainableDist, Vertex
 from rex.node import BaseNode
 
 
@@ -162,10 +164,10 @@ def _generate_graphs(
 
     def episode(rng_eps, _graphs, _ts_max):
         # Split rngs
-        rngs = jax.random.split(rng_eps, num=2 * len(nodes)+len(connections))
-        rngs_phase = rngs[:len(nodes)]
-        rngs_episode = rngs[len(nodes):2*len(nodes)]
-        rngs_comm = rngs[2*len(nodes):]
+        rngs = jax.random.split(rng_eps, num=2 * len(nodes) + len(connections))
+        rngs_phase = rngs[: len(nodes)]
+        rngs_episode = rngs[len(nodes) : 2 * len(nodes)]
+        rngs_comm = rngs[2 * len(nodes) :]
 
         # Determine start times
         offsets = {n: phase[n].replace(rng=_rng).sample()[1] for n, _rng in zip(nodes, rngs_phase)}
@@ -175,9 +177,13 @@ def _generate_graphs(
                 continue
             # Check if node settings are supported
             if nodes[n].advance is True:
-                raise NotImplementedError("node.advance=True is not supported yet. As a workaround, you can generate graphs via AsyncGraph.")
+                raise NotImplementedError(
+                    "node.advance=True is not supported yet. As a workaround, you can generate graphs via AsyncGraph."
+                )
             if nodes[n].scheduling is constants.Scheduling.PHASE:
-                raise NotImplementedError("node.scheduling=PHASE is not supported yet. As a workaround, you can generate graphs via AsyncGraph.")
+                raise NotImplementedError(
+                    "node.scheduling=PHASE is not supported yet. As a workaround, you can generate graphs via AsyncGraph."
+                )
             # Generate timestamps
             node_step = functools.partial(step, n, _ts_max)
             ts_max_all = float(ts_max.max())  # Maxmimum ts across all episodes (needed to match static shapes).
@@ -193,11 +199,17 @@ def _generate_graphs(
                 continue  # Skip if edge already exists
             # Check if connection settings are supported
             if c.blocking is True:
-                raise NotImplementedError("connection.blocking=True is not supported yet. As a workaround, you can generate graphs via AsyncGraph.")
+                raise NotImplementedError(
+                    "connection.blocking=True is not supported yet. As a workaround, you can generate graphs via AsyncGraph."
+                )
             if c.blocking is True and isinstance(c.delay_dist, TrainableDist):
-                raise NotImplementedError("connection.blocking=True and connection.delay_dist is TrainableDist is not supported yet. As a workaround, you can generate graphs via AsyncGraph.")
+                raise NotImplementedError(
+                    "connection.blocking=True and connection.delay_dist is TrainableDist is not supported yet. As a workaround, you can generate graphs via AsyncGraph."
+                )
             if c.jitter is constants.Jitter.BUFFER:
-                raise NotImplementedError("connection.jitter=BUFFER is not supported yet. As a workaround, you can generate graphs via AsyncGraph.")
+                raise NotImplementedError(
+                    "connection.jitter=BUFFER is not supported yet. As a workaround, you can generate graphs via AsyncGraph."
+                )
             seq_out = vertices[output_name].seq
             ts_end = jnp.where(seq_out == -1, jnp.inf, vertices[output_name].ts_end)
             ts_recv = ts_end + communication_delays[(output_name, input_name)].replace(rng=_rng).sample(shape=ts_end.shape)[1]

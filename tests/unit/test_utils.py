@@ -4,26 +4,29 @@ import jax
 from flax import struct as struct
 from jax import numpy as jnp
 
+import rex.rl as rl
 from rex.base import Base, GraphState, StepState
 from rex.node import BaseNode
-import rex.rl as rl
 
 
 @struct.dataclass
 class Params(Base):
     """Arbitrary dataclass."""
+
     a: jax.Array
 
 
 @struct.dataclass
 class State(Base):
     """Arbitrary dataclass."""
+
     a: jax.Array
 
 
 @struct.dataclass
 class Output(Base):
     """Arbitrary dataclass."""
+
     a: jax.Array
 
 

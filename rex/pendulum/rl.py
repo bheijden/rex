@@ -1,13 +1,14 @@
-from typing import Dict, Any, Union
+from typing import Any, Dict, Union
+
+import flax.struct as struct
 import jax
 import jax.numpy as jnp
-import numpy as onp
-import flax.struct as struct
-from rex.rl import ResetReturn, StepReturn, BaseEnv, Box
+
+import rex.ppo as ppo
 from rex import base
 from rex.graph import Graph
-import rex.ppo as ppo
 from rex.pendulum.agent import AgentParams
+from rex.rl import BaseEnv, Box, ResetReturn, StepReturn
 
 
 class SwingUpEnv(BaseEnv):
@@ -63,8 +64,7 @@ class SwingUpEnv(BaseEnv):
         # face of simulated asynchrounous effects.
         new_world = graph_state.state["world"].replace(loss_task=0.0)
         # Update the states in the graph state
-        gs = graph_state.replace(state=graph_state.state.copy({"agent": new_agent,
-                                                               "world": new_world}))
+        gs = graph_state.replace(state=graph_state.state.copy({"agent": new_agent, "world": new_world}))
         # Convert action to output (i.e. the one that the Agent node outputs)
         ss = gs.step_state["agent"]
         output = params.to_output(action)
@@ -118,9 +118,11 @@ class PendulumConfig(ppo.Config):
             warn = ""
             if total_episodes == 0:
                 warn = "WARNING: No eval. episodes returned | "
-            print(f"{warn}train_steps={global_step:.0f} | eval_eps={total_episodes} | return={mean_return:.1f}+-{std_return:.1f} | "
-                  f"length={int(mean_length)}+-{std_length:.1f} | approxkl={mean_approxkl:.4f} | "
-                  f"success_rate={success_rate:.2f}")
+            print(
+                f"{warn}train_steps={global_step:.0f} | eval_eps={total_episodes} | return={mean_return:.1f}+-{std_return:.1f} | "
+                f"length={int(mean_length)}+-{std_length:.1f} | approxkl={mean_approxkl:.4f} | "
+                f"success_rate={success_rate:.2f}"
+            )
 
 
 sweep_pmv2r1zf = PendulumConfig(
@@ -138,8 +140,8 @@ sweep_pmv2r1zf = PendulumConfig(
     MAX_GRAD_NORM=0.9630061315073456,
     NUM_HIDDEN_LAYERS=2,
     NUM_HIDDEN_UNITS=64,
-    KERNEL_INIT_TYPE='xavier_uniform',
-    HIDDEN_ACTIVATION='tanh',
+    KERNEL_INIT_TYPE="xavier_uniform",
+    HIDDEN_ACTIVATION="tanh",
     STATE_INDEPENDENT_STD=True,
     SQUASH=True,
     ANNEAL_LR=False,
@@ -149,5 +151,5 @@ sweep_pmv2r1zf = PendulumConfig(
     NUM_EVAL_ENVS=20,
     EVAL_FREQ=20,
     VERBOSE=True,
-    DEBUG=False
+    DEBUG=False,
 )

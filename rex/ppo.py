@@ -3,24 +3,37 @@ PPO implementation based on the PPO implementation from purejaxrl:
 https://github.com/luchris429/purejaxrl
 """
 
-from typing import Union, Dict, List, Tuple, Any, Sequence, TYPE_CHECKING, Callable
-import jax
-import numpy as onp
-import jax.numpy as jnp
+from typing import Any, Dict, Union
+
 import flax.linen as nn
+import jax
+import jax.numpy as jnp
 import numpy as np
+import numpy as onp
+
+
 try:
     import optax
 except ImportError as e:
     raise ImportError(f"Failed to import optax: {e}. Please install it with `pip install optax`.")
-from flax.linen.initializers import constant, orthogonal
-from flax import struct
+
 import distrax
-from typing import Sequence, NamedTuple, Any
+from flax import struct
 from flax.training.train_state import TrainState
-from rex.base import GraphState, Base
-from rex.rl import Environment, LogWrapper, AutoResetWrapper, VecEnv, NormalizeVecObservation, NormalizeVecReward, Box, SquashAction, SquashState, NormalizeVec
-from rex.actor_critic import Actor, Critic, ActorCritic
+
+from rex.actor_critic import Actor, ActorCritic, Critic
+from rex.base import Base, GraphState
+from rex.rl import (
+    AutoResetWrapper,
+    Environment,
+    LogWrapper,
+    NormalizeVec,
+    NormalizeVecObservation,
+    NormalizeVecReward,
+    SquashAction,
+    SquashState,
+    VecEnv,
+)
 
 
 @struct.dataclass
@@ -50,6 +63,7 @@ class Config(Base):
     Inherit from this class and override the `EVAL_METRICS_JAX_CB` and `EVAL_METRICS_HOST_CB` methods to customize the
     evaluation metrics and the host-side callback for the evaluation metrics.
     """
+
     # Learning rate
     LR: float = struct.field(default=5e-4)
     # Number of parallel environments
@@ -121,7 +135,7 @@ class Config(Base):
     def MINIBATCH_SIZE(self):
         return self.NUM_ENVS * self.NUM_STEPS // self.NUM_MINIBATCHES
 
-    def EVAL_METRICS_JAX_CB(self, total_steps, diagnostics: Diagnostics, eval_transitions: Transition=None) -> Dict:
+    def EVAL_METRICS_JAX_CB(self, total_steps, diagnostics: Diagnostics, eval_transitions: Transition = None) -> Dict:
         returns_done = eval_transitions.info["returned_episode_returns"] * eval_transitions.done
         lengths_done = eval_transitions.info["returned_episode_lengths"] * eval_transitions.done
         total_eps = eval_transitions.done.sum()
@@ -157,8 +171,10 @@ class Config(Base):
             warn = ""
             if total_episodes == 0:
                 warn = "WARNING: No eval. episodes returned | "
-            print(f"{warn}train_steps={global_step:.0f} | eval_eps={total_episodes} | return={mean_return:.1f}+-{std_return:.1f} | "
-                  f"length={int(mean_length)}+-{std_length:.1f} | approxkl={mean_approxkl:.4f}")
+            print(
+                f"{warn}train_steps={global_step:.0f} | eval_eps={total_episodes} | return={mean_return:.1f}+-{std_return:.1f} | "
+                f"length={int(mean_length)}+-{std_length:.1f} | approxkl={mean_approxkl:.4f}"
+            )
 
 
 @struct.dataclass
@@ -179,7 +195,7 @@ class Policy(Base):
 
         # Apply hidden layers
         ACTIVATIONS = dict(tanh=nn.tanh, relu=nn.relu, gelu=nn.gelu, softplus=nn.softplus)
-        for i in range(num_layers-1):
+        for i in range(num_layers - 1):
             hl = actor_params[f"Dense_{i}"]
             num_output_units = hl["kernel"].shape[-1]
             if x is None:
@@ -207,7 +223,9 @@ class Policy(Base):
         # Normalize observation
         norm_obs = self.obs_scaling.normalize(obs, clip=True, subtract_mean=True) if self.obs_scaling is not None else obs
         # Get action
-        action = self.apply_actor(norm_obs, rng=rng) if self.model is not None else jnp.zeros((self.action_dim,), dtype=jnp.float32)
+        action = (
+            self.apply_actor(norm_obs, rng=rng) if self.model is not None else jnp.zeros((self.action_dim,), dtype=jnp.float32)
+        )
         # Scale action
         action = self.act_scaling.unsquash(action) if self.act_scaling is not None else action
         return action
@@ -247,7 +265,7 @@ class PPOResult(Base):
             model=self.runner_state.train_state.params["params"],
             hidden_activation=self.config.HIDDEN_ACTIVATION,
             output_activation="gaussian",
-            state_independent_std=self.config.STATE_INDEPENDENT_STD
+            state_independent_std=self.config.STATE_INDEPENDENT_STD,
         )
 
 
@@ -263,7 +281,7 @@ def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
         env = NormalizeVecReward(env, config.GAMMA)
 
     def linear_schedule(count):
-        frac = (1.0 - (count // (config.NUM_MINIBATCHES * config.UPDATE_EPOCHS)) / config.NUM_UPDATES)
+        frac = 1.0 - (count // (config.NUM_MINIBATCHES * config.UPDATE_EPOCHS)) / config.NUM_UPDATES
         return config.LR * frac
 
     # INIT VECTORIZED ENV
@@ -277,8 +295,8 @@ def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
     # OFFSET STEP
     if config.OFFSET_STEP:
         max_steps = env.max_steps
-        offset = (onp.arange(config.NUM_ENVS)*(env.max_steps / config.NUM_ENVS)).astype(int) % max_steps
-        gsv = gsv.replace(step=gsv.step+offset)
+        offset = (onp.arange(config.NUM_ENVS) * (env.max_steps / config.NUM_ENVS)).astype(int) % max_steps
+        gsv = gsv.replace(step=gsv.step + offset)
 
     # INIT ACTOR NETWORK
     actor = Actor(
@@ -295,7 +313,7 @@ def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
         num_hidden_units=config.NUM_HIDDEN_UNITS,
         num_hidden_layers=config.NUM_HIDDEN_LAYERS,
         hidden_activation=config.HIDDEN_ACTIVATION,
-        kernel_init_type=config.KERNEL_INIT_TYPE
+        kernel_init_type=config.KERNEL_INIT_TYPE,
     )
 
     # INIT NETWORK
@@ -311,8 +329,6 @@ def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
 
     # INIT ENV
     rng, _rng = jax.random.split(rng)
-    reset_rng = jax.random.split(_rng, config.NUM_ENVS)
-    # env_state, obsv, _ = env.reset(reset_rng)
     env_state = gsv
 
     # UPDATE LOOP
@@ -342,6 +358,7 @@ def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
 
         def _calculate_gae(traj_batch, last_val):
             """https://nn.labml.ai/rl/ppo/gae.html"""
+
             def _get_advantages(gae_and_next_value, transition):
                 gae, next_value = gae_and_next_value
                 done, value, reward = (
@@ -350,10 +367,7 @@ def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
                     transition.reward,
                 )
                 delta = reward + config.GAMMA * next_value * (1 - done) - value
-                gae = (
-                    delta
-                    + config.GAMMA * config.GAE_LAMBDA * (1 - done) * gae
-                )
+                gae = delta + config.GAMMA * config.GAE_LAMBDA * (1 - done) * gae
                 return (gae, value), gae
 
             _, advantages = jax.lax.scan(
@@ -383,21 +397,30 @@ def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
                     value_pred_clipped = traj_batch.value + (value - traj_batch.value).clip(-config.CLIP_EPS, config.CLIP_EPS)
                     value_losses = jnp.square(value - targets)
                     value_losses_clipped = jnp.square(value_pred_clipped - targets)
-                    value_loss = (0.5 * jnp.maximum(value_losses, value_losses_clipped).mean())
+                    value_loss = 0.5 * jnp.maximum(value_losses, value_losses_clipped).mean()
 
                     # CALCULATE ACTOR LOSS
                     logratio = log_prob - traj_batch.log_prob
                     ratio = jnp.exp(logratio)
-                    approxkl = ((ratio - 1) - logratio).mean()  # Approximate KL estimators: http://joschu.net/blog/kl-approx.html
+                    approxkl = (
+                        (ratio - 1) - logratio
+                    ).mean()  # Approximate KL estimators: http://joschu.net/blog/kl-approx.html
                     gae = (gae - gae.mean()) / (gae.std() + 1e-8)  # Advantage normalization (optional, but True in cleanrl)
                     loss_actor1 = ratio * gae
-                    loss_actor2 = (jnp.clip(ratio, 1.0 - config.CLIP_EPS, 1.0 + config.CLIP_EPS,)* gae)
+                    loss_actor2 = (
+                        jnp.clip(
+                            ratio,
+                            1.0 - config.CLIP_EPS,
+                            1.0 + config.CLIP_EPS,
+                        )
+                        * gae
+                    )
                     loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
                     loss_actor = loss_actor.mean()
                     entropy = pi.entropy().mean()
 
                     # CALCULATE TOTAL LOSS
-                    total_loss = (loss_actor + config.VF_COEF * value_loss - config.ENT_COEF * entropy)
+                    total_loss = loss_actor + config.VF_COEF * value_loss - config.ENT_COEF * entropy
 
                     # RETURN DIAGNOSTICS
                     d = Diagnostics(total_loss, value_loss, loss_actor, entropy, approxkl)
@@ -413,12 +436,17 @@ def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
             train_state, traj_batch, advantages, targets, rng = update_state
             rng, _rng = jax.random.split(rng)
             batch_size = config.MINIBATCH_SIZE * config.NUM_MINIBATCHES
-            assert (batch_size == config.NUM_STEPS * config.NUM_ENVS), "batch size must be equal to number of steps * number of envs"
+            assert (
+                batch_size == config.NUM_STEPS * config.NUM_ENVS
+            ), "batch size must be equal to number of steps * number of envs"
             permutation = jax.random.permutation(_rng, batch_size)
             batch = (traj_batch, advantages, targets)
             batch = jax.tree_util.tree_map(lambda x: x.reshape((batch_size,) + x.shape[2:]), batch)
             shuffled_batch = jax.tree_util.tree_map(lambda x: jnp.take(x, permutation, axis=0), batch)
-            minibatches = jax.tree_util.tree_map(lambda x: jnp.reshape(x, [config.NUM_MINIBATCHES, -1] + list(x.shape[1:])), shuffled_batch,)
+            minibatches = jax.tree_util.tree_map(
+                lambda x: jnp.reshape(x, [config.NUM_MINIBATCHES, -1] + list(x.shape[1:])),
+                shuffled_batch,
+            )
             train_state, diagnostics = jax.lax.scan(_update_minbatch, train_state, minibatches)
             update_state = (train_state, traj_batch, advantages, targets, rng)
             return update_state, diagnostics
@@ -435,20 +463,21 @@ def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
 
             def callback(info):
                 return_values = info["returned_episode_returns"][info["returned_episode"]]
-                timesteps = (info["timestep"][info["returned_episode"]] * config.NUM_ENVS)
+                timesteps = info["timestep"][info["returned_episode"]] * config.NUM_ENVS
                 if len(timesteps) > 0:
                     global_step = timesteps[-1]
                     mean_return = np.mean(return_values)
                     std_return = np.std(return_values)
                     min_return = np.min(return_values)
                     max_return = np.max(return_values)
-                    print(f"global step={global_step} | mean return={mean_return:.2f} +- {std_return:.2f} | min return={min_return:.2f} | max return={max_return:.2f}")
+                    print(
+                        f"global step={global_step} | mean return={mean_return:.2f} +- {std_return:.2f} | min return={min_return:.2f} | max return={max_return:.2f}"
+                    )
 
             jax.debug.callback(callback, metric)
 
         runner_state = (train_state, env_state, last_obs, rng)
         return runner_state, metric
-
 
     # TRAIN LOOP
     def _update_and_eval(runner_state, xs):
@@ -464,9 +493,9 @@ def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
 
         # EVALUATE
         if config.NUM_EVAL_ENVS > 0:
-            rngs_eval = jax.random.split(rng_eval, config.NUM_EVAL_ENVS+env.max_steps)
+            rngs_eval = jax.random.split(rng_eval, config.NUM_EVAL_ENVS + env.max_steps)
             eval_train_state = runner_state[0]
-            init_env_state, init_obs, _ = vec_env.reset(rngs_eval[:config.NUM_EVAL_ENVS])
+            init_env_state, init_obs, _ = vec_env.reset(rngs_eval[: config.NUM_EVAL_ENVS])
 
             # Properly normalize the observations
             if config.NORMALIZE_ENV:
@@ -486,7 +515,7 @@ def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
                 return next_runner_state, transition
 
             init_runner_state = (init_env_state, init_obs)
-            _, eval_traj_batch = jax.lax.scan(_evaluate_env_step, init_runner_state, rngs_eval[config.NUM_EVAL_ENVS:])
+            _, eval_traj_batch = jax.lax.scan(_evaluate_env_step, init_runner_state, rngs_eval[config.NUM_EVAL_ENVS :])
 
         # GENERATE METRICS
         metrics = config.EVAL_METRICS_JAX_CB(total_steps, diagnostics, eval_traj_batch)
@@ -498,18 +527,17 @@ def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
 
     rng, rng_update, rng_eval = jax.random.split(rng, num=3)
     rngs_eval = jax.random.split(rng_eval, config.EVAL_FREQ)
-    idx_eval = jnp.arange(1, config.EVAL_FREQ+1)
+    idx_eval = jnp.arange(1, config.EVAL_FREQ + 1)
     runner_state = (train_state, env_state, obsv, rng_update)
     runner_state, metrics = jax.lax.scan(_update_and_eval, runner_state, (rngs_eval, idx_eval))
 
     # Before returning
     ret = PPOResult(
         config=config,
-        runner_state=RunnerState(train_state=runner_state[0],
-                                 env_state=runner_state[1],
-                                 last_obs=runner_state[2],
-                                 rng=runner_state[3]),
-        metrics=metrics
+        runner_state=RunnerState(
+            train_state=runner_state[0], env_state=runner_state[1], last_obs=runner_state[2], rng=runner_state[3]
+        ),
+        metrics=metrics,
     )
     return ret
     # ret = {"runner_state": runner_state, "metrics": metrics}
@@ -559,10 +587,12 @@ if __name__ == "__main__":
     )
     config = Config(**config)
 
-    from rex.pendulum.nodes import TestDiskPendulum, TestGymnaxPendulum
+    from rex.pendulum.nodes import TestDiskPendulum
+
     env = TestDiskPendulum()
 
     import functools
+
     train_fn = functools.partial(train, env)
 
     # Evaluate
@@ -588,23 +618,24 @@ if __name__ == "__main__":
     eval_total_steps = metrics["eval/total_steps"].mean(axis=0)
     import matplotlib.pyplot as plt
     import seaborn
+
     seaborn.set()
     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
     ax[0].plot(return_values.mean(axis=0))
     ax[0].set_xlabel("Episode")
-    ax[0].set_ylabel(f"Mean Return (train)")
+    ax[0].set_ylabel("Mean Return (train)")
     ax[1].plot(eval_total_steps, eval_return_values)
     ax[1].fill_between(eval_total_steps, eval_return_values - eval_return_std, eval_return_values + eval_return_std, alpha=0.5)
     ax[1].set_xlabel("Timesteps")
-    ax[1].set_ylabel(f"Mean Return (eval)")
+    ax[1].set_ylabel("Mean Return (eval)")
     ax[2].plot(approxkl.mean(axis=0))
     ax[2].set_xlabel("Updates")
-    ax[2].set_ylabel(f"Mean Approx KL")
+    ax[2].set_ylabel("Mean Approx KL")
     fig.suptitle(f"Pendulum-v0, LR={config.LR}, over {num_seeds} seeds")
     plt.show()
     exit()
 
-    rng = jax.random.PRNGKey(0)
-    train_jit = jax.jit(make_train(config, env=env))
-    with jax.disable_jit(False):
-        out = train_jit(rng)
+    # rng = jax.random.PRNGKey(0)
+    # train_jit = jax.jit(make_train(config, env=env))
+    # with jax.disable_jit(False):
+    #     out = train_jit(rng)

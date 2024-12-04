@@ -1,18 +1,20 @@
 from typing import Dict, Tuple, Union
+
 import jax
 import jax.numpy as jnp
 import numpy as onp
 from flax import struct
 
 from rex import base
-from rex.jax_utils import tree_dynamic_slice
 from rex.base import GraphState, StepState
+from rex.jax_utils import tree_dynamic_slice
 from rex.node import BaseNode
 
 
 @struct.dataclass
 class SensorOutput(base.Base):
     """Output message definition of the sensor node."""
+
     th: Union[float, jax.typing.ArrayLike]
     thdot: Union[float, jax.typing.ArrayLike]
 
@@ -23,12 +25,14 @@ class SensorParams(base.Base):
     Other than the sensor delay, we don't have any other parameters.
     You could add more parameters here if needed, such as noise levels etc.
     """
+
     sensor_delay: Union[float, jax.typing.ArrayLike]
 
 
 @struct.dataclass
 class SensorState:
     """We use this state to record the reconstruction loss."""
+
     loss_th: Union[float, jax.typing.ArrayLike]
     loss_thdot: Union[float, jax.typing.ArrayLike]
 
@@ -127,6 +131,7 @@ class SimSensor(BaseNode):
 
     By calculating and aggregating the reconstruction loss here, we take time-scale differences and delays into account.
     """
+
     def __init__(self, *args, outputs: SensorOutput = None, **kwargs):
         """Initialize a simulated sensor for system identification.
 
@@ -153,7 +158,9 @@ class SimSensor(BaseNode):
         thdot = 0.0
         return SensorOutput(th=th, thdot=thdot)  # Fix the initial sensor values
 
-    def init_delays(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> Dict[str, Union[float, jax.typing.ArrayLike]]:
+    def init_delays(
+        self, rng: jax.Array = None, graph_state: base.GraphState = None
+    ) -> Dict[str, Union[float, jax.typing.ArrayLike]]:
         """Initialize trainable communication delays.
 
         **Note** These only include trainable delays that were specified while connecting the nodes.
@@ -188,8 +195,3 @@ class SimSensor(BaseNode):
         # Update step_state
         new_step_state = step_state.replace(state=new_state)
         return new_step_state, output
-
-
-
-
-

@@ -21,13 +21,9 @@ classifiers = [
 requires-python = ">=3.9"
 dependencies = [
     "supergraph>=0.0.8",
-    "gymnasium>=0.29.1",  # todo: remove?
     "tqdm>=4.66.4",
-    "dill>=0.3.8",
-    "seaborn>=0.13.2",  # todo: move to optional
     "matplotlib>=3.7.0",
     "networkx>=3.2.1",
-    "termcolor>=2.4.0",  # todo: remove?
     "jax>=0.4.30",  # Without CUDA by default
     "equinox>=0.11.4",
     "evosax>=0.1.6",  # Required for evo.py
@@ -37,18 +33,31 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# todo: add notebook dependencies: jupyter, ipywidgets.
-examples = ["brax>=0.10.5"]  # Required for pendulum.py
+examples = [
+    "brax>=0.10.5", # Required for pendulum.py
+    "seaborn>=0.13.2",
+    "dill>=0.3.8",
+    "jupyterlab>=4.3.2",
+    "ipykernel>=6.29.5",
+]
 
 [dependency-groups]
 dev = [
     "ruff>=0.8.1",
+    "setuptools>=75.6.0",
 ]
 tests = [
     "pytest-cov>=6.0.0",
     # Make sure that all test dependencies are also included in the testscript in .github/workflows/release.yml
     "pytest>=8.3.3",
 ]
+gpu = [
+    "jax[cuda12]>=0.4.30",
+]
+
+[tool.uv]
+package = true
+default-groups = ["dev"]  # Only "dev" is the default setting
 
 #[project.scripts]
 #rex-cli = "rex.cli:main"  # Optional: if you want to provide a command-line tool
@@ -69,6 +78,28 @@ exclude_lines = [
     "except ImportError",
 ]
 
+[tool.ruff]
+#extend-include = ["*.ipynb"]
+include = ["rex/**/*.py", "tests/**/*.py", "examples/**/*.ipynb"]
+line-length = 127
+indent-width = 4
+
+[tool.ruff.lint]
+#fixable = ["I001", "F401"]
+
+ignore = [
+    "E402",  # module level import not at top of file  --> Makes code less readable in some cases (notebooks)
+    "E501",  # line too long --> handled by ruff formatting
+    "E731",  # do not assign a lambda expression, use a def --> Very common in JAX
+]
+select = ["E", "F", "I001"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+extra-standard-library = ["typing_extensions"]
+lines-after-imports = 2
+order-by-type = false
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -79,8 +110,6 @@ include = ["rex/**/*"]
 [tool.hatch.build.targets.wheel]
 packages = ["rex"]
 
-[tool.uv]
-package = true
-default-groups = ["dev"]  # Only "dev" is the default setting
+
 
 

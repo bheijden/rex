@@ -1,17 +1,16 @@
-from typing import Optional, Tuple, Union, Any, Sequence, Dict, Callable
-from jax._src.typing import Array, ArrayLike, DTypeLike
+from typing import Any, Callable, Dict, Sequence, Tuple, Union
+
 import jax
 import jax.numpy as jnp
-import numpy as onp
 from flax import struct
-from flax.core import FrozenDict
-from functools import partial
+from jax._src.typing import ArrayLike, DTypeLike
+
+from rex import base
+
 # from gymnax.environments import environment, spaces
 # from brax import envs
 # from brax.envs.wrappers.training import EpisodeWrapper
-
 from rex.graph import Graph
-from rex import base
 
 
 class Space:
@@ -55,7 +54,9 @@ EnvState = base.GraphState
 # Tuple of (graph_state, observation, info)
 ResetReturn = Tuple[EnvState, jax.Array, Dict[str, Any]]
 # Tuple of (graph_state, observation, reward, terminated, truncated, info)
-StepReturn = Tuple[EnvState, jax.Array, Union[float, jax.Array], Union[bool, jax.Array], Union[bool, jax.Array], Dict[str, Any]]
+StepReturn = Tuple[
+    EnvState, jax.Array, Union[float, jax.Array], Union[bool, jax.Array], Union[bool, jax.Array], Dict[str, Any]
+]
 
 
 class BaseEnv:
@@ -86,7 +87,15 @@ class BaseEnv:
 
 
 class Environment:
-    def __init__(self, graph: Graph, params: Dict[str, base.Params] = None, only_init: bool = False, starting_eps: int = 0, randomize_eps: bool = False, order: Tuple[str, ...] = None):
+    def __init__(
+        self,
+        graph: Graph,
+        params: Dict[str, base.Params] = None,
+        only_init: bool = False,
+        starting_eps: int = 0,
+        randomize_eps: bool = False,
+        order: Tuple[str, ...] = None,
+    ):
         self.graph = graph
         self.params = params
         self.only_init = only_init
@@ -162,11 +171,23 @@ class Environment:
         """
 
         if self.only_init:
-            gs = self.graph.init(rng, params=self.params, starting_step=1,  # Avoids running first partition
-                                 starting_eps=self.starting_eps, randomize_eps=self.randomize_eps, order=self.order)
+            gs = self.graph.init(
+                rng,
+                params=self.params,
+                starting_step=1,  # Avoids running first partition
+                starting_eps=self.starting_eps,
+                randomize_eps=self.randomize_eps,
+                order=self.order,
+            )
         else:
-            gs = self.graph.init(rng, params=self.params, starting_step=0,
-                                 starting_eps=self.starting_eps, randomize_eps=self.randomize_eps, order=self.order)
+            gs = self.graph.init(
+                rng,
+                params=self.params,
+                starting_step=0,
+                starting_eps=self.starting_eps,
+                randomize_eps=self.randomize_eps,
+                order=self.order,
+            )
             gs, _ = self.graph.reset(gs)  # Run the first partition (excluding the supervisor)
         return gs
 
@@ -267,7 +288,9 @@ class AutoResetWrapper(BaseWrapper):
             names = [name for name in list(gs.rng.keys()) if self._env.params is not None and name not in self._env.params]
             if len(names) == 0:
                 names = list(gs.rng.keys())
-                print(f"rl.AutoResetWrapper.step(...) | Warning: No node found in graph state. May not actually be fully randomizing...")
+                print(
+                    "rl.AutoResetWrapper.step(...) | Warning: No node found in graph state. May not actually be fully randomizing..."
+                )
             name = names[0]  # Grab arbitrary node not in preset params
             new_rng, rng_init = jax.random.split(gs.rng[name])
             gs = gs.replace(rng=gs.rng.copy({name: new_rng}))
@@ -330,10 +353,8 @@ class LogWrapper(BaseWrapper):
         log_state = log_state.replace(
             episode_returns=new_episode_return * (1 - done),
             episode_lengths=new_episode_length * (1 - done),
-            returned_episode_returns=log_state.returned_episode_returns * (1 - done)
-            + new_episode_return * done,
-            returned_episode_lengths=log_state.returned_episode_lengths * (1 - done)
-            + new_episode_length * done,
+            returned_episode_returns=log_state.returned_episode_returns * (1 - done) + new_episode_return * done,
+            returned_episode_lengths=log_state.returned_episode_lengths * (1 - done) + new_episode_length * done,
             timestep=log_state.timestep + 1,
         )
         info["returned_episode_returns"] = log_state.returned_episode_returns
@@ -450,11 +471,7 @@ class NormalizeVecObservation(BaseWrapper):
     def reset(self, rng: jax.Array = None) -> ResetReturn:
         gs, obs, info = self._env.reset(rng)
         norm_state = NormalizeVec(
-            mean=jnp.zeros_like(obs[0]),
-            var=jnp.ones_like(obs[0]),
-            count=1e-4,
-            return_val=None,
-            clip=self.clip_obs
+            mean=jnp.zeros_like(obs[0]), var=jnp.ones_like(obs[0]), count=1e-4, return_val=None, clip=self.clip_obs
         )
         batch_mean = jnp.mean(obs, axis=0)
         batch_var = jnp.var(obs, axis=0)
@@ -470,13 +487,7 @@ class NormalizeVecObservation(BaseWrapper):
         new_var = M2 / tot_count
         new_count = tot_count
 
-        norm_state = NormalizeVec(
-            mean=new_mean,
-            var=new_var,
-            count=new_count,
-            return_val=None,
-            clip=self.clip_obs
-        )
+        norm_state = NormalizeVec(mean=new_mean, var=new_var, count=new_count, return_val=None, clip=self.clip_obs)
         norm_gs = gs.replace_aux({"norm_obs": norm_state})
         norm_obs = norm_state.normalize(obs, clip=True, subtract_mean=True)
         return norm_gs, norm_obs, info
@@ -500,20 +511,16 @@ class NormalizeVecObservation(BaseWrapper):
         new_var = M2 / tot_count
         new_count = tot_count
 
-        norm_state = NormalizeVec(
-            mean=new_mean,
-            var=new_var,
-            count=new_count,
-            return_val=None,
-            clip=self.clip_obs
-        )
+        norm_state = NormalizeVec(mean=new_mean, var=new_var, count=new_count, return_val=None, clip=self.clip_obs)
         norm_gs = gs.replace_aux({"norm_obs": norm_state})
         norm_obs = norm_state.normalize(obs, clip=True, subtract_mean=True)
         return norm_gs, norm_obs, reward, terminated, truncated, info
 
 
 class NormalizeVecReward(BaseWrapper):
-    def __init__(self, env: Union[Environment, "BaseWrapper"], gamma: Union[float, jax.typing.ArrayLike], clip_reward: float = 10.0):
+    def __init__(
+        self, env: Union[Environment, "BaseWrapper"], gamma: Union[float, jax.typing.ArrayLike], clip_reward: float = 10.0
+    ):
         super().__init__(env)
         self.gamma = gamma
         self.clip_reward = clip_reward
@@ -522,13 +529,7 @@ class NormalizeVecReward(BaseWrapper):
         gs, obs, info = self._env.reset(rng)
 
         batch_count = obs.shape[0]
-        norm_state = NormalizeVec(
-            mean=0.0,
-            var=1.0,
-            count=1e-4,
-            return_val=jnp.zeros((batch_count,)),
-            clip=self.clip_reward
-        )
+        norm_state = NormalizeVec(mean=0.0, var=1.0, count=1e-4, return_val=jnp.zeros((batch_count,)), clip=self.clip_reward)
         norm_gs = gs.replace_aux({"norm_reward": norm_state})
         return norm_gs, obs, info
 
@@ -553,13 +554,7 @@ class NormalizeVecReward(BaseWrapper):
         new_var = M2 / tot_count
         new_count = tot_count
 
-        norm_state = NormalizeVec(
-            mean=new_mean,
-            var=new_var,
-            count=new_count,
-            return_val=return_val,
-            clip=self.clip_reward
-        )
+        norm_state = NormalizeVec(mean=new_mean, var=new_var, count=new_count, return_val=return_val, clip=self.clip_reward)
         norm_gs = gs.replace_aux({"norm_reward": norm_state})
         norm_reward = norm_state.normalize(reward, clip=True, subtract_mean=False)
         # norm_reward = jnp.clip(reward / jnp.sqrt(norm_state.var + 1e-8), -self.clip_reward, self.clip_reward)
@@ -589,7 +584,16 @@ def rollout(env: Environment, get_action: Callable[[jax.Array], jax.Array], num_
         reward = reward * (1 - _is_done)  # If previous step was done, reward is 0
         done = jnp.logical_or(terminated, truncated)
         next_is_done = jnp.logical_or(_is_done, done)
-        transition = Transition(gs=_gs, action=action, obs=_obs, next_obs=next_obs, reward=reward, terminated=terminated, truncated=truncated, info=info)
+        transition = Transition(
+            gs=_gs,
+            action=action,
+            obs=_obs,
+            next_obs=next_obs,
+            reward=reward,
+            terminated=terminated,
+            truncated=truncated,
+            info=info,
+        )
         return (next_gs, next_obs, next_is_done), transition
 
     # Reset the environment

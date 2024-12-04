@@ -4,6 +4,7 @@ https://github.com/ericmjl/dl-workshop/blob/6ef9b7feb60dd5f6a4dbdda4dc899337e583
 """
 
 import itertools
+
 import jax.numpy as np
 from jax.scipy import stats
 
@@ -163,8 +164,8 @@ def plot_component_norm_pdfs(
     return artists
 
 
-import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import matplotlib.pyplot as plt
 from jax import lax
 
 
@@ -285,7 +286,7 @@ def component_probs_loglike(log_component_probs, log_concentration, num_componen
 
 
 def joint_loglike(log_component_weights, log_concentration, num_components, component_mus, log_component_scales, data):
-    component_probs = np.exp(log_component_weights)
+    _component_probs = np.exp(log_component_weights)
     probs_ll = component_probs_loglike(log_component_weights, log_concentration, num_components)
 
     mix_ll = mixture_loglike(log_component_weights, component_mus, log_component_scales, data)
@@ -310,18 +311,19 @@ def make_joint_loss(num_components):
     return inner
 
 
-import matplotlib.animation
-from jax.example_libraries.optimizers import adam
-from jax import grad, jit
 from time import time
-import distrax
 
-from rex import base, utils
+import distrax
+import matplotlib.animation
+from jax import grad, jit
+from jax.example_libraries.optimizers import adam
+
+from rex import base
 
 
 class GMMEstimator:
     def __init__(self, data, name="GMM", threshold=1e-7, verbose: bool = True):
-        """ Gaussian Mixture Model Estimator.
+        """Gaussian Mixture Model Estimator.
 
         :param data: 1D array of delay data.
         :param name: Name of the model.
@@ -426,7 +428,7 @@ class GMMEstimator:
         num_points: int = 1000,
         plot_dist: bool = True,
     ):
-        """ Plot the histogram of the data and the fitted distribution.
+        """Plot the histogram of the data and the fitted distribution.
 
         :param ax: Axes to plot on.
         :param edgecolor: Edge color of the histogram.
@@ -471,7 +473,7 @@ class GMMEstimator:
             self.log_component_scales_history_norm,
         ):
             prm = (w, c, m, s)
-            l = self.joint_loss(prm, self._data_norm)
+            l = self.joint_loss(prm, self._data_norm)  # noqa: E741
             losses.append(l)
 
         ax.plot(losses, label="loss", color=edgecolor)
@@ -507,7 +509,7 @@ class GMMEstimator:
         xmax: float = None,
         num_points: int = 1000,
     ) -> matplotlib.animation.FuncAnimation:
-        """ Animate the training process.
+        """Animate the training process.
 
         :param num_frames: Number of frames to animate.
         :param fig: Figure to plot on.
@@ -545,7 +547,7 @@ class GMMEstimator:
         return anim
 
     def get_dist(self, percentile: float = 0.99) -> base.StaticDist:
-        """ Get the distribution.
+        """Get the distribution.
 
         :param percentile: A percentile to prune the number of components that do not contribute much.
         :return:

@@ -1,20 +1,17 @@
-from math import ceil
-import functools
-import networkx as nx
+from typing import Dict, List, Tuple, Union
+
 import jax
 import jax.numpy as jnp
+import networkx as nx
 import numpy as onp
-from flax import struct
-from flax.core import FrozenDict
-from typing import Any, Tuple, List, TypeVar, Dict, Union, Callable
-
 import supergraph as sg
-from rex.partition_runner import make_run_partition_excl_supervisor, make_update_state
-from rex import base
-from rex.node import BaseNode
-from rex import utils
-from rex.constants import Supergraph, Clock, RealTimeFactor
+from flax.core import FrozenDict
+
 import rex.jax_utils as rjax
+from rex import base, utils
+from rex.constants import Clock, RealTimeFactor, Supergraph
+from rex.node import BaseNode
+from rex.partition_runner import make_run_partition_excl_supervisor, make_update_state
 
 
 class Graph:
@@ -140,8 +137,8 @@ class Graph:
         if buffer_sizes is not None:
             for name, size in buffer_sizes.items():
                 size = [size] if isinstance(size, int) else size
-                assert name not in _buffer_sizes or len(_buffer_sizes[name]) == 0 or max(size) >= max(
-                    _buffer_sizes[name]
+                assert (
+                    name not in _buffer_sizes or len(_buffer_sizes[name]) == 0 or max(size) >= max(_buffer_sizes[name])
                 ), f"Buffer size for {name} is too small: {size} < {_buffer_sizes[name]}"
                 _buffer_sizes[name] = size
         self._buffer_sizes = _buffer_sizes
@@ -261,8 +258,16 @@ class Graph:
         ts = FrozenDict({k: onp.float32(0.0) for k in order})
         state = {}
         inputs = {}
-        graph_state = base.GraphState(eps=jnp.int32(starting_eps), step=jnp.int32(starting_step),
-                                      rng=rngs_step, seq=seq, ts=ts, params=params, state=state, inputs=inputs)
+        graph_state = base.GraphState(
+            eps=jnp.int32(starting_eps),
+            step=jnp.int32(starting_step),
+            rng=rngs_step,
+            seq=seq,
+            ts=ts,
+            params=params,
+            state=state,
+            inputs=inputs,
+        )
 
         # Initialize params
         rngs = jax.random.split(rng_params, num=len(order))
@@ -292,14 +297,15 @@ class Graph:
         new_cgs = new_cgs.replace_eps(timings, eps=new_gs.eps)  # (Clips eps to valid value & updates timings_eps)
         return new_cgs
 
-    def init_record(self,
-                    graph_state: base.GraphState,
-                    params: Union[Dict[str, bool], bool] = None,
-                    rng: Union[Dict[str, bool], bool] = None,
-                    inputs: Union[Dict[str, bool], bool] = None,
-                    state: Union[Dict[str, bool], bool] = None,
-                    output: Union[Dict[str, bool], bool] = None,
-                    ) -> base.GraphState:
+    def init_record(
+        self,
+        graph_state: base.GraphState,
+        params: Union[Dict[str, bool], bool] = None,
+        rng: Union[Dict[str, bool], bool] = None,
+        inputs: Union[Dict[str, bool], bool] = None,
+        state: Union[Dict[str, bool], bool] = None,
+        output: Union[Dict[str, bool], bool] = None,
+    ) -> base.GraphState:
         """Sets the record settings for the nodes in the graph.
 
         :param graph_state: The initial graph state from .init().
@@ -340,7 +346,7 @@ class Graph:
             num_runs = slot.run.sum(axis=-1)
             # Calculate total non-masked steps per node per episode
             num_seqs[kind] = num_seqs.get(kind, onp.zeros_like(num_runs)) + num_runs
-        num_seqs = {k: onp.max(v) for k, v in num_seqs.items()} # Take the maximum number of steps over all episodes
+        num_seqs = {k: onp.max(v) for k, v in num_seqs.items()}  # Take the maximum number of steps over all episodes
 
         node_records = {}
         for name, node in self.nodes.items():
@@ -363,7 +369,9 @@ class Graph:
                 state=state,
                 output=output,
             )
-            steps = jax.tree_util.tree_map(lambda x: (jnp.ones((seqs_in,) + x.shape) * -1).astype(jax.dtypes.canonicalize_dtype(x.dtype)), step_record)
+            steps = jax.tree_util.tree_map(
+                lambda x: (jnp.ones((seqs_in,) + x.shape) * -1).astype(jax.dtypes.canonicalize_dtype(x.dtype)), step_record
+            )
 
             # Initialize input record
             inputs_record = {}
@@ -380,7 +388,7 @@ class Graph:
                     delay=dummy_arr.astype(float),
                 )
                 inputs_record[name_out] = base.InputRecord(info=info, messages=messages)
-            _inputs_record = inputs_record if _record_settings[name]["inputs"] else None # todo: Add to node_records
+            _inputs_record = inputs_record if _record_settings[name]["inputs"] else None  # todo: Add to node_records
 
             # Initialize node record
             node_records[name] = base.NodeRecord(
@@ -414,7 +422,9 @@ class Graph:
         Internal use only. Use reset(), step(), run(), or rollout() instead.
         """
         RETURN_OUTPUT = True
-        assert (step_state is None) == (output is None), "Either both step_state and output must be None or both must be not None."
+        assert (step_state is None) == (
+            output is None
+        ), "Either both step_state and output must be None or both must be not None."
         # Make update state function
         update_state = make_update_state(self._supervisor_kind)
         supervisor_slot = self._supervisor_slot
@@ -423,12 +433,16 @@ class Graph:
 
         if RETURN_OUTPUT:
             # Update graph state
-            graph_state = graph_state.replace_step(self._timings, step=graph_state.step)  # Make sure step is clipped to max_step size
+            graph_state = graph_state.replace_step(
+                self._timings, step=graph_state.step
+            )  # Make sure step is clipped to max_step size
             # The step counter was already incremented in run_until_supervisor, but supervisor of the previous step was not run yet.
             # Hence, we need to grab the timings of the previous step (i.e. graph_state.step-1).
             timing = rjax.tree_take(graph_state.timings_eps.slots[supervisor_slot], i=graph_state.step - 1)
             # Define NOOP
-            noop_output_record = rjax.tree_take(record.nodes[self._supervisor_kind].steps.output, timing.seq) if record is not None else None
+            noop_output_record = (
+                rjax.tree_take(record.nodes[self._supervisor_kind].steps.output, timing.seq) if record is not None else None
+            )
             noop_ss = graph_state.step_state[self.supervisor.name]
             noop_output = rjax.tree_take(graph_state.buffer[self.supervisor.name], timing.seq)
 
@@ -448,13 +462,16 @@ class Graph:
                 return noop_ss, noop_output, noop_output_record
 
             # Run supervisor node if step > 0, else skip
-            new_ss, new_output, new_output_record = jax.lax.cond(graph_state.step == 0, _skip_supervisor_step, _run_supervisor_step)
+            new_ss, new_output, new_output_record = jax.lax.cond(
+                graph_state.step == 0, _skip_supervisor_step, _run_supervisor_step
+            )
 
             # Update graph state
             graph_state = update_state(graph_state, timing, new_ss, new_output, new_output_record)
 
         else:
             raise NotImplementedError("RETURN_OUTPUT=False is not implemented yet with the new record system.")
+
             def _run_supervisor_step() -> base.GraphState:
                 # Get next step state and output from supervisor node
                 if step_state is None and output is None:  # Run supervisor node

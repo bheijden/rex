@@ -1,11 +1,10 @@
-import pytest
-
 import jax.numpy as jnp
+import pytest
 from distrax import Deterministic
+from test_utils import Node, Output
 
 import rex.constants as const
 from rex.asynchronous import AsyncGraph
-from test_utils import Node, Output
 
 
 @pytest.mark.parametrize(
@@ -65,7 +64,9 @@ def test_run_and_recording_api():
     node4.connect(node1, window=3, name="node1", delay_dist=Deterministic(0.01), blocking=True, skip=True)
 
     # Create graph
-    graph = AsyncGraph(nodes=nodes, supervisor=node1, clock=const.Clock.SIMULATED, real_time_factor=const.RealTimeFactor.FAST_AS_POSSIBLE)
+    graph = AsyncGraph(
+        nodes=nodes, supervisor=node1, clock=const.Clock.SIMULATED, real_time_factor=const.RealTimeFactor.FAST_AS_POSSIBLE
+    )
 
     # Test API
     _ = graph.max_eps
@@ -84,4 +85,4 @@ def test_run_and_recording_api():
     graph.stop()
 
     # Get records
-    record = graph.get_record()
+    _record = graph.get_record()

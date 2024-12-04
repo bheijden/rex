@@ -1,10 +1,9 @@
-import pytest
-
 import jax
 import jax.numpy as jnp
+import pytest
 
-from rex.graph import Graph
 import rex.rl as rl
+from rex.graph import Graph
 from tests.unit.test_utils import Env
 
 
@@ -164,4 +163,4 @@ def test_rollout(graph: Graph):
     def get_action(_obs: jax.Array) -> jax.Array:
         return jnp.array([0.5])
 
-    rollout = rl.rollout(env, get_action, num_steps=10)
+    rollout = rl.rollout(env, get_action, num_steps=10)  # noqa: F841

@@ -1,25 +1,23 @@
-from typing import Any, Tuple, List, TypeVar, Dict, Union, Callable, TYPE_CHECKING
 import functools
+import time
+from os import getpid
+from threading import current_thread
+from typing import Any, Callable, Dict, List, Tuple, TYPE_CHECKING, Union
 
 import distrax
-import networkx as nx
 import jax
 import jax.numpy as jnp
-import numpy as onp
-from flax import struct
-import time
-
-import supergraph
-from supergraph import EDGE_DATA
-from supergraph import open_colors as oc
-from rex.base import Graph, WindowedGraph, Window, Vertex, Edge, WindowedVertex, Timings, SlotVertex, TrainableDist, NodeInfo
-from rex.constants import LogLevel, Jitter
-
-from threading import current_thread
-from os import getpid
-from termcolor import colored
 import matplotlib
 import matplotlib.pyplot as plt
+import networkx as nx
+import numpy as onp
+import supergraph
+from flax import struct
+from supergraph import EDGE_DATA, open_colors as oc
+
+from rex.base import Edge, Graph, NodeInfo, SlotVertex, Timings, TrainableDist, Vertex, Window, WindowedGraph, WindowedVertex
+from rex.constants import Jitter, LogLevel
+
 
 if TYPE_CHECKING:
     from rex.node import BaseNode
@@ -28,34 +26,31 @@ if TYPE_CHECKING:
 # Global log levels
 LOG_LEVEL = LogLevel.WARN
 NODE_LOG_LEVEL = {}
-NODE_COLOR = {}
 NODE_LOGGING_ENABLED = True
 
 
 def log(
     name: str,
-    color: str,
     log_level: int,
     id: str,
     msg=None,
 ):
     if log_level >= LOG_LEVEL:
         # Add process ID, thread ID, name (somewhat expensive)
-        log_msg = f"[{str(getpid())[:5].ljust(5)}][{current_thread().name.ljust(25)}][{str(name).ljust(20)}][{str(id).ljust(20)}]"
+        log_msg = (
+            f"[{str(getpid())[:5].ljust(5)}][{current_thread().name.ljust(25)}][{str(name).ljust(20)}][{str(id).ljust(20)}]"
+        )
         if msg is not None:
             log_msg += f" {msg}"
-        print(colored(log_msg, color))
+        print(log_msg)
 
 
-def set_log_level(log_level: int, node: "BaseNode" = None, color: str = None):
+def set_log_level(log_level: int, node: "BaseNode" = None):
     if node is not None:
         NODE_LOG_LEVEL[node] = log_level
-        if color is not None:
-            NODE_COLOR[node] = color
     else:
         global LOG_LEVEL
         LOG_LEVEL = log_level
-        assert color is None, "Cannot set color without node"
 
 
 def apply_window(nodes: Dict[str, "BaseNode"], graphs: Graph) -> WindowedGraph:
@@ -188,7 +183,9 @@ def to_networkx_graph(graph: Graph, nodes: Dict[str, "BaseNode"] = None, validat
     return G
 
 
-def to_connected_graph(G: nx.DiGraph, supervisor: "BaseNode", nodes: Dict[str, "BaseNode"] = None, validate: bool = False) -> nx.DiGraph:
+def to_connected_graph(
+    G: nx.DiGraph, supervisor: "BaseNode", nodes: Dict[str, "BaseNode"] = None, validate: bool = False
+) -> nx.DiGraph:
     # todo: Get all nodes that are not ancestors of a supervisor vertex
     # todo: Determine ts_start for all supervisor vertices
     # todo: Connect every non-ancestor to a supervisor vertex such that ts_end of the non-ancestor <= ts_start of the supervisor vertex
@@ -328,7 +325,9 @@ def mixture_distribution_quantiles(dist, probs, N_grid_points: int = int(1e3), g
 
     grid_check = (cdf_grid.min(axis=0).max() <= min(probs)) & (max(probs) <= cdf_grid.max(axis=0).min())
     if not grid_check:
-        print(f"Grid min: {grid_min}, max: {grid_max} | CDF min: {cdf_grid.min(axis=0).max()}, max: {cdf_grid.max(axis=0).min()} | Probs min: {min(probs)}, max: {max(probs)}")
+        print(
+            f"Grid min: {grid_min}, max: {grid_max} | CDF min: {cdf_grid.min(axis=0).max()}, max: {cdf_grid.max(axis=0).min()} | Probs min: {min(probs)}, max: {max(probs)}"
+        )
         raise RuntimeError("Grid does not span full CDF range needed for interpolation!")
 
     probs_row_grid = onp.transpose(onp.tile(onp.array(probs), (cdf_grid.shape[0], 1)))
@@ -363,7 +362,7 @@ class timer:
                 self.msg = f"Elapsed: {self.duration:.4f} sec"
             else:
                 self.msg = f"Elapsed: {self.duration / self.repeat:.4f} sec (x{self.repeat} repeats = {self.duration:.4f} sec)"
-            log(name="tracer", color="white", log_level=self.log_level, id=f"{self.name}", msg=self.msg)
+            log(name="tracer", log_level=self.log_level, id=f"{self.name}", msg=self.msg)
 
 
 def get_subplots(tree, figsize=(10, 10), sharex=False, sharey=False, major="row", is_leaf: Callable[[Any], bool] = None):
@@ -471,18 +470,24 @@ def plot_graph(
         name_int = name + "_int"
         edges_msg.append((name_out, name_int))
         # Output messages always start from the end of the sender
-        offset = height / 2 if node_order[nodes[v]["kind"]] > node_order[nodes[u]["kind"]] else -height / 2  # Offset if sender is higher
+        offset = (
+            height / 2 if node_order[nodes[v]["kind"]] > node_order[nodes[u]["kind"]] else -height / 2
+        )  # Offset if sender is higher
         offset = 0 if nodes[u]["kind"] == nodes[v]["kind"] else offset  # No offset if same kind
-        pos_msg[name_out] = (nodes[u]["ts_end"], node_order[nodes[u]["kind"]]+offset)
+        pos_msg[name_out] = (nodes[u]["ts_end"], node_order[nodes[u]["kind"]] + offset)
         # Input messages always end at the start of the receiver, with a height offset
-        offset = height / 2 if node_order[nodes[u]["kind"]] > node_order[nodes[v]["kind"]] else -height / 2  # Offset if sender is higher
+        offset = (
+            height / 2 if node_order[nodes[u]["kind"]] > node_order[nodes[v]["kind"]] else -height / 2
+        )  # Offset if sender is higher
         offset = 0 if nodes[u]["kind"] == nodes[v]["kind"] else offset  # No offset if same kind
         if message_arrow_timing_mode == "arrival":
-            pos_msg[name_int] = (data["ts_recv"], node_order[nodes[v]["kind"]]+offset)
+            pos_msg[name_int] = (data["ts_recv"], node_order[nodes[v]["kind"]] + offset)
         elif message_arrow_timing_mode == "usage":
-            pos_msg[name_int] = (nodes[v]["ts_start"], node_order[nodes[v]["kind"]]+offset)
+            pos_msg[name_int] = (nodes[v]["ts_start"], node_order[nodes[v]["kind"]] + offset)
         else:
-            raise ValueError(f"Invalid message_arrow_timing_mode: {message_arrow_timing_mode}. Valid options: ['arrival', 'usage']")
+            raise ValueError(
+                f"Invalid message_arrow_timing_mode: {message_arrow_timing_mode}. Valid options: ['arrival', 'usage']"
+            )
     G_msg = nx.DiGraph()
     G_msg.add_edges_from(edges_msg)
 
@@ -497,9 +502,9 @@ def plot_graph(
         node_ts_start[data["kind"]].append(ts_start)
         node_ts_end[data["kind"]].append(ts_end)
         pos[n] = (ts_start + (ts_end - ts_start) / 2, node_order[data["kind"]])
-        offset = (height)/2*1.25
+        offset = (height) / 2 * 1.25
         offset = offset if label_loc == "top" else -offset if label_loc == "bottom" else 0
-        pos_labels[n] = (ts_start + (ts_end - ts_start) / 2, node_order[data["kind"]]+offset)
+        pos_labels[n] = (ts_start + (ts_end - ts_start) / 2, node_order[data["kind"]] + offset)
 
     # Sort node_ts_start and node_ts_end
     for k in node_ts_start.keys():
@@ -515,9 +520,34 @@ def plot_graph(
     # Draw computation delay
     c = 1.0
     for k in node_ts_start.keys():
-        ax.barh(y=node_order[k], height=height*c, width=node_phase[k], left=0, color=oc.fcolor.phase, alpha=0.5, label="phase shift")
-        ax.barh(y=node_order[k], height=height*c, width=node_idle[k], left=node_ts_end[k][:-1], color=oc.fcolor.sleep, alpha=0.5, label="idle")
-        ax.barh(y=node_order[k], height=height, width=node_computation[k], left=node_ts_start[k], color=node_fcolor[k], edgecolor=node_ecolor[k], alpha=node_alpha[k], label=k)
+        ax.barh(
+            y=node_order[k],
+            height=height * c,
+            width=node_phase[k],
+            left=0,
+            color=oc.fcolor.phase,
+            alpha=0.5,
+            label="phase shift",
+        )
+        ax.barh(
+            y=node_order[k],
+            height=height * c,
+            width=node_idle[k],
+            left=node_ts_end[k][:-1],
+            color=oc.fcolor.sleep,
+            alpha=0.5,
+            label="idle",
+        )
+        ax.barh(
+            y=node_order[k],
+            height=height,
+            width=node_computation[k],
+            left=node_ts_start[k],
+            color=node_fcolor[k],
+            edgecolor=node_ecolor[k],
+            alpha=node_alpha[k],
+            label=k,
+        )
         # ax.scatter(node_ts_end[k], [node_order[k]] * len(node_ts_end[k]), s=(height*10) ** 2, edgecolors=node_ecolor[k], facecolors=node_fcolor[k], marker="o", alpha=node_alpha[k],
         #            label=f"output {k}")
 
@@ -552,35 +582,48 @@ def plot_graph(
     handles, labels = ax.get_legend_handles_labels()
     new_handles.append(handles[labels.index("phase shift")]), new_labels.append("phase shift")
     new_handles.append(handles[labels.index("idle")]), new_labels.append("idle")
-    arrow_handle = matplotlib.lines.Line2D([0], [1], color='black', marker=None, linewidth=2, linestyle='-',
-                                           markerfacecolor='black', markersize=10)  # For the arrow
+    arrow_handle = matplotlib.lines.Line2D(
+        [0], [1], color="black", marker=None, linewidth=2, linestyle="-", markerfacecolor="black", markersize=10
+    )  # For the arrow
     new_handles.append(arrow_handle), new_labels.append("message")
     # dot_handle = matplotlib.lines.Line2D([0], [0], color='black', marker='o', markerfacecolor='grey', markersize=8, linestyle='None')
     # new_handles.append(dot_handle), new_labels.append("output channel")
 
-    new_handles.append(matplotlib.lines.Line2D([], [], color='none'))  # Add empty entry as a header for the 'Nodes' category
-    new_labels.append(r'$\bf{Comp.}$ $\bf{delays}$')
+    new_handles.append(matplotlib.lines.Line2D([], [], color="none"))  # Add empty entry as a header for the 'Nodes' category
+    new_labels.append(r"$\bf{Comp.}$ $\bf{delays}$")
     for k in node_order.keys():
         new_handles.append(handles[labels.index(k)]), new_labels.append(k)
-    ax.legend(handles=new_handles, labels=new_labels, loc='center left', bbox_to_anchor=(1, 0.5))
+    ax.legend(handles=new_handles, labels=new_labels, loc="center left", bbox_to_anchor=(1, 0.5))
 
     return ax
 
 
-def plot_supergraph(S,
-                    node_size: int = 300,
-                    node_fontsize=10,
-                    edge_linewidth=2.0,
-                    node_linewidth=1.5,
-                    arrowsize=10,
-                    arrowstyle="->",
-                    connectionstyle="arc3,rad=0.1",
-                    draw_labels=True,
-                    ax=None,
-                    label_map: Dict = None, ):
-    return supergraph.plot_graph(S, node_size=node_size, node_fontsize=node_fontsize, edge_linewidth=edge_linewidth,
-                                 node_linewidth=node_linewidth, arrowsize=arrowsize, arrowstyle=arrowstyle,
-                                 connectionstyle=connectionstyle, draw_labels=draw_labels, ax=ax, label_map=label_map)
+def plot_supergraph(
+    S,
+    node_size: int = 300,
+    node_fontsize=10,
+    edge_linewidth=2.0,
+    node_linewidth=1.5,
+    arrowsize=10,
+    arrowstyle="->",
+    connectionstyle="arc3,rad=0.1",
+    draw_labels=True,
+    ax=None,
+    label_map: Dict = None,
+):
+    return supergraph.plot_graph(
+        S,
+        node_size=node_size,
+        node_fontsize=node_fontsize,
+        edge_linewidth=edge_linewidth,
+        node_linewidth=node_linewidth,
+        arrowsize=arrowsize,
+        arrowstyle=arrowstyle,
+        connectionstyle=connectionstyle,
+        draw_labels=draw_labels,
+        ax=ax,
+        label_map=label_map,
+    )
 
 
 def plot_system(

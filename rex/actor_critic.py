@@ -1,14 +1,11 @@
-from typing import Callable, Union
-import jax
-import jax.numpy as jnp
-import numpy as onp
-import flax.linen as nn
-from flax.linen.initializers import constant, orthogonal
-from typing import Sequence, NamedTuple, Any
-from flax.training.train_state import TrainState
+from typing import Union
+
 # import tensorflow_probability.substrates.jax as tfp
 # tfd = tfp.distributions
 import distrax
+import flax.linen as nn
+import jax
+import jax.numpy as jnp
 
 
 KERNEL_INIT_FN = {
@@ -55,9 +52,11 @@ class Actor(nn.Module):
     def __call__(self, x):
         # Initialize hidden layers
         for _ in range(self.num_hidden_layers):
-            x = nn.Dense(self.num_hidden_units,
-                         kernel_init=KERNEL_INIT_FN[self.kernel_init_type](),
-                         bias_init=nn.initializers.uniform(scale=0.05))(x)
+            x = nn.Dense(
+                self.num_hidden_units,
+                kernel_init=KERNEL_INIT_FN[self.kernel_init_type](),
+                bias_init=nn.initializers.uniform(scale=0.05),
+            )(x)
             if self.hidden_activation == "relu":
                 x = nn.relu(x)
             elif self.hidden_activation == "tanh":
@@ -72,31 +71,39 @@ class Actor(nn.Module):
         # Initialize output layer
         if self.output_activation == "identity":
             # Simple affine layer
-            x = nn.Dense(self.num_output_units,
-                         kernel_init=KERNEL_INIT_FN[self.kernel_init_type](),
-                         bias_init=nn.initializers.uniform(scale=0.05))(x)
+            x = nn.Dense(
+                self.num_output_units,
+                kernel_init=KERNEL_INIT_FN[self.kernel_init_type](),
+                bias_init=nn.initializers.uniform(scale=0.05),
+            )(x)
             pi = distrax.Deterministic(x)
         elif self.output_activation == "tanh":
             # Simple affine layer
-            x = nn.Dense(self.num_output_units,
-                         kernel_init=KERNEL_INIT_FN[self.kernel_init_type](),
-                         bias_init=nn.initializers.uniform(scale=0.05))(x)
+            x = nn.Dense(
+                self.num_output_units,
+                kernel_init=KERNEL_INIT_FN[self.kernel_init_type](),
+                bias_init=nn.initializers.uniform(scale=0.05),
+            )(x)
             x = nn.tanh(x)
             pi = distrax.Deterministic(x)
         elif self.output_activation == "gaussian":
             if self.state_independent_std:
-                x_mean = nn.Dense(self.num_output_units,
-                             kernel_init=KERNEL_INIT_FN[self.kernel_init_type](),
-                             bias_init=nn.initializers.uniform(scale=0.05))(x)
+                x_mean = nn.Dense(
+                    self.num_output_units,
+                    kernel_init=KERNEL_INIT_FN[self.kernel_init_type](),
+                    bias_init=nn.initializers.uniform(scale=0.05),
+                )(x)
                 actor_logtstd = self.param("log_std", nn.initializers.zeros, (self.num_output_units,))
                 pi = distrax.MultivariateNormalDiag(x_mean, jnp.exp(actor_logtstd))
             else:
-                x = nn.Dense(2 * self.num_output_units,
-                             kernel_init=KERNEL_INIT_FN[self.kernel_init_type](),
-                             bias_init=nn.initializers.uniform(scale=0.05))(x)
-                x_mean = x[:self.num_output_units]
-                x_log_std = x[self.num_output_units:]
-                pi = distrax.MultivariateNormalDiag(x_mean, jnp.exp(0.5*x_log_std))
+                x = nn.Dense(
+                    2 * self.num_output_units,
+                    kernel_init=KERNEL_INIT_FN[self.kernel_init_type](),
+                    bias_init=nn.initializers.uniform(scale=0.05),
+                )(x)
+                x_mean = x[: self.num_output_units]
+                x_log_std = x[self.num_output_units :]
+                pi = distrax.MultivariateNormalDiag(x_mean, jnp.exp(0.5 * x_log_std))
         else:
             raise ValueError(f"Unknown output_activation: {self.output_activation}")
         return pi
@@ -113,9 +120,11 @@ class Critic(nn.Module):
     def __call__(self, x) -> Union[float, jax.Array]:
         # Initialize hidden layers
         for _ in range(self.num_hidden_layers):
-            x = nn.Dense(self.num_hidden_units,
-                         kernel_init=KERNEL_INIT_FN[self.kernel_init_type](),
-                         bias_init=nn.initializers.uniform(scale=0.0))(x)
+            x = nn.Dense(
+                self.num_hidden_units,
+                kernel_init=KERNEL_INIT_FN[self.kernel_init_type](),
+                bias_init=nn.initializers.uniform(scale=0.0),
+            )(x)
             if self.hidden_activation == "relu":
                 x = nn.relu(x)
             elif self.hidden_activation == "tanh":
@@ -128,9 +137,7 @@ class Critic(nn.Module):
                 raise ValueError(f"Unknown hidden_activation: {self.hidden_activation}")
 
         # Initialize output layer
-        x = nn.Dense(1,
-                     kernel_init=KERNEL_INIT_FN[self.kernel_init_type](),
-                     bias_init=nn.initializers.uniform(scale=0.0))(x)
+        x = nn.Dense(1, kernel_init=KERNEL_INIT_FN[self.kernel_init_type](), bias_init=nn.initializers.uniform(scale=0.0))(x)
         return jnp.squeeze(x, axis=-1)  # x[0]  # Return scalar value
 
 

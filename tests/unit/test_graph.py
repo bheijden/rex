@@ -1,13 +1,13 @@
-import pytest
 from typing import Dict
 
+import pytest
 from distrax import Deterministic
 
 import rex.constants as const
-from rex.utils import plot_graph, get_subplots, to_networkx_graph, plot_system
 from rex.artificial import augment_graphs, generate_graphs
 from rex.asynchronous import AsyncGraph
 from rex.base import ExperimentRecord, Graph, TrainableDist
+from rex.utils import get_subplots, plot_graph, plot_system, to_networkx_graph
 from tests.unit.test_utils import Node
 
 
@@ -66,8 +66,7 @@ def exp_record(nodes_mixed) -> ExperimentRecord:
     return exp_record
 
 
-def test_filtering(nodes_mixed: Dict[str, Node], exp_record: ExperimentRecord):
-    nodes = nodes_mixed
+def test_filtering(exp_record: ExperimentRecord):
     # Test graph filtering with a subset of nodes and connections
     fnode1 = Node(name="node1", rate=10, delay_dist=Deterministic(0.01), advance=False)
     fnode2 = Node(name="node2", rate=11, delay_dist=Deterministic(0.01), advance=False)
@@ -144,7 +143,7 @@ def test_graph_plotting():
 def test_subplots(num):
     some_tree = list(range(num))
     major = "row" if num % 2 == 0 else "col"
-    fig, tree_axes = get_subplots(some_tree)
+    fig, tree_axes = get_subplots(some_tree, major=major)  # noqa: F841
 
 
 @pytest.mark.parametrize("batch", ["single", "multiple"])
@@ -173,9 +172,7 @@ def test_augment_graphs(batch, nodes_mixed: Dict[str, Node], exp_record: Experim
     # Add a node
     nodes["node5"] = Node(name="node5", rate=14, delay_dist=Deterministic(0.01), advance=False)
     nodes["node1"].connect(nodes["node5"], window=1, delay_dist=Deterministic(0.01), blocking=False)
-    nodes["node2"].connect(nodes["node5"], window=1, delay_dist=TrainableDist.create(0.01, 0., 0.01), blocking=False)
+    nodes["node2"].connect(nodes["node5"], window=1, delay_dist=TrainableDist.create(0.01, 0.0, 0.01), blocking=False)
 
     # Augment graphs
-    cgraphs_aug = augment_graphs(cgraphs, nodes)
-
-
+    augment_graphs(cgraphs, nodes)

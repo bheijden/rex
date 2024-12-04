@@ -1,11 +1,12 @@
-from typing import Union, Tuple
+from typing import Tuple, Union
 
 import jax
 from flax import struct
 from flax.core import FrozenDict
 from jax import numpy as jnp
+
 from rex import base
-from rex.base import StepState, GraphState
+from rex.base import GraphState, StepState
 from rex.node import BaseNode
 from rex.ppo import Policy
 
@@ -13,6 +14,7 @@ from rex.ppo import Policy
 @struct.dataclass
 class AgentOutput(base.Base):
     """Agent's output"""
+
     action: jax.typing.ArrayLike  # Torque to apply to the pendulum
 
 
@@ -86,7 +88,7 @@ class AgentParams(base.Base):
 class AgentState(base.Base):
     history_act: jax.typing.ArrayLike  # History of actions
     history_obs: jax.typing.ArrayLike  # History of observations
-    init_th: Union[float, jax.typing.ArrayLike] # Initial angle of the pendulum
+    init_th: Union[float, jax.typing.ArrayLike]  # Initial angle of the pendulum
     init_thdot: Union[float, jax.typing.ArrayLike]  # Initial angular velocity of the pendulum
 
 

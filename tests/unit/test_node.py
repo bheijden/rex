@@ -1,12 +1,12 @@
 import jax
 import jax.numpy as jnp
-from flax import struct as struct
 from distrax import Normal
-from rex.base import GraphState, TrainableDist, Base
-from rex.node import BaseNode, BaseWorld
-from rex.constants import LogLevel
-from rex.utils import set_log_level
+from flax import struct as struct
 
+from rex.base import Base, GraphState, TrainableDist
+from rex.constants import LogLevel
+from rex.node import BaseNode, BaseWorld
+from rex.utils import set_log_level
 
 
 def test_node_basic_api():
@@ -25,7 +25,6 @@ def test_node_basic_api():
 
     # Test properties
     _ = node1.log_level
-    _ = node1.log_color
     _ = node1.fcolor
     _ = node1.ecolor
 
@@ -111,7 +110,6 @@ def test_node_reloading():
     node1 = BaseNode(name="node1", rate=50, color="pink", order=1, delay_dist=Normal(0.01, 0.01))
     node2 = BaseNode(name="node2", rate=50, color="teal", order=3, delay_dist=Normal(0.01, 0.01))
     node2.connect(node1, window=3, name="node1", blocking=True, delay_dist=Normal(0.01, 0.01))
-    nodes = {node1.name: node1, node2.name: node2}
 
     # Get infos
     infos = {node2.name: node2.info, node1.name: node1.info}
@@ -135,7 +133,7 @@ def test_logging_api():
     node1 = BaseNode(name="node1", rate=50, color="pink", order=1)
 
     # Set log level
-    set_log_level(LogLevel.DEBUG, node1, color="red")
+    set_log_level(LogLevel.DEBUG, node1)
 
     # Log something
     node1.log("", "Logging something...", LogLevel.DEBUG)
@@ -154,13 +152,14 @@ def test_logging_api():
 
 
 def test_base_world():
-    world = BaseWorld(name="world", rate=50, color="grape", order=0)
+    BaseWorld(name="world", rate=50, color="grape", order=0)  # noqa F841
 
 
 def test_base_api():
     @struct.dataclass
     class Pytree(Base):
         """Arbitrary dataclass."""
+
         a: jax.Array
 
     # Create Pytree objects
