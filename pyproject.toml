@@ -43,6 +43,7 @@ examples = [
 
 [dependency-groups]
 dev = [
+    "pre-commit>=4.0.1",
     "ruff>=0.8.1",
     "setuptools>=75.6.0",
 ]
