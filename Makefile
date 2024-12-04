@@ -1,6 +1,10 @@
-lint:
+lint_check:
 	# Lint the code
 	uv run ruff check --fix
+
+format_check:
+	# Reformat using black in check mode
+	uv run ruff format --check
 
 format:
 	# Reformat using black

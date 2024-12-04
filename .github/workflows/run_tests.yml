@@ -31,8 +31,11 @@ jobs:
         # todo: maybe not extras, but all dev and tests requirements?
         run: uv sync --all-extras --dev --group tests
 
-      #      - name: Checks with pre-commit (requires .pre-commit-config.yaml)
-      #        uses: pre-commit/action@v2.0.3
+      - name: Check code style
+        run: make format_check
+
+      - name: Check lint
+        run: make lint_check
 
       - name: Run tests
         run: make run_tests

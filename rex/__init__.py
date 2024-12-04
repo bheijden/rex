@@ -16,7 +16,7 @@ import rex.rl as rl
 import rex.utils as utils
 
 
-__version__ = "0.0.8"  # importlib.metadata.version("rex")
+__version__ = importlib.metadata.version("rex-lib")
 
 __all__ = [
     "artificial",
