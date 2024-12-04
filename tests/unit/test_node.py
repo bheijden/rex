@@ -25,7 +25,6 @@ def test_node_basic_api():
 
     # Test properties
     _ = node1.log_level
-    _ = node1.log_color
     _ = node1.fcolor
     _ = node1.ecolor
 
@@ -134,7 +133,7 @@ def test_logging_api():
     node1 = BaseNode(name="node1", rate=50, color="pink", order=1)
 
     # Set log level
-    set_log_level(LogLevel.DEBUG, node1, color="red")
+    set_log_level(LogLevel.DEBUG, node1)
 
     # Log something
     node1.log("", "Logging something...", LogLevel.DEBUG)

@@ -134,7 +134,7 @@ class _AsyncNodeWrapper:
         e = f.exception()
         if e is not None and e is not CancelledError:
             error_msg = "".join(traceback.format_exception(None, e, e.__traceback__))
-            utils.log(self.node.name, "red", LogLevel.ERROR, "ERROR", error_msg)
+            utils.log(self.node.name, LogLevel.ERROR, "ERROR", error_msg)
 
     def _set_ts_start(self, ts_start: float):
         assert isinstance(self._ts_start, Future)
@@ -851,10 +851,8 @@ class _AsyncConnectionWrapper:
         if not utils.NODE_LOGGING_ENABLED:
             return
         log_level = self.connection.input_node.log_level if log_level is None else log_level
-        color = self.connection.input_node.log_color
         utils.log(
             f"{self.connection.output_node.name}/{self.connection.input_node.name}",
-            color,
             min(log_level, self.log_level),
             id,
             value,

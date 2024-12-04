@@ -220,10 +220,6 @@ class BaseNode:
         return utils.NODE_LOG_LEVEL.get(self, LogLevel.WARN)
 
     @property
-    def log_color(self):
-        return utils.NODE_COLOR.get(self, "green")
-
-    @property
     def fcolor(self):
         """Get the face color of the node."""
         color = self.color if isinstance(self.color, str) else "gray"
@@ -264,8 +260,7 @@ class BaseNode:
         if not utils.NODE_LOGGING_ENABLED:
             return
         log_level = self.log_level if log_level is None else log_level
-        color = self.log_color
-        utils.log(f"{self.name}", color, min(log_level, self.log_level), id, value)
+        utils.log(f"{self.name}", min(log_level, self.log_level), id, value)
 
     def now(self) -> float:
         """Get the passed time since start of episode according to the simulated and wall clock.

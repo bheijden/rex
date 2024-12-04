@@ -14,7 +14,6 @@ import numpy as onp
 import supergraph
 from flax import struct
 from supergraph import EDGE_DATA, open_colors as oc
-from termcolor import colored
 
 from rex.base import Edge, Graph, NodeInfo, SlotVertex, Timings, TrainableDist, Vertex, Window, WindowedGraph, WindowedVertex
 from rex.constants import Jitter, LogLevel
@@ -27,13 +26,11 @@ if TYPE_CHECKING:
 # Global log levels
 LOG_LEVEL = LogLevel.WARN
 NODE_LOG_LEVEL = {}
-NODE_COLOR = {}
 NODE_LOGGING_ENABLED = True
 
 
 def log(
     name: str,
-    color: str,
     log_level: int,
     id: str,
     msg=None,
@@ -45,18 +42,15 @@ def log(
         )
         if msg is not None:
             log_msg += f" {msg}"
-        print(colored(log_msg, color))
+        print(log_msg)
 
 
-def set_log_level(log_level: int, node: "BaseNode" = None, color: str = None):
+def set_log_level(log_level: int, node: "BaseNode" = None):
     if node is not None:
         NODE_LOG_LEVEL[node] = log_level
-        if color is not None:
-            NODE_COLOR[node] = color
     else:
         global LOG_LEVEL
         LOG_LEVEL = log_level
-        assert color is None, "Cannot set color without node"
 
 
 def apply_window(nodes: Dict[str, "BaseNode"], graphs: Graph) -> WindowedGraph:
@@ -368,7 +362,7 @@ class timer:
                 self.msg = f"Elapsed: {self.duration:.4f} sec"
             else:
                 self.msg = f"Elapsed: {self.duration / self.repeat:.4f} sec (x{self.repeat} repeats = {self.duration:.4f} sec)"
-            log(name="tracer", color="white", log_level=self.log_level, id=f"{self.name}", msg=self.msg)
+            log(name="tracer", log_level=self.log_level, id=f"{self.name}", msg=self.msg)
 
 
 def get_subplots(tree, figsize=(10, 10), sharex=False, sharey=False, major="row", is_leaf: Callable[[Any], bool] = None):
