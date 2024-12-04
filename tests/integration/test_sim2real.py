@@ -759,7 +759,7 @@ def test_sim2real():
     graph.stop()  # Stops all nodes that were running asynchronously in the background
     # Get the record
     eval_record = graph.get_record()  # Get the record of the graph
-    eval_real_rollout = eval_record.nodes["world"].steps.state
+    eval_real_rollout = eval_record.nodes["world"].steps.state  # noqa: F841
     # Filter out the world node, as it would not be available in a real-world system
     eval_record = eval_record.filter(nodes_real)
 
