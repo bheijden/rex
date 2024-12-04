@@ -81,8 +81,8 @@ plugins:
                 setup_commands:
                     - import pytkdocs_tweaks
                     - pytkdocs_tweaks.main()
-#                    - import jaxtyping
-#                    - jaxtyping.set_array_name_format("array")
+                    - import jaxtyping
+                    - jaxtyping.set_array_name_format("array")
                     - import jax
                     - jax.ShapeDtypeStruct.__module__ = "jax"
                     - jax.core.ClosedJaxpr.__module__ = "jax.core"

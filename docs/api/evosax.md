@@ -1,22 +1,17 @@
 # Evosax API
 
-[//]: # (::: rex.evo.evo)
+::: rex.evo.evo
 
-[//]: # (    selection:)
+::: rex.asynchronous.AsyncGraph
 
-[//]: # (        members:)
+[//]: # (---)
 
-[//]: # (            - where)
-
-[//]: # (            - promote)
-
-[//]: # ()
 [//]: # (::: rex.evo.EvoSolver)
 
 [//]: # (    selection:)
 
 [//]: # (        members:)
 
-[//]: # (            - where)
+[//]: # (            - strategy_params)
 
-[//]: # (            - promote)
+[//]: # (            - strategy)

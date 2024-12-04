@@ -30,7 +30,7 @@ jobs:
         run: uv sync --dev
 
       - name: Install docs dependencies
-        run: uv run pip3 install -r docs/requirements.txt
+        run: uv pip install -r docs/requirements.txt
 
       - name: Build docs
         run: make build_docs

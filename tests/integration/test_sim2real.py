@@ -786,6 +786,6 @@ def test_sim2real():
     # @markdown The following visualization shows the rollout of the pendulum swing-up task, displaying the system's behavior over time.
     # @markdown Note: Html visualization may not work properly if rendering simultaneously in multiple cells.
     # @markdown In such cases, comment-out all but one HTML(pendulum.render(rollout)).
-    from rex.pendulum.render import render
+    # from rex.pendulum.render import render
 
-    render(eval_real_rollout, dt=float(1 / world.rate))
+    # render(eval_real_rollout, dt=float(1 / world.rate))
