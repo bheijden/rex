@@ -48,7 +48,7 @@ dev = [
     "setuptools>=75.6.0",
 ]
 tests = [
-    "pytest-cov>=6.0.0",
+    "pytest-cov>=6.0.0",  # Not used in the release workflow.
     # Make sure that all test dependencies are also included in the testscript in .github/workflows/release.yml
     "pytest>=8.3.3",
 ]

@@ -22,8 +22,8 @@ theme:
              name: Switch to light mode
     icon:
         repo: fontawesome/brands/github  # GitHub logo in top right
-        logo: "material/robot-outline"  # Rex logo in top left
-    favicon: "_static/favicon.png"
+        logo: "material/google-downasaur"  # Rex logo in top left
+    favicon: "_static/favicon_trex.ico"
     custom_dir: "docs/_overrides"  # Overriding part of the HTML
 
     # These additions are my own custom ones, having overridden a partial.
