@@ -32,10 +32,10 @@ jobs:
         run: uv sync --all-extras --dev --group tests
 
       - name: Check code style
-        run: format_check
+        run: make format_check
 
       - name: Check lint
-        run: lint_check
+        run: make lint_check
 
       - name: Run tests
         run: make run_tests
