@@ -21,6 +21,19 @@ theme:
              icon: material/weather-sunny
              name: Switch to light mode
     icon:
+        admonition:
+            note: octicons/tag-16
+            abstract: octicons/checklist-16
+            info: octicons/info-16
+            tip: octicons/squirrel-16
+            success: octicons/check-16
+            question: octicons/question-16
+            warning: octicons/alert-16
+            failure: octicons/x-circle-16
+            danger: octicons/zap-16
+            bug: octicons/bug-16
+            example: octicons/beaker-16
+            quote: octicons/quote-16
         repo: fontawesome/brands/github  # GitHub logo in top right
         logo: "material/google-downasaur"  # Rex logo in top left
     favicon: "_static/favicon_trex.ico"
@@ -43,7 +56,7 @@ edit_uri: ""  # No edit button, as some of our pages are in /docs and some in /e
 # Added for local loading. See https://stackoverflow.com/questions/60354731/why-are-my-local-html-links-going-to-parent-folder-instead-of-the-html
 use_directory_urls: false
 
-strict: true  # Don't allow warnings during the build process
+strict: false  # Don't allow warnings during the build process
 
 extra_javascript:
     # The below two make MathJax work, see https://squidfunk.github.io/mkdocs-material/reference/mathjax/
@@ -65,31 +78,32 @@ markdown_extensions:
         permalink: "¤"  # Adds a clickable permalink to each section heading
         toc_depth: 4
 
+#
+exclude_docs: |
+    /_overrides/*
+    !.htaccess  # Don't exclude the .htaccess file, although all other '.*' are excluded
+
+watch:
+    - rex
+
 plugins:
     - search  # default search plugin; needs manually re-enabling when using any other plugins
     - autorefs  # Cross-links to headings
-    - include_exclude_files:
-        include:
-            - ".htaccess"
-        exclude:
-            - "_overrides"
-            - "examples/.ipynb_checkpoints"
     - mknotebooks  # Jupyter notebooks
     - mkdocstrings:
         handlers:
             python:
-                setup_commands:
-                    - import pytkdocs_tweaks
-                    - pytkdocs_tweaks.main()
+                setup_commands: # TODO: Seems to be ignored/not executed...
+#                    - import pytkdocs_tweaks
+#                    - pytkdocs_tweaks.main()
                     - import jaxtyping
                     - jaxtyping.set_array_name_format("array")
                     - import jax
                     - jax.ShapeDtypeStruct.__module__ = "jax"
                     - jax.core.ClosedJaxpr.__module__ = "jax.core"
-
-                selection:
-                    inherited_members: true  # Allow looking up inherited methods
-                rendering:
+                options:
+                    docstring_style: google
+                    docstring_section_style: list
                     show_root_heading: true  # actually display anything at all...
                     show_root_full_path: true  # display "diffrax.asdf" not just "asdf"
                     show_if_no_docstring: true
@@ -97,6 +111,10 @@ plugins:
                     show_source: false  # don't include source code
                     members_order: source  # order methods according to their order of definition in the source code, not alphabetical order
                     heading_level: 4
+                    inherited_members: true  # Allow looking up inherited methods
+                    group_by_category: true
+                    filters:
+                        - "!^_"  # Don't include private methods
 
 nav:
     - 'index.md'
@@ -107,31 +125,27 @@ nav:
             - Graphs and environments: 'examples/graph_and_environment_creation.ipynb'
         - Advanced:
               - Sim2real with a pendulum: 'examples/sim2real.ipynb'
-
     - Usage:
 #        - 'plotting.md'  # open_colors, utils.plot_...
 #        - 'logging.md'   # utils.log_..., etc..
 #        - Nodes:
-#            - 'api/node.md'
-#        - Graphs:
-#            - 'api/asynchronous.md'
-#            - 'api/graph.md'
-#            - 'api/artificial.md'
+        - 'api/node.md'
+        - Graphs:
+            - 'api/asynchronous.md'
+            - 'api/compiled.md'
+            - 'api/artificial.md'
 #            - 'api/partition_runner.md'
-#        - Delay Estimation:
-#            - 'api/gmm_estimator.md'
+        - Delay Estimation:
+            - 'api/gmm_estimator.md'
 #            - 'api/hidden.md'
         - System identification:
             - 'api/evosax.md'
-#            - 'api/cem.md'
+            - 'api/cem.md'
 #            - 'api/transform.md'
-#        - Reinforcement learning:
-#            - 'api/rl.md'
+        - Reinforcement learning:
+            - 'api/rl.md'
 #            - 'api/ppo.md'
 #            - 'api/actor_critic.md'
-#    - Basic API:
-#       - api/nodes.md
-
 #    - Advanced API:
 #        - 'api/debug.md'
 #    - Misc:

@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, List, Tuple, TYPE_CHECKING
 
 import equinox as eqx
 import jax
@@ -14,6 +14,8 @@ try:
 except ImportError as e:
     raise ImportError(f"Failed to import evosax: {e}. Please install it with `pip install evosax`.")
 
+if TYPE_CHECKING:
+    import matplotlib.pyplot as plt
 
 ESLog = evx.ESLog
 EvoState = evx.strategy.EvoState
@@ -65,7 +67,9 @@ class LogState:
         new_state = self.logger.load(filename)
         return self.replace(state=new_state)
 
-    def plot(self, title, ylims=None, fig=None, ax=None, no_legend=False):
+    def plot(
+        self, title: str, ylims: List[int, int] = None, fig: plt.Figure = None, ax: plt.Axes = None, no_legend: bool = False
+    ) -> Tuple[plt.Figure, plt.Axes]:
         """Plot the log state.
 
         Args:
@@ -201,7 +205,7 @@ def evo(
     rng: jax.Array = None,
     verbose: bool = True,
     logger: LogState = None,
-):
+) -> Tuple[evx.strategy.EvoState, LogState, jax.Array]:
     """Run the Evolutionary Solver (can be jit-compiled).
 
     Args:

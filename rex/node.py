@@ -23,6 +23,20 @@ class Connection:
         jitter: Jitter = Jitter.LATEST,
         input_name: str = None,
     ):
+        """Connection class that represents an edge in the graph.
+
+        Args:
+            input_node: The input node.
+            output_node: The output node.
+            blocking: Whether the connection is blocking.
+            delay: The expected communication delay of the connection.
+            delay_dist: The communication delay distribution of the connection for simulation.
+            window: The window size of the connection. It determines how many output messages are used as input to
+            jitter: How to deal with jitter of the connection. If `LATEST`, the latest messages are used. If `BUFFER`, the
+            skip: Whether to skip the connection. It resolves cyclic dependencies, by skipping the output if it arrives
+                  at the same time as the start of the `.step()` function (i.e. `step_state.ts`).
+            input_name: A shadow name for the connected node. If `None`, the name of the output node is used.
+        """
         self.input_node = input_node
         self.output_node = output_node
         self.blocking = blocking
@@ -41,6 +55,12 @@ class Connection:
         self.input_name = input_name if isinstance(input_name, str) else output_node.name
 
     def set_delay(self, delay_dist: Union[base.DelayDistribution, distrax.Distribution] = None, delay: float = None):
+        """Set the delay distribution and delay for the communication delay of the connection.
+
+        Args:
+            delay_dist: The delay distribution to simulate.
+            delay: The delay to take into account for the phase shift.
+        """
         self.delay_dist = self.delay_dist if delay_dist is not None else self.delay_dist
         self.delay_dist = (
             base.StaticDist.create(self.delay_dist) if isinstance(self.delay_dist, distrax.Distribution) else self.delay_dist
@@ -89,16 +109,58 @@ class BaseNode:
     ):
         """Base node class. All nodes should inherit from this class.
 
-        :param name: The name of the node (unique).
-        :param rate: The rate of the node (Hz).
-        :param delay: The expected computation delay of the node (s). Used to calculate the phase shift.
-        :param delay_dist: The computation delay distribution of the node for simulation.
-        :param advance: Whether the node's step triggers when all inputs are ready, or throttles until the scheduled time.
-        :param scheduling: The scheduling of the node. If FREQUENCY, the node is scheduled at a fixed rate, while ignoring
-                           any phase shift w.r.t the clock. If PHASE, the node steps are scheduled at a fixed rate and phase
-                           w.r.t the clock.
-        :param color: The color of the node (for visualization).
-        :param order: The order of the node (for visualization).
+        Example: Basic template for a node class:
+            ```python
+            class MyNode(BaseNode):
+                def __init__(self, *args, extra_arg, **kwargs):  # Optional
+                    super().__init__(*args, **kwargs)
+                    self.extra_arg = extra_arg
+
+                def init_params(self, rng=None, graph_state=None):  # Optional
+                    return MyParams(param1=1.0, param2=2.0)
+
+                def init_state(self, rng=None, graph_state=None): # Optional
+                    return MyState(state1=1.0, state2=2.0)
+
+                def init_output(self, rng=None, graph_state=None):  # Required
+                    return MyOutput(output1=1.0, output2=2.0)
+
+                def init_delays(self, rng=None, graph_state=None):  # Optional
+                    # Set trainable delays to values from params
+                    params = graph_state.params[self.name]
+                    return {"some_node": params.param1}  # Connected node name
+
+                def startup(self, graph_state, timeout=None):  # Optional
+                    # Move the robot to a starting position
+                    return True
+
+                def step(self, step_state):  # Required
+                    # Unpack step state
+                    params = step_state.params
+                    state = step_state.state
+                    inputs = step_state.inputs
+                    # Calculate output
+                    output = MyOutput(...)
+                    # Update state
+                    new_state = MyState(...)
+                    return step_state.replace(state=new_state), output
+
+                def stop(self, timeout=None):  # Optional
+                    # Safely the robot at the end of the episode
+                    return True
+            ```
+
+        Args:
+            name: The name of the node (unique).
+            rate: The rate of the node (Hz).
+            delay: The expected computation delay of the node (s). Used to calculate the phase shift.
+            delay_dist: The computation delay distribution of the node for simulation.
+            advance: Whether the node's step triggers when all inputs are ready, or throttles until the scheduled time.
+            scheduling: The scheduling of the node. If `FREQUENCY`, the node is scheduled at a fixed rate, while ignoring
+                        any phase shift w.r.t the clock. If `PHASE`, the node steps are scheduled at a fixed rate and phase
+                        w.r.t the clock.
+            color: The color of the node (for visualization).
+            order: The order of the node (for visualization).
         """
         self.name = name
         self.rate = rate
@@ -142,6 +204,12 @@ class BaseNode:
             cls.step = jutil.no_weaktype(identifier=f"{identifier}.step")(cls.step)
 
     def set_delay(self, delay_dist: Union[base.DelayDistribution, distrax.Distribution] = None, delay: float = None):
+        """Set the delay distribution and delay for the computation delay of the node.
+
+        Args:
+            delay_dist: The delay distribution to simulate.
+            delay: The delay to take into account for the phase shift.
+        """
         self.delay_dist = self.delay_dist if delay_dist is not None else self.delay_dist
         self.delay_dist = (
             base.StaticDist.create(self.delay_dist) if isinstance(self.delay_dist, distrax.Distribution) else self.delay_dist
@@ -154,15 +222,20 @@ class BaseNode:
         self.delay = delay if delay is not None else self.delay
 
     @classmethod
-    def from_info(cls, info: base.NodeInfo, **kwargs):
-        """Creates a subclass object from a node info object.
+    def from_info(cls, info: base.NodeInfo, **kwargs: Dict[str, Any]):
+        """Re-instantiates a Node from a NodeInfo object.
 
-        Make sure to call connect_from_info() on the resulting subclass object to connect it to the rest of the graph.
+        Note: Don't forget to call `connect_from_info()`.
+            Make sure to call connect_from_info() on the resulting subclass object to restore the connections.
 
-        A subclass object is instantiated instead of the BaseNode. This means that subclass information is preserved,
-        but must also be provided in the *args and **kwargs.
+        Note:
+            This method attempts to restore the subclass object from the BaseNode object.
+            Hence, it requires any additional arguments to be passed as keyword arguments.
+            Moreover, the signature of the subclass must be the same as the BaseNode, except for the additional *args and **kwargs.
 
-        Moreover, the signature of the subclass must be the same as the BaseNode, except for the additional *args and **kwargs.
+        Args:
+            info: Node info object.
+            **kwargs: Additional keyword arguments for the subclass.
         """
         reserved_kwargs = ["name", "rate", "delay_dist", "delay", "advance", "scheduling", "color", "order"]
         extra_kwargs = {k: v for k, v in kwargs.items() if k not in reserved_kwargs}
@@ -181,8 +254,9 @@ class BaseNode:
     def connect_from_info(self, infos: [str, base.InputInfo], nodes: Dict[str, "BaseNode"]):
         """Connects the node to other nodes based on the input infos.
 
-        :param infos: The input infos. It is a dictionary of input names to input infos.
-        :param nodes: The dictionary of node names to node objects.
+        Args:
+            infos: A dictionary of input names to input infos.
+            nodes: A dictionary of node names to node objects.
         """
         for input_name, info in infos.items():
             output_node = nodes[info.output]
@@ -199,6 +273,7 @@ class BaseNode:
 
     @property
     def info(self) -> base.NodeInfo:
+        """Get the node info."""
         return base.NodeInfo(
             rate=self.rate,
             advance=self.advance,
@@ -217,6 +292,7 @@ class BaseNode:
 
     @property
     def log_level(self):
+        """Get the log level of the node."""
         return utils.NODE_LOG_LEVEL.get(self, LogLevel.WARN)
 
     @property
@@ -254,9 +330,18 @@ class BaseNode:
 
     @property
     def phase_output(self) -> float:
+        """Phase shift including the node's computation delay."""
         return self.phase + self.delay
 
     def log(self, id: Union[str, Async], value: Any = None, log_level: int = None):
+        """
+        Logs a message with the specified log level.
+
+        Args:
+            id: Identifier for the log message.
+            value: The value to log.
+            log_level: The log level to use. If None, the node's log level is used.
+        """
         if not utils.NODE_LOGGING_ENABLED:
             return
         log_level = self.log_level if log_level is None else log_level
@@ -265,7 +350,8 @@ class BaseNode:
     def now(self) -> float:
         """Get the passed time since start of episode according to the simulated and wall clock.
 
-        Only returns > 0 timestamps if running asynchronously.
+        Returns:
+            Time since start of episode. Only returns > 0 timestamps if running asynchronously.
         """
         if self._async_now is not None:
             return self._async_now()
@@ -285,17 +371,18 @@ class BaseNode:
     ):
         """Connects the node to another node.
 
-        :param output_node: The node to connect to.
-        :param blocking: Whether the connection is blocking.
-        :param delay: The expected communication delay of the connection.
-        :param delay_dist: The communication delay distribution of the connection for simulation.
-        :param window: The window size of the connection. It determines how many output messages are used as input to
-                       the .step() function.
-        :param skip: Whether to skip the connection. It resolves cyclic dependencies, by skipping the output if it arrives
-                     at the same time as the start of the .step() function (i.e. step_state.ts).
-        :param jitter: How to deal with jitter of the connection. If LATEST, the latest messages are used. If BUFFER, the
-                       messages are buffered and used in accordance with the expected delay.
-        :param name: A shadow name for the connected node. If None, the name of the output node is used.
+        Args:
+            output_node: The node to connect to.
+            blocking: Whether the connection is blocking.
+            delay: The expected communication delay of the connection.
+            delay_dist: The communication delay distribution of the connection for simulation.
+            window: The window size of the connection. It determines how many output messages are used as input to
+                    the `.step()` function.
+            skip: Whether to skip the connection. It resolves cyclic dependencies, by skipping the output if it arrives
+                  at the same time as the start of the `.step()` function (i.e. `step_state.ts`).
+            jitter: How to deal with jitter of the connection. If `LATEST`, the latest messages are used. If `BUFFER`, the
+                    messages are buffered and used in accordance with the expected delay.
+            name: A shadow name for the connected node. If `None`, the name of the output node is used.
         """
         name = name if isinstance(name, str) else output_node.name
         connection = Connection(self, output_node, blocking, delay, delay_dist, window, skip, jitter, input_name=name)
@@ -305,10 +392,13 @@ class BaseNode:
     def disconnect(self, output_node: Union[str, "BaseNode"]):
         """Disconnects the node from another node.
 
-        **Note** that this may not properly disconnect if the node is already used in a graph.
-        Ideally, create new nodes for each graph, instead of reusing nodes.
+        TODO: Implement clean disconnect.
+            This is a placeholder for a clean disconnect.
+            When nodes are already used in a graph, it may not properly disconnect.
+            As a workaround, users are advised to create new nodes for each graph, instead of reusing nodes.
 
-        :param output_node: The node to disconnect from. Can be the name of the node or the node object.
+        Args:
+            output_node: The node to disconnect from. Can be the name of the node or the node object.
         """
         raise NotImplementedError(
             "Clean disconnect is not properly implemented. "
@@ -320,47 +410,50 @@ class BaseNode:
     def init_params(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> base.Params:
         """Init params of the node.
 
-        The params of the node are usually considered to be static during an episode (e.g. dynamic params, network weights).
+        The params are composed of values that remain constant during an episode (e.g. network weights).
 
         At this point, the graph state may contain the params of other nodes required to get the default params.
         The order of node initialization can be specified in Graph.init(... order=[node1, node2, ...]).
 
-        :param rng: Random number generator.
-        :param graph_state: The graph state that may be used to get the default params.
-        :return: The default params of the node.
+        Args:
+            rng: Random number generator.
+            graph_state: The graph state that may be used to get the default params.
+
+        Returns:
+            The default params of the node.
         """
         return base.Empty()
 
     def init_state(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> base.State:
         """Init state of the node.
 
-        The state of the node is usually considered to be dynamic during an episode (e.g. position, velocity).
+        The state is composed of values that are updated during the episode in the `.step()` function (e.g. position, velocity).
 
         At this point, the params of all nodes are already initialized and present in the graph state (if specified).
         Moreover, the state of other nodes required to get the default state may also be present in the graph state.
-        The order of node initialization can be specified in Graph.init(... order=[node1, node2, ...]).
+        The order of node initialization can be specified in `Graph.init(... order=[node1, node2, ...])`.
 
-        :param rng: Random number generator.
-        :param graph_state: The graph state that may be used to get the default state.
-        :return: The default state of the node.
+        Args:
+            rng: Random number generator.
+            graph_state: The graph state that may be used to get the default state.
+
+        Returns:
+            The default state of the node.
         """
         return base.Empty()
 
     def init_output(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> base.Output:
-        """Default output of the node.
+        """Default output of the node. Used to fill the input buffers of connected nodes.
 
-        It is common for nodes not to share their full state with other nodes.
-        Hence, the output of the node is usually a subset of the state that is shared with other nodes.
+        Tip:
+            It's recommended to define the output without relying on the `graph_state` to avoid dependency on other nodes.
 
-        These outputs are used to initialize the inputs of other nodes. In the case where a node may not have received
-        any messages from a connected node, the default outputs are used to fill the input buffers.
+        Args:
+            rng: Random number generator.
+            graph_state: The graph state that may be used to get the default output.
 
-        Usually, the params and state of every node are already initialized and present in the graph state.
-        However, it's usually preferred to define the output without relying on the graph state.
-
-        :param rng: Random number generator.
-        :param graph_state: The graph state that may be used to get the default output.
-        :return: The default output of the node.
+        Returns:
+            The default output of the node.
         """
         return base.Empty()
 
@@ -369,12 +462,26 @@ class BaseNode:
     ) -> Dict[str, Union[float, jax.typing.ArrayLike]]:
         """Initialize trainable communication delays.
 
-        **Note** These only include trainable delays that were specified while connecting the nodes.
+        Note:
+            These delays include only trainable connections.
+            To make a delay trainable, replace the parameters in the delay distribution with trainable parameters.
 
-        :param rng: Random number generator.
-        :param graph_state: The graph state that may be used to get the default output.
-        :return: Trainable delays (e.g., {input_name: delay}). Can be an incomplete dictionary.
-                 Entries for non-trainable delays or non-existent connections are ignored.
+        Example: A rough template for the init_delays function is as follows:
+            ```python
+            def init_delays(self, rng=None, graph_state=None):
+                # Assumes graph_state contains the params of the node
+                params = graph_state.params[self.name]
+                trainable_delays = {"world": params.delay_param}
+                return trainable_delays
+            ```
+
+        Args:
+            rng: Random number generator.
+            graph_state: The graph state that may be used to get the default output.
+
+        Returns:
+            Trainable delays. Can be an incomplete dictionary.
+            Entries for non-trainable delays or non-existent connections are ignored.
         """
         trainable_delays = dict()
         for input_name, c in self.inputs.items():
@@ -384,15 +491,17 @@ class BaseNode:
         return trainable_delays
 
     def init_inputs(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> FrozenDict[str, base.InputState]:
-        """Default inputs of the node.
+        """Initialize default inputs for the node.
 
-        Fills the input buffers of the node with the default outputs of the connected nodes.
-        These input buffers are usually only used during the first few steps of the simulation when the node has not yet
-        received enough messages from the connected nodes to fill the buffers.
+        Fills input buffers with default outputs from connected nodes.
+        Used during the initial steps of an episode when input buffers are not yet filled.
 
-        :param rng: Random number generator.
-        :param graph_state: The graph state that may be used to get the default inputs.
-        :return: The default inputs of the node.
+        Args:
+            rng: Random number generator.
+            graph_state: The graph state that may be used to get the default inputs.
+
+        Returns:
+            The default inputs of the node.
         """
         if rng is None:
             rng = jax.random.PRNGKey(0)
@@ -415,6 +524,25 @@ class BaseNode:
         return FrozenDict(inputs)
 
     def init_step_state(self, rng: jax.Array = None, graph_state: base.GraphState = None) -> base.StepState:
+        """
+        Initializes the step state of the node, which is used to run the `seq`'th step of the node at time `ts`.
+
+        - `BaseNode.init_params`
+        - `BaseNode.init_state`
+        - `BaseNode.init_inputs` using `BaseNode.init_output` of connected nodes (to fill the input buffers)
+
+        Note:
+            If a node's initialization depends on the params, state, or inputs of other nodes this may fail.
+             In such cases, the user can provide a graph state with the necessary information to get the default step state.
+
+        Args:
+            rng: Random number generator.
+            graph_state: The graph state that may be used to get the default step state.
+
+        Returns:
+            The default step state of the node.
+        """
+
         """Initializes the step state of the node.
 
         The step state is a dataclass that contains all data to run the seq'th step of the node at time ts,
@@ -460,51 +588,84 @@ class BaseNode:
         return graph_state.step_state[self.name]
 
     def startup(self, graph_state: base.GraphState, timeout: float = None) -> bool:
-        """Starts the node in the state specified by graph_state.
+        """
+        Initializes the node to the state specified by `graph_state`.
+        This method is called just before an episode starts.
+        It can be used to move a real robot to a starting position as specified by the `graph_state`.
 
-        This method is called right before an episode starts.
-        It can be used to move (a real) robot to a starting position as specified by the graph_state.
+        Note:
+            Only called when running asynchronously.
 
-        Not used when running in compiled mode.
-        :param graph_state: The graph state.
-        :param timeout: The timeout of the startup.
-        :return: Whether the node has started successfully.
+        Args:
+            graph_state: The graph state.
+            timeout: The timeout of the startup.
+
+        Returns:
+            Whether the node has started successfully.
         """
         return True
 
     def stop(self, timeout: float = None) -> bool:
         """Stopping routine that is called after the episode is done.
 
-        **IMPORTANT** It may happen that stop is called *before* the final .step call of an episode returns,
-        which may cause unsafe behavior when the final step undoes the work of the .stop method.
-        This should be handled by the user. For example, by stopping "longer" before returning here.
+        Note:
+            Only called when running asynchronously.
 
-        Only ran when running asynchronously.
-        :param timeout: The timeout of the stop
-        :return: Whether the node has stopped successfully.
+        Warning:
+            It may happen that stop is already called *before* the final `.step` call of an episode returns,
+            which may cause unsafe behavior when the final step undoes the work of the .stop method.
+            This should be handled by the user. For example, by stopping "longer" before returning here.
+
+        Args:
+            timeout: The timeout of the stop.
+
+        Returns:
+            Whether the node has stopped successfully.
         """
         return True
 
     def step(self, step_state: base.StepState) -> Tuple[base.StepState, base.Output]:
-        """Step the node for the seq'th time step at time ts.
+        """
+        Execute the node for the `seq`-th time step at time `ts`.
+        This function updates the node's state and generates an output, which is sent to connected nodes. It is called at the node's rate.
+         Users are expected to update the state (and rng if used), but not the seq and ts, as they are automatically updated.
 
-        This step function is the main function that is called to update the state of the node and produce an output, that
-        is sent to the connected nodes. The step function is called at the rate of the node.
+        Tip: Wrapping side-effecting code
+            Side-effecting code should be wrapped to ensure execution on the host machine when using `jax.jit`.
+            See [here](https://jax.readthedocs.io/en/latest/notebooks/external_callbacks.html) for more info.
 
-        The step_state is a dataclass that contains all data to run the seq'th step at time ts, during episode `eps`
-        Specifically, it contains the params, state, inputs[connected_node_name], eps, seq, and ts.
+        Example: A rough template for the step function is as follows:
+            ```python
+            def step(step_state: base.StepState) -> Tuple[base.StepState, base.Output]:
+                # Per input with `input_name`, the following information is available:
+                step_state.inputs[input_name][window_index].data # A window_index of -1 leads to the most recent message.
+                step_state.inputs[input_name][window_index].seq # The sequence number of the message.
+                step_state.inputs[input_name][window_index].ts_sent # The time the message was sent.
+                step_state.inputs[input_name][window_index].ts_recv # The time the message was received.
 
-        The inputs are interfaced as inputs[some_name][window_index].data. A window_index of -1 leads to the most recent message.
-        Auxiliary information such as the sequence number, and the time sent and received are also stored in the InputState.
-        This information can be accessed as inputs[some_name][window_index].seq, inputs[some_name][window_index].ts_sent, and
-        inputs[some_name][window_index].ts_recv, respectively, where ts_sent and ts_recv are the time the message was sent and
-        received, respectively.
+                # The following information is available for the node:
+                step_state.params # The parameters of the node.
+                step_state.state # The state of the node.
+                step_state.eps # The episode number.
+                step_state.seq # The sequence number.
+                step_state.ts # The time of the step within the episode.
+                step_state.rng # The random number generator.
 
-        Note that the user is expected to update the state (and rng if used), but not the seq and ts, as they are
-        automatically updated.
+                # Calculate output and updated state
+                new_rng, rng_step = jax.random.split(step_state.rng)
+                output = ...
+                new_state = ...
 
-        :param step_state: The step state of the node.
-        :return: The updated step state and the output of the node.
+                # Update the state of the node
+                new_ss = step_state.replace(rng=new_rng, state=new_state)  #
+                return new_ss, output
+            ```
+
+        Args:
+            step_state: The step state of the node.
+
+        Returns:
+            The updated step state and the output of the node.
         """
         raise NotImplementedError
 
@@ -521,10 +682,11 @@ class BaseWorld(BaseNode):
         - The advance is set to False, as the world node should adhere to the rate of the node.
         - The scheduling is set to FREQUENCY, as the world node should adhere to the rate of the node.
 
-        :param name: The name of the node (unique).
-        :param rate: The rate of the node (Hz).
-        :param color: The color of the node (for visualization).
-        :param order: The order of the node (for visualization).
+        Args:
+            name: The name of the node (unique).
+            rate: The rate of the node (Hz).
+            color: The color of the node (for visualization).
+            order: The order of the node (for visualization).
         """
         delay_dist = distrax.Normal(loc=0.999 / rate, scale=0.0)
         delay = float(delay_dist.mean())

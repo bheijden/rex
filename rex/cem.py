@@ -11,15 +11,35 @@ from rex.base import Loss, Params, Transform
 
 @struct.dataclass
 class CEMState:
+    """State of the CEM Solver.
+
+    Attributes:
+        mean: (Normalized) Mean values for the parameters (pytree).
+        stdev: (Normalized) Standard deviation values for the parameters (pytree).
+        bestsofar: (Normalized) Best-so-far values for the parameters (pytree).
+        bestsofar_loss: Loss of the best-so-far values.
+    """
+
     mean: Dict[str, Params]
     stdev: Dict[str, Params]
     bestsofar: Dict[str, Params]
     bestsofar_loss: Union[float, jax.typing.ArrayLike]
 
+    def replace(self, **kwargs):
+        return eqx.replace(self, **kwargs)
+
 
 @struct.dataclass
 class CEMSolver:
-    """See https://arxiv.org/pdf/1907.03613.pdf for details on CEM"""
+    """See https://arxiv.org/pdf/1907.03613.pdf for details on CEM
+
+    Attributes:
+        u_min: (Normalized) Minimum values for the parameters (pytree).
+        u_max: (Normalized) Maximum values for the parameters (pytree).
+        evolution_smoothing: Smoothing factor for updating the mean and standard deviation.
+        num_samples: Number of samples per iteration.
+        elite_portion: The portion of the samples to consider
+    """
 
     u_min: Dict[str, Params]
     u_max: Dict[str, Params]
@@ -35,15 +55,18 @@ class CEMSolver:
         num_samples: int = 100,
         evolution_smoothing: Union[float, jax.typing.ArrayLike] = 0.1,
         elite_portion: float = 0.1,
-    ):
+    ) -> "CEMSolver":
         """Initialize the Cross-Entropy Method (CEM) Solver.
 
-        :param u_min: (Normalized) Minimum values for the parameters (pytree).
-        :param u_max: (Normalized) Maximum values for the parameters (pytree).
-        :param num_samples: Number of samples per iteration.
-        :param evolution_smoothing: See https://arxiv.org/pdf/1907.03613.pdf for details.
-        :param elite_portion: See https://arxiv.org/pdf/1907.03613.pdf for details.
-        :return:
+        Args:
+            u_min: (Normalized) Minimum values for the parameters (pytree).
+            u_max: (Normalized) Maximum values for the parameters (pytree).
+            num_samples: Number of samples per iteration.
+            evolution_smoothing: See <https://arxiv.org/pdf/1907.03613.pdf> for details.
+            elite_portion: See <https://arxiv.org/pdf/1907.03613.pdf> for details.
+
+        Returns:
+            CEMSolver: An instance of the CEMSolver class.
         """
         return cls(
             u_min=u_min,
@@ -54,6 +77,15 @@ class CEMSolver:
         )
 
     def init_state(self, mean: Dict[str, Params], stdev: Dict[str, Params] = None) -> CEMState:
+        """Initialize the state of the CEM Solver.
+
+        Args:
+            mean: (Normalized) Mean values for the parameters (pytree).
+            stdev: (Normalized) Standard deviation values for the parameters (pytree).
+
+        Returns:
+            CEMState: The initialized state of the CEM Solver.
+        """
         """Initialize the state of the CEM Solver.
 
         :param mean: (Normalized) Mean values for the parameters (pytree).

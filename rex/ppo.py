@@ -58,10 +58,39 @@ class Diagnostics(Base):
 
 @struct.dataclass
 class Config(Base):
-    """Configuration for the PPO algorithm.
+    """
+    Configuration for the PPO algorithm.
 
     Inherit from this class and override the `EVAL_METRICS_JAX_CB` and `EVAL_METRICS_HOST_CB` methods to customize the
     evaluation metrics and the host-side callback for the evaluation metrics.
+
+    Attributes:
+        LR: The learning rate.
+        NUM_ENVS: The number of parallel environments.
+        NUM_STEPS: The number of steps to run in each environment per update.
+        TOTAL_TIMESTEPS: The total number of timesteps to run.
+        UPDATE_EPOCHS: The number of epochs to run per update.
+        NUM_MINIBATCHES: The number of minibatches to split the data into.
+        GAMMA: The discount factor.
+        GAE_LAMBDA: The Generalized Advantage Estimation (GAE) parameter.
+        CLIP_EPS: The clipping parameter for the ratio in the policy loss.
+        ENT_COEF: The coefficient of the entropy regularizer.
+        VF_COEF: The value function coefficient.
+        MAX_GRAD_NORM: The maximum gradient norm.
+        NUM_HIDDEN_LAYERS: The number of hidden layers (same for actor and critic).
+        NUM_HIDDEN_UNITS: The number of hidden units per layer (same for actor and critic).
+        KERNEL_INIT_TYPE: The kernel initialization type (same for actor and critic).
+        HIDDEN_ACTIVATION: The hidden activation function (same for actor and critic).
+        STATE_INDEPENDENT_STD: Whether to use state-independent standard deviation for the actor.
+        SQUASH: Whether to squash the action output of the actor.
+        ANNEAL_LR: Whether to anneal the learning rate.
+        NORMALIZE_ENV: Whether to normalize the environment (observations and rewards), actions are always normalized.
+        FIXED_INIT: Whether to use fixed initial states for each parallel environment.
+        OFFSET_STEP: Whether to offset the step counter for each parallel environment to break temporal correlations.
+        NUM_EVAL_ENVS: The number of evaluation environments.
+        EVAL_FREQ: The number of evaluations to run per run of training.
+        VERBOSE: Whether to print verbose output.
+        DEBUG: Whether to print debug output per step.
     """
 
     # Learning rate
@@ -121,21 +150,36 @@ class Config(Base):
 
     @property
     def NUM_UPDATES(self):
+        """Number of updates to run"""
         return self.TOTAL_TIMESTEPS // self.NUM_STEPS // self.NUM_ENVS
 
     @property
     def NUM_UPDATES_PER_EVAL(self):
+        """Number of updates to run per evaluation"""
         return self.NUM_UPDATES // self.EVAL_FREQ
 
     @property
     def NUM_TIMESTEPS(self):
+        """Number of timesteps to run per evaluation"""
         return self.NUM_UPDATES_PER_EVAL * self.NUM_STEPS * self.NUM_ENVS * self.EVAL_FREQ
 
     @property
     def MINIBATCH_SIZE(self):
+        """Size of the minibatch"""
         return self.NUM_ENVS * self.NUM_STEPS // self.NUM_MINIBATCHES
 
     def EVAL_METRICS_JAX_CB(self, total_steps, diagnostics: Diagnostics, eval_transitions: Transition = None) -> Dict:
+        """
+        Compute evaluation metrics for the PPO algorithm.
+
+        Args:
+            total_steps: The total number of steps run.
+            diagnostics: The diagnostics from the training process.
+            eval_transitions: The transitions from the evaluation process.
+
+        Returns:
+            Dict: A dictionary containing the evaluation metrics.
+        """
         returns_done = eval_transitions.info["returned_episode_returns"] * eval_transitions.done
         lengths_done = eval_transitions.info["returned_episode_lengths"] * eval_transitions.done
         total_eps = eval_transitions.done.sum()
@@ -157,7 +201,15 @@ class Config(Base):
         metrics["eval/total_episodes"] = total_eps
         return metrics
 
-    def EVAL_METRICS_HOST_CB(self, metrics: Dict):
+    def EVAL_METRICS_HOST_CB(self, metrics: Dict) -> None:
+        """
+        Evaluate the evaluation metrics for the PPO algorithm on the host.
+
+        Can be used for printing or logging the evaluation metrics on the host as this is side-effectful.
+
+        Args:
+            metrics: The evaluation metrics.
+        """
         # Standard metrics
         global_step = metrics["train/total_steps"]
         mean_approxkl = metrics["train/mean_approxkl"]
@@ -179,6 +231,18 @@ class Config(Base):
 
 @struct.dataclass
 class Policy(Base):
+    """
+    Represents the policy model.
+
+    Attributes:
+        act_scaling: The action scaling parameters.
+        obs_scaling: The observation scaling parameters.
+        model: The model parameters.
+        hidden_activation: The hidden activation function.
+        output_activation: The output activation function.
+        state_independent_std: Whether the standard deviation of the actor is state-independent
+    """
+
     act_scaling: SquashState
     obs_scaling: NormalizeVec
     model: Dict[str, Dict[str, Union[jax.typing.ArrayLike, Any]]]
@@ -187,6 +251,16 @@ class Policy(Base):
     state_independent_std: bool = struct.field(pytree_node=False)
 
     def apply_actor(self, norm_obs: jax.typing.ArrayLike, rng: jax.Array = None) -> jax.Array:
+        """
+        Apply the actor model to the normalized observation
+
+        Args:
+            norm_obs: The normalized observation
+            rng: Random number generator key
+
+        Returns:
+            The unscaled action
+        """
         x = norm_obs  # Rename for clarity
 
         # Get parameters
@@ -220,6 +294,16 @@ class Policy(Base):
         return x
 
     def get_action(self, obs: jax.typing.ArrayLike, rng: jax.Array = None) -> jax.Array:
+        """
+        Get the action from the policy model
+
+        Args:
+            obs: The observation
+            rng: Random number generator key
+
+        Returns:
+            The action, scaled to the action space.
+        """
         # Normalize observation
         norm_obs = self.obs_scaling.normalize(obs, clip=True, subtract_mean=True) if self.obs_scaling is not None else obs
         # Get action
@@ -233,6 +317,16 @@ class Policy(Base):
 
 @struct.dataclass
 class RunnerState(Base):
+    """
+    Represents the state of the runner during training.
+
+    Attributes:
+        train_state: The state of the training process.
+        env_state: The state of the environment.
+        last_obs: The last observation.
+        rng: Random number generator key
+    """
+
     train_state: TrainState
     env_state: GraphState
     last_obs: jax.typing.ArrayLike
@@ -241,24 +335,37 @@ class RunnerState(Base):
 
 @struct.dataclass
 class PPOResult(Base):
+    """
+    Represents the result of the PPO training process.
+
+    Attributes:
+        config: Configuration for the PPO algorithm.
+        runner_state: The state of the runner after training.
+        metrics: Dictionary containing various metrics collected during training.
+    """
+
     config: Config
     runner_state: RunnerState
     metrics: Dict[str, Any]
 
     @property
     def obs_scaling(self) -> SquashState:
+        """Returns the observation scaling parameters."""
         return self.runner_state.env_state.aux.get("norm_obs", None)
 
     @property
     def act_scaling(self) -> SquashAction:
+        """Returns the action scaling parameters."""
         return jax.tree_util.tree_map(lambda x: x[0], self.runner_state.env_state.aux.get("act_scaling", None))
 
     @property
     def rwd_scaling(self) -> NormalizeVec:
+        """Returns the reward scaling parameters."""
         return self.runner_state.env_state.aux.get("norm_reward", None)
 
     @property
     def policy(self) -> Policy:
+        """Returns the policy model."""
         return Policy(
             act_scaling=self.act_scaling,
             obs_scaling=self.obs_scaling,
@@ -270,6 +377,17 @@ class PPOResult(Base):
 
 
 def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
+    """
+    Train the PPO model.
+
+    Args:
+        env: The environment to train on.
+        config: Configuration for the PPO algorithm.
+        rng: Random number generator key.
+
+    Returns:
+        PPOResult: The result of the training process.
+    """
     # INIT TRAIN ENV
     env = AutoResetWrapper(env, fixed_init=config.FIXED_INIT)
     env = LogWrapper(env)

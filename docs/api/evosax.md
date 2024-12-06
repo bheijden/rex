@@ -1,17 +1,28 @@
-# Evosax API
+# Evosax
 
 ::: rex.evo.evo
 
-::: rex.asynchronous.AsyncGraph
+---
 
-[//]: # (---)
+::: rex.evo.EvoSolver
+    options:
+        members:
+            - init
+            - init_state
+            - init_logger
 
-[//]: # (::: rex.evo.EvoSolver)
+---
 
-[//]: # (    selection:)
+::: rex.evo.EvoState
+    options:
+        members:
+            -  
 
-[//]: # (        members:)
+---
 
-[//]: # (            - strategy_params)
-
-[//]: # (            - strategy)
+::: rex.evo.LogState
+    options:
+        members:
+            - save
+            - load
+            - plot
