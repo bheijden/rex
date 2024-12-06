@@ -141,3 +141,6 @@ gmm_step.gif
 *.pb
 scripts/wandb/
 paper/wandb/
+*.gif
+*.pkl
+.all_objects.cache
