@@ -68,8 +68,8 @@ class LogState:
         return self.replace(state=new_state)
 
     def plot(
-        self, title: str, ylims: List[int, int] = None, fig: plt.Figure = None, ax: plt.Axes = None, no_legend: bool = False
-    ) -> Tuple[plt.Figure, plt.Axes]:
+        self, title: str, ylims: List[int] = None, fig: "plt.Figure" = None, ax: "plt.Axes" = None, no_legend: bool = False
+    ) -> Tuple["plt.Figure", "plt.Axes"]:
         """Plot the log state.
 
         Args:

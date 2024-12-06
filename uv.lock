@@ -161,7 +161,7 @@ wheels = [
 
 [[package]]
 name = "brax"
-version = "0.11.0"
+version = "0.12.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "absl-py" },
@@ -189,9 +189,9 @@ dependencies = [
     { name = "trimesh" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/43/47/a3d0d90fd92369183eeba258c78385067dd1df872a0ffab26adc8911dfa9/brax-0.11.0.tar.gz", hash = "sha256:7efae65345d8a4700bf24af607bf021df488ef1bc008f0579c9118c7e9e54dc1", size = 767216 }
+sdist = { url = "https://files.pythonhosted.org/packages/b2/21/e8b9dcf7f7b49019cf7b0b1927d3ffe7a0d7468b968ce307be0d4d27265f/brax-0.12.0.tar.gz", hash = "sha256:00340f9fdcf4a87574c9ee543facbe3bc54bad6be70592c1c0f6eeda067f75c5", size = 772547 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/11/de/134be9686bdc31943f9fd30de10ff32a0a2c2c2d995fd89f97c954525a1f/brax-0.11.0-py3-none-any.whl", hash = "sha256:46e10afb9185d77c0f5180cb098beeb67339b9bb8a35bdf5556f76ba3875abcf", size = 998555 },
+    { url = "https://files.pythonhosted.org/packages/e2/d0/e124c09d9b577be9c7d3f491132ade5f874494eddfa3ca0416a4f91411a3/brax-0.12.0-py3-none-any.whl", hash = "sha256:2598b4b3e0e25c1d591747808d535fac4c6c19fcaa66fced995feaa054afc575", size = 1005019 },
 ]
 
 [[package]]
@@ -2995,7 +2995,7 @@ tests = [
 
 [package.metadata]
 requires-dist = [
-    { name = "brax", marker = "extra == 'examples'", specifier = ">=0.10.5" },
+    { name = "brax", marker = "extra == 'examples'", specifier = ">=0.12.0" },
     { name = "dill", marker = "extra == 'examples'", specifier = ">=0.3.8" },
     { name = "distrax", specifier = ">=0.1.5" },
     { name = "equinox", specifier = ">=0.11.4" },
