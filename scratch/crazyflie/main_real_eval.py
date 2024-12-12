@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set()
 import matplotlib
-matplotlib.use("TkAgg")
+matplotlib.use("Qt5Agg")
 
 
 if __name__ == "__main__":
@@ -41,6 +41,7 @@ if __name__ == "__main__":
     CPU_DEVICE = next(CPU_DEVICES)
     RNG = jax.random.PRNGKey(0)
     LOG_DIR = "/home/r2ci/rex/scratch/crazyflie/logs"
+    LOG_DIR = LOG_DIR + "/20240816_path_following_inclined_landing_experiments"
     # ORDER = ["mocap", "world", "pid", "agent", "estimator", "supervisor"]
     # CSCHEME = {"world": "gray", "mocap": "grape", "estimator": "violet", "agent": "lime", "pid": "green", "actuator": "indigo", "supervisor": "gray"}
     # MOCK = "ode"  # "ode", "copilot, or "real" else todo: "real"
@@ -50,7 +51,8 @@ if __name__ == "__main__":
     SKIP_SEC = 3.0
     # PARAMS_FILE = f"{LOG_DIR}/sysid_params.pkl"
     # AGENT_FILE = f"{LOG_DIR}/agent_params.pkl"
-    RECORD_FILE = f"{LOG_DIR}/data_evaluate_0.60A_10s.pkl"
+    RECORD_FILE = f"{LOG_DIR}/delay_1.0R/sysid_data.pkl"
+    # RECORD_FILE = f"{LOG_DIR}/data_evaluate_0.60A_10s.pkl"
     # RECORD_FILE = f"{LOG_DIR}/data_first_runs/data_evaluate_0.5A_6s_nocrash.pkl"
     # RECORD_FILE = f"{LOG_DIR}/data_first_runs/data_evaluate_0.5A_6s_nocrash.pkl"
     # RECORD_FILE = f"{LOG_DIR}/data_first_runs/data_evaluate_0.90A_6s_new_nocrash.pkl"

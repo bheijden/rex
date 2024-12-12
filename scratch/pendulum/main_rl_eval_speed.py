@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set()
 import matplotlib
-matplotlib.use("TkAgg")
+# matplotlib.use("PyQt")
 
 
 if __name__ == "__main__":
@@ -60,7 +60,7 @@ if __name__ == "__main__":
     # Output files
     STD_TH_RL = 0.02  # Overwrite std_th in estimator and camera --> None to keep default
     STATS_FILE = f"{EXP_DIR}/rollout_stats.pkl"
-    SAVE_FILE = True
+    SAVE_FILE = False
 
     # Seed
     rng = jax.random.PRNGKey(SEED)

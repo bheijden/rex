@@ -3,8 +3,25 @@ All credits for this approach go to @ericmjl and his dl-workshop. The file can b
 https://github.com/ericmjl/dl-workshop/blob/6ef9b7feb60dd5f6a4dbdda4dc899337e583a397/src/dl_workshop/gaussian_mixture.py
 """
 
+from functools import partial
 import jax.numpy as np
 from jax.scipy import stats
+from jax.scipy.special import logsumexp
+from jax import vmap
+from jax import lax
+from jax.scipy.stats import norm
+from jax import random
+import matplotlib.animation
+from jax.example_libraries.optimizers import adam
+from jax import grad, jit
+from time import time
+from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
+
+tfd = tfp.distributions
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+
+from rex.distributions import Gaussian, GMM, Recorded, Distribution, mixture_distribution_quantiles
 
 
 def loglike_one_component(component_weight, component_mu, log_component_scale, datum):
@@ -25,17 +42,9 @@ def loglike_one_component(component_weight, component_mu, log_component_scale, d
     return np.log(component_weight) + stats.norm.logpdf(datum, loc=component_mu, scale=component_scale)
 
 
-from jax.scipy.special import logsumexp
-
-
 def normalize_weights(weights):
     """Normalize a weights vector to sum to 1."""
     return weights / np.sum(weights)
-
-
-from functools import partial
-
-from jax import vmap
 
 
 def loglike_across_components(log_component_weights, component_mus, log_component_scales, datum):
@@ -60,28 +69,6 @@ def mixture_loglike(log_component_weights, component_mus, log_component_scales, 
     return np.sum(ll_per_data)
 
 
-# def weights_loglike(log_component_weights, alpha_prior):
-#     """Log likelihood of weights under Dirichlet distribution"""
-#     component_weights = np.exp(log_component_weights)
-#     component_weights = normalize_weights(component_weights)
-#     return stats.dirichlet.logpdf(x=component_weights, alpha=alpha_prior)
-
-
-# def loss_mixture_weights(params, data):
-#     """Loss function for first model.
-#
-#     Takes into account log probability of data under mixture model
-#     and log probability of weights under a constant Dirichlet concentration vector.
-#     """
-#     log_component_weights, component_mus, log_component_scales = params
-#     loglike_mixture = mixture_loglike(log_component_weights, component_mus, log_component_scales, data)
-#     alpha_prior = np.ones_like(component_mus) * 2
-#     loglike_weights = weights_loglike(log_component_weights, alpha_prior=alpha_prior)
-#
-#     total = loglike_mixture + loglike_weights
-#     return -total
-
-
 def step(i, state, get_params_func, dloss_func, update_func, data):
     """Generic step function."""
     params = get_params_func(state)
@@ -103,9 +90,6 @@ def make_step_scannable(get_params_func, dloss_func, update_func, data):
         return new_state, previous_state
 
     return inner
-
-
-from jax.scipy.stats import norm
 
 
 # def get_loss(state, get_params_func, loss_func, data):
@@ -148,11 +132,6 @@ def plot_component_norm_pdfs(
     a = ax.plot(x, pdf, linestyle="--", label="gmm", color="red", animated=animated)[0]
     artists.append(a)
     return artists
-
-
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-from jax import lax
 
 
 def animate_training(
@@ -228,7 +207,7 @@ def animate_training(
 #     return occupied_probability, weights
 
 
-from jax import random
+
 
 
 # def weights_one_concentration(concentration, key, num_draws, num_components):
@@ -295,17 +274,6 @@ def make_joint_loss(num_components):
         return -ll
 
     return inner
-
-
-import matplotlib.animation
-from jax.example_libraries.optimizers import adam
-from jax import grad, jit
-from time import time
-from tensorflow_probability.substrates import jax as tfp  # Import tensorflow_probability with jax backend
-
-tfd = tfp.distributions
-
-from rex.distributions import Gaussian, GMM, Recorded, Distribution, mixture_distribution_quantiles
 
 
 class GMMEstimator:

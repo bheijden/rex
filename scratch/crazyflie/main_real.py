@@ -33,7 +33,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set()
 import matplotlib
-matplotlib.use("TkAgg")
+matplotlib.use("Qt5Agg")
 
 
 if __name__ == "__main__":
@@ -68,10 +68,10 @@ if __name__ == "__main__":
     RADIUS = 0.5
     SKIP_SEC = 3.0
     # Settings
-    MOCK = "ode"  # "ode", "copilot, or "real" else todo: "real"
+    MOCK = "real"  # "ode", "copilot, or "real" else todo: "real"
     LOG_DIR = "/home/r2ci/rex/scratch/crazyflie/logs"
     # EXP_DIR = f"{LOG_DIR}/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_10Hz"
-    EXP_DIR = f"{LOG_DIR}/20240816_path_following_inclined_landing_experiments_sim"  # todo: CHANGE
+    EXP_DIR = f"{LOG_DIR}/20241206_path_following_inclined_landing_experiments_rebuttal"  # todo: CHANGE
     # DELAYS_SIM = csys.load_distribution(f"{EXP_DIR}/dists.pkl") # TODO: CHANGE
     DELAYS_SIM = csys.load_distribution(f"{LOG_DIR}/dists.pkl")
     # DELAYS_SIM = csys.get_default_distributions(nodes=ORDER)

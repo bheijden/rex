@@ -1,0 +1,6 @@
+Fri Dec  6 13:53:48 2024
+WARNING: Model and executable have different number of ints in mjModel
+
+Fri Dec  6 13:59:32 2024
+WARNING: Model and executable have different number of pointers in mjModel
+

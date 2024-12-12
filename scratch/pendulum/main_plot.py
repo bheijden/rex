@@ -260,12 +260,31 @@ def plot_crazyflie_pathfollowing(exp_dir: str, cache_dir: str = None, fig_dir: s
     os.makedirs(fig_dir, exist_ok=True)
     print(f"Figure directory: {fig_dir}")
     TIMINGS_FILE = os.path.join(exp_dir, "delay_elapsed.pkl")
-    DELAY_R1_FILE = os.path.join(exp_dir, "delay_1.0R/sysid_data.pkl")
-    DELAY_R075_FILE = os.path.join(exp_dir, "delay_0.75R/sysid_data.pkl")
-    DELAY_R05_FILE = os.path.join(exp_dir, "delay_0.5R/sysid_data.pkl")
-    NODELAY_R1_FILE = os.path.join(exp_dir, "nodelay_1.0R/sysid_data.pkl")
-    NODELAY_R075_FILE = os.path.join(exp_dir, "nodelay_0.75R/sysid_data.pkl")
-    NODELAY_R05_FILE = os.path.join(exp_dir, "nodelay_crash_0.5R/sysid_data.pkl")
+    # Original
+    # SUFFIX_EXP = ""
+    # DELAY_R1_FILE = os.path.join(exp_dir, "delay_1.0R/sysid_data.pkl")
+    # DELAY_R075_FILE = os.path.join(exp_dir, "delay_0.75R/sysid_data.pkl")
+    # DELAY_R05_FILE = os.path.join(exp_dir, "delay_0.5R/sysid_data.pkl")
+    # NODELAY_R1_FILE = os.path.join(exp_dir, "nodelay_1.0R/sysid_data.pkl")
+    # NODELAY_R075_FILE = os.path.join(exp_dir, "nodelay_0.75R/sysid_data.pkl")
+    # NODELAY_R05_FILE = os.path.join(exp_dir, "nodelay_crash_0.5R/sysid_data.pkl")
+    # Light - Rebuttal
+    # SUFFIX_EXP = "_light"
+    # DELAY_R1_FILE = os.path.join(exp_dir, "delay_1.0R_125_Test01/sysid_data.pkl")
+    # DELAY_R075_FILE = os.path.join(exp_dir, "delay_0.75R_125_Test02/sysid_data.pkl")
+    # DELAY_R05_FILE = os.path.join(exp_dir, "delay_0.5R_125_Test03/sysid_data.pkl")
+    # NODELAY_R1_FILE = os.path.join(exp_dir, "nodelay_1.0R_125_Test04/sysid_data.pkl")
+    # NODELAY_R075_FILE = os.path.join(exp_dir, "nodelay_0.75R_125_Test05/sysid_data.pkl")
+    # NODELAY_R05_FILE = os.path.join(exp_dir, "nodelay_0.5R_125_Test06/sysid_data.pkl")
+    # Dark - Rebuttal
+    SUFFIX_EXP = "_dark"
+    DELAY_R1_FILE = os.path.join(exp_dir, "delay_1.0R_124_Test04/sysid_data.pkl")
+    DELAY_R075_FILE = os.path.join(exp_dir, "delay_0.75R_123_Test01/sysid_data.pkl")
+    DELAY_R05_FILE = os.path.join(exp_dir, "delay_0.5R_123_Test02/sysid_data.pkl")
+    NODELAY_R1_FILE = os.path.join(exp_dir, "nodelay_1.0R_124_Test03/sysid_data.pkl")
+    NODELAY_R075_FILE = os.path.join(exp_dir, "nodelay_0.75R_124_Test02/sysid_data.pkl")
+    NODELAY_R05_FILE = os.path.join(exp_dir, "nodelay_0.5R_123_Test05/sysid_data.pkl")
+    # Simulation
     NODELAY_SIM_FILE = os.path.join(exp_dir, "nodelay_sim_radii_rollout.pkl")
     DELAY_SIM_FILE = os.path.join(exp_dir, "delay_sim_radii_rollout.pkl")
     CACHE_FILE = f"{cache_dir}/plot_crazyflie_pathfollowing.pkl"
@@ -407,8 +426,8 @@ def plot_crazyflie_pathfollowing(exp_dir: str, cache_dir: str = None, fig_dir: s
         fig.savefig(f"{fig_dir}/cf_pf_{plot_name}_legend.pdf", bbox_inches=export_legend(fig, ax.get_legend()))
         ax.get_legend().remove()
         ax.set_aspect("equal")
-        fig.savefig(f"{fig_dir}/cf_pf_{plot_name}.pdf", bbox_inches='tight')
-        print(f"Saved {plot_name} to {fig_dir}/cf_sysid_{plot_name}.pdf")
+        fig.savefig(f"{fig_dir}/cf_pf_{plot_name}{SUFFIX_EXP}.pdf", bbox_inches='tight')
+        print(f"Saved {plot_name} to {fig_dir}/cf_pf_{plot_name}{SUFFIX_EXP}.pdf")
 
 
 def plot_crazyflie_sysid(exp_dir: str, cache_dir: str = None, fig_dir: str = None, regenerate_cache: bool = True):
@@ -1765,7 +1784,7 @@ if __name__ == "__main__":
     # EXP_DIR_CRAZYFLIE = "/home/r2ci/rex/scratch/crazyflie/logs/20240816_path_following_inclined_landing_experiments"
     EXP_DIR_CRAZYFLIE_SYSID = "/home/r2ci/rex/scratch/crazyflie/logs/20240816_path_following_inclined_landing_experiments/sysid_redo_with_nodelay"
     EXP_DIR_CRAZYFLIE_DISTS = "/home/r2ci/rex/scratch/crazyflie/logs/20240816_path_following_inclined_landing_experiments/delay_1.0R"
-    EXP_DIR_CRAZYFLIE_PF = "/home/r2ci/rex/scratch/crazyflie/logs/20240816_path_following_inclined_landing_experiments"
+    EXP_DIR_CRAZYFLIE_PF = "/home/r2ci/rex/scratch/crazyflie/logs/20241206_path_following_inclined_landing_experiments_rebuttal"
     REGENERATE_CACHE = False
     print(f"Pendulum experiment directory: {EXP_DIR_PENDULUM}")
     print(f"Abstract experiment directory: {EXP_DIR_ABSTRACT}")
@@ -1781,8 +1800,8 @@ if __name__ == "__main__":
 
     # Plot
     # figs = plot_crazyflie_dists(exp_dir=EXP_DIR_CRAZYFLIE_DISTS, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
-    figs = plot_crazyflie_sysid(exp_dir=EXP_DIR_CRAZYFLIE_SYSID, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE or True)
-    # figs = plot_crazyflie_pathfollowing(exp_dir=EXP_DIR_CRAZYFLIE_PF, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
+    # figs = plot_crazyflie_sysid(exp_dir=EXP_DIR_CRAZYFLIE_SYSID, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE or True)
+    figs = plot_crazyflie_pathfollowing(exp_dir=EXP_DIR_CRAZYFLIE_PF, fig_dir=FIG_DIR, regenerate_cache=True)
     # figs = plot_abstract(exp_dir=EXP_DIR_ABSTRACT, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
     # figs = plot_pendulum_sysid(exp_dir=EXP_DIR_PENDULUM, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)
     # figs = plot_pendulum_dists(exp_dir=EXP_DIR_PENDULUM, fig_dir=FIG_DIR, regenerate_cache=REGENERATE_CACHE)

@@ -29,8 +29,6 @@ import envs.crazyflie.systems as psys
 import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set()
-import matplotlib
-matplotlib.use("TkAgg")
 
 
 if __name__ == "__main__":
@@ -62,7 +60,7 @@ if __name__ == "__main__":
     # FIG_FILE = f"{EXP_DIR}/sim_{delay_str}_fig.png"
     STATS_FILE = f"{EXP_DIR}/{delay_str}_rollout_stats.pkl"
     # HTML_FILE = f"{EXP_DIR}/sim_{delay_str}_rollout.html"
-    SAVE_FILE = True
+    SAVE_FILE = False
 
     # Seed
     rng = jax.random.PRNGKey(SEED)
