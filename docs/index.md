@@ -1,21 +1,14 @@
 # Getting Started
 
 Rex is a [JAX](https://github.com/google/jax)-powered framework for sim2real robotics, designed to bridge the gap between simulation and the real world. 
-It supports delay modeling, dynamics estimation, and efficient parallelized simulation on accelerator hardware.
 
-## Key Features
+Key features:
 
 - **Graph-based design**: Model asynchronous systems with nodes for sensing, actuation, and computation.
-- **Latency-aware modeling**: Simulate stochastic delay effects for sensors, actuators, computation, and communication channels.
+- **Latency-aware modeling**: Simulate delay effects for hardware, computation, and communication channels.
 - **Real-time and parallelized runtimes**: Run real-world experiments or accelerated parallelized simulations.
-
-[//]: # (    - `WALL_CLOCK`: Real-time execution on physical hardware for real-world applications.)
-
-[//]: # (    - `SIMULATED`: Faster-than-real-time simulation with modeled latency and delays.)
-
-[//]: # (    - `COMPILED`: High-performance parallel simulation on GPUs/TPUs.)
 - **Seamless integration with JAX**: Utilize JAX's autodiff, JIT compilation, and GPU/TPU acceleration.
-- **System identification tools**: Estimate dynamics and delays directly from real-world data using evolutionary strategies.
+- **System identification tools**: Estimate dynamics and delays directly from real-world data.
 - **Modular and extensible**: Compatible with various simulation engines (e.g., [Brax](https://github.com/google/brax), [MuJoCo](https://mujoco.readthedocs.io/en/stable/mjx.html)).
 - **Unified sim2real pipeline**: Train delay-aware policies in simulation and deploy them on real-world systems.
 
