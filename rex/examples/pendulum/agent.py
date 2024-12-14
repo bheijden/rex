@@ -93,6 +93,9 @@ class AgentState(base.Base):
 
 
 class Agent(BaseNode):
+    def __init__(self, *args, name: str = "agent", **kwargs):
+        super().__init__(*args, name=name, **kwargs)
+
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> AgentParams:
         return AgentParams(
             policy=None,  # Policy must be set by the user

@@ -33,9 +33,9 @@ class Actuator(BaseNode):
     Finally, a stop routine is called after the episode is done.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, name: str = "actuator", **kwargs):
         """No special initialization needed."""
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, name=name, **kwargs)
 
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> ActuatorParams:
         """Default params of the node."""
@@ -62,6 +62,9 @@ class Actuator(BaseNode):
 
     def step(self, step_state: StepState) -> Tuple[StepState, ActuatorOutput]:
         """If we were to control a real robot, you would send the action to the robot here."""
+        # Usually, we would grab the action here, and send it to the robot (e.g. set the torque).
+        # For this, we could use an external callback via jax to ensure side-effecting code is not jit-compiled
+
         # Prepare output
         output = step_state.inputs["agent"][-1].data
         output = ActuatorOutput(action=output.action)
@@ -108,14 +111,14 @@ class SimActuator(BaseNode):
     2. Reapply the recorded actuator outputs for system identification if available.
     """
 
-    def __init__(self, *args, outputs: ActuatorOutput = None, **kwargs):
+    def __init__(self, *args, outputs: ActuatorOutput = None, name: str = "actuator", **kwargs):
         """Initialize Actuator for system identification.
 
         Here, we will reapply the recorded actuator outputs for system identification if available.
 
         :param outputs: Recorded actuator Outputs to be used for system identification.
         """
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, name=name, **kwargs)
         self._outputs = outputs
 
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> ActuatorParams:

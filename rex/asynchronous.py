@@ -242,6 +242,7 @@ class _AsyncNodeWrapper:
         device_dist: jax.Device = None,
         jit_step: bool = True,
         profile: bool = False,
+        verbose: bool = False,
     ):
         """Warmup the node by running it once to compile the step function and sample the delay distribution.
 
@@ -250,9 +251,10 @@ class _AsyncNodeWrapper:
         :param device_dist: The device on which the delay distribution should be compiled.
         :param jit_step: Whether to jit the step function.
         :param profile: Whether to profile the step function.
+        :param verbose: Whether to print time-profile information.
         :return:
         """
-
+        log_level = LogLevel.SILENT if not verbose else self.node.log_level
         device_step = device_step if device_step is not None else jax.devices("cpu")[0]
         device_dist = device_dist if device_dist is not None else jax.devices("cpu")[0]
 
@@ -262,12 +264,13 @@ class _AsyncNodeWrapper:
             self.async_step = jax.jit(self.async_step, device=device_step)
 
             # AOT compilation
-            with utils.timer(f"{self.node.name}.step | pre-compile ", log_level=self.node.log_level):
+            with utils.timer(f"{self.node.name}.step | pre-compile ", log_level=log_level):
                 self.async_step = self.async_step.lower(ss).compile()
 
         # Time profile the pre-compiled function
+
         if profile:
-            with utils.timer(f"{self.node.name}.step | time-profile", log_level=self.node.log_level, repeat=10):
+            with utils.timer(f"{self.node.name}.step | time-profile", log_level=log_level, repeat=10):
                 for _ in range(10):
                     ss, o = self.async_step(ss)
 
@@ -1507,6 +1510,7 @@ class AsyncGraph:
         device_dist: Union[Dict[str, jax.Device], jax.Device] = None,
         jit_step: Union[Dict[str, bool], bool] = True,
         profile: Union[Dict[str, bool], bool] = False,
+        verbose: bool = False,
     ):
         """Ahead-of-time compilation of step and I/O functions to avoid latency at runtime.
 
@@ -1522,6 +1526,7 @@ class AsyncGraph:
                       See [here](https://jax.readthedocs.io/en/latest/notebooks/external_callbacks.html) for more info.
             profile: Whether to compile the step functions with time profiling. If True, the step functions are compiled with time profiling.
                      **IMPORTANT**: This will test-run the step functions, which may lead to unexpected side-effects.
+            verbose: Whether to print time profiling information.
         """
         device_step = device_step if device_step is not None else {}
         device_dist = device_dist if device_dist is not None else {}
@@ -1536,6 +1541,7 @@ class AsyncGraph:
                 device_dist=device_dist.get(k, None),
                 jit_step=jit_step.get(k, True),
                 profile=profile.get(k, False),
+                verbose=verbose,
             )
 
     def start(self, graph_state: base.GraphState, timeout: float = None) -> base.GraphState:
