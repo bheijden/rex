@@ -1,4 +1,4 @@
-from typing import Dict, Union
+from typing import Dict, Tuple, Union
 
 import equinox as eqx
 import jax
@@ -86,12 +86,6 @@ class CEMSolver:
         Returns:
             CEMState: The initialized state of the CEM Solver.
         """
-        """Initialize the state of the CEM Solver.
-
-        :param mean: (Normalized) Mean values for the parameters (pytree).
-        :param stdev: (Normalized) Standard deviation values for the parameters (pytree).
-        :return:
-        """
         if stdev is None:
             stdev = jax.tree_util.tree_map(lambda _x_min, _x_max: (_x_max - _x_min) / 2.0, self.u_min, self.u_max)
         u_mean = jax.tree_util.tree_map(lambda x: jnp.array(x), mean)
@@ -166,18 +160,21 @@ def cem(
     max_steps: int = 100,
     rng: jax.Array = None,
     verbose: bool = True,
-):
-    """Run the Cross-Entropy Method (can be jit-compiled).
+) -> Tuple[CEMState, jax.typing.ArrayLike]:
+    """
+    Run the Cross-Entropy Method (can be jit-compiled).
 
-    :param loss: Loss function.
-    :param solver: CEM Solver.
-    :param init_state: Initial state of the CEM Solver.
-    :param transform: Transform function to go from a normalized set of trainable parameters to the denormalized and
-                      extended set of parameters.
-    :param max_steps: Maximum number of steps to run the CEM Solver.
-    :param rng: Random number generator.
-    :param verbose: Whether to print the progress.
-    :return:
+    Args:
+        loss: Loss function.
+        solver: CEM Solver.
+        init_state: Initial state of the CEM Solver.
+        transform: Transform function (e.g. denormalization, extension, etc.).
+        max_steps: Maximum number of steps to run the CEM Solver.
+        rng: Random number generator.
+        verbose: Whether to print the progress.
+
+    Returns:
+        The final state of the CEM Solver and the losses at each step.
     """
     if rng is None:
         rng = rnd.PRNGKey(0)

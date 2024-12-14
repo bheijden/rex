@@ -21,20 +21,33 @@ if TYPE_CHECKING:
 
 @struct.dataclass
 class Base:
-    """Base functionality extending all dataclasses.
-
+    """
+    Base functionality extending all dataclasses.
     These methods allow for dataclasses to be operated like arrays/matrices.
 
     *Note*: Credits to the authors of the brax library for this implementation.
+
+    Tip:
+        Use this base class for all state, output, and param pytrees.
     """
 
     def __repr__(self):  # todo: this is not inherited by subclasses...
         return eqx.tree_pformat(self, short_arrays=False)
 
     def __str__(self):
+        """Return a string representation of the dataclass."""
         return eqx.tree_pformat(self, short_arrays=False)
 
     def __add__(self, o: Any) -> Any:
+        """
+        Element-wise addition of two pytrees.
+
+        Args:
+            o: The other pytree to add.
+
+        Returns:
+            The resulting pytree after applying the element-wise operation.
+        """
         try:
             # If o is a pytree, element-wise addition
             return jax.tree_util.tree_map(lambda x, y: x + y, self, o)
@@ -43,6 +56,15 @@ class Base:
             return jax.tree_util.tree_map(lambda x: x + o, self)
 
     def __sub__(self, o: Any) -> Any:
+        """
+        Element-wise subtraction of two pytrees.
+
+        Args:
+            o: The other pytree to add.
+
+        Returns:
+            The resulting pytree after applying the element-wise operation.
+        """
         try:
             # If o is a pytree, element-wise subtraction
             return jax.tree_util.tree_map(lambda x, y: x - y, self, o)
@@ -51,6 +73,15 @@ class Base:
             return jax.tree_util.tree_map(lambda x: x - o, self)
 
     def __mul__(self, o: Any) -> Any:
+        """
+        Element-wise multiplication of two pytrees.
+
+        Args:
+            o: The other pytree to add.
+
+        Returns:
+            The resulting pytree after applying the element-wise operation.
+        """
         try:
             # If o is a pytree, element-wise multiplication
             return jax.tree_util.tree_map(lambda x, y: x * y, self, o)
@@ -59,9 +90,24 @@ class Base:
             return jax.tree_util.tree_map(lambda x: x * o, self)
 
     def __neg__(self) -> Any:
+        """
+        Element-wise negation of two pytrees.
+
+        Returns:
+            The resulting pytree after applying the element-wise operation.
+        """
         return jax.tree_util.tree_map(lambda x: -x, self)
 
     def __truediv__(self, o: Any) -> Any:
+        """
+        Element-wise division of two pytrees.
+
+        Args:
+            o: The other pytree to add.
+
+        Returns:
+            The resulting pytree after applying the element-wise operation.
+        """
         try:
             # If o is a pytree, element-wise division
             return jax.tree_util.tree_map(lambda x, y: x / y, self, o)
@@ -69,32 +115,114 @@ class Base:
             # If o is a scalar, element-wise division
             return jax.tree_util.tree_map(lambda x: x / o, self)
 
-    def __getitem__(self, val):
+    def __getitem__(self, val: int) -> Any:
+        """Get a specific value from the dataclass.
+
+        Args:
+            val: The value to get from the dataclass.
+
+        Returns:
+            The value from the dataclass.
+        """
         return jax.tree_util.tree_map(lambda x: x[val], self)
 
-    def replace(self, *args, **kwargs):
-        """Replace fields in the dataclass."""
+    def replace(self, *args: Any, **kwargs: Any) -> Any:
+        """Replace fields in the dataclass.
+
+        Args:
+            *args: The fields to replace.
+            **kwargs: The fields to replace.
+        """
         return self.replace(*args, **kwargs)
 
     def reshape(self, shape: Sequence[int]) -> Any:
+        """
+        Reshape the dataclass.
+
+        Args:
+            shape: The shape to reshape the dataclass.
+
+        Returns:
+            The reshaped dataclass.
+        """
         return jax.tree_util.tree_map(lambda x: x.reshape(shape), self)
 
     def select(self, o: Any, cond: jax.Array) -> Any:
+        """
+        Select elements from two pytrees based on a condition
+
+        Args:
+            o: The other pytree to select elements from.
+            cond: The condition to select elements based on.
+
+        Returns:
+            The resulting pytree after applying the condition
+        """
         return jax.tree_util.tree_map(lambda x, y: (x.T * cond + y.T * (1 - cond)).T, self, o)
 
     def slice(self, beg: int, end: int) -> Any:
+        """
+        Slice the dataclass.
+
+        Args:
+            beg: The beginning of the slice.
+            end: The end of the slice.
+
+        Returns:
+            The sliced dataclass.
+        """
         return jax.tree_util.tree_map(lambda x: x[beg:end], self)
 
-    def take(self, i, axis=0) -> Any:
+    def take(self, i: int, axis: int = 0) -> Any:
+        """
+        Take elements from the dataclass.
+
+        Args:
+            i: The elements to take.
+            axis: The axis to take the elements from.
+
+        Returns:
+            The taken elements from the dataclass.
+        """
         return jax.tree_util.tree_map(lambda x: jnp.take(x, i, axis=axis, mode="wrap"), self)
 
     def concatenate(self, *others: Any, axis: int = 0) -> Any:
+        """
+        Concatenate the dataclass with other dataclasses.
+
+        Args:
+            *others: The other dataclasses to concatenate.
+            axis: The axis to concatenate the dataclasses on.
+
+        Returns:
+            The concatenated dataclass
+        """
         return jax.tree_util.tree_map(lambda *x: jnp.concatenate(x, axis=axis), self, *others)
 
     def index_set(self, idx: Union[jax.Array, Sequence[jax.Array]], o: Any) -> Any:
+        """
+        Set elements in the dataclass based on an index.
+
+        Args:
+            idx: The index to set the elements.
+            o: The elements to set.
+
+        Returns:
+            The dataclass with the elements
+        """
         return jax.tree_util.tree_map(lambda x, y: x.at[idx].set(y), self, o)
 
     def index_sum(self, idx: Union[jax.Array, Sequence[jax.Array]], o: Any) -> Any:
+        """
+        Sum elements in the dataclass based on an index.
+
+        Args:
+            idx: The index to sum the elements.
+            o: The elements to sum.
+
+        Returns:
+            The dataclass with the summed elements.
+        """
         return jax.tree_util.tree_map(lambda x, y: x.at[idx].add(y), self, o)
 
 
@@ -126,9 +254,10 @@ class Edge:
 
     In case the received timestamps are not available, set ts_recv to a dummy value (e.g. 0.0).
 
-    :param seq_out: The sequence number of the message. Must be monotonically increasing.
-    :param seq_in: The sequence number of the call that the message is processed. Must be monotonically increasing.
-    :param ts_recv: The time the message is received at the input node. Must be monotonically increasing.
+    Attributes:
+        seq_out: The sequence number of the message. Must be monotonically increasing.
+        seq_in: The sequence number of the call that the message is processed. Must be monotonically increasing.
+        ts_recv: The time the message is received at the input node. Must be monotonically increasing.
     """
 
     seq_out: Union[int, jax.Array]
@@ -147,9 +276,10 @@ class Vertex:
 
     Ideally, for every vertex seq[i] there should be an edge with seq_out[i] for every connected node in the graph.
 
-    :param seq: The sequence number of the node. Should start at 0 and increase by 1 every step (no gaps).
-    :param ts_start: The start time of the computation of the node (i.e. when the node starts processing step 'seq').
-    :param ts_end: The end time of the computation of the node (i.e. when the node finishes processing step 'seq').
+    Attributes:
+        seq: The sequence number of the node. Should start at 0 and increase by 1 every step (no gaps).
+        ts_start: The start time of the computation of the node (i.e. when the node starts processing step 'seq').
+        ts_end: The end time of the computation of the node (i.e. when the node finishes processing step 'seq').
     """
 
     seq: Union[int, jax.Array]
@@ -170,25 +300,38 @@ class Graph:
 
     The graph should be directed and acyclic. Cycles are not allowed.
 
-    :param vertices: A dictionary of vertices. The keys are the unique names of the node type, and the values are the vertices.
-    :param edges: A dictionary of edges. The keys are of the form (n1, n2), where n1 and n2 are the unique names of the
-                  output and input nodes, respectively. The values are the edges.
+    Attributes:
+        vertices: A dictionary of vertices. The keys are the unique names of the node type, and the values are the vertices.
+        edges: A dictionary of edges. The keys are of the form (n1, n2), where n1 and n2 are the unique names of the
+               output and input nodes, respectively. The values are the edges.
     """
 
     vertices: Dict[str, Vertex]
     edges: Dict[Tuple[str, str], Edge]
 
-    def __len__(self):
-        """Return the number of episodes."""
+    def __len__(self) -> int:
+        """
+        Get the number of episodes in the graph.
+
+        Returns:
+            The number of episodes (i.e. the number of graphs if the graph is batched).
+        """
         shape = next(iter(self.vertices.values())).seq.shape
         if len(shape) > 1:
             return shape[0]
         else:
             return 1
 
-    def __getitem__(self, val):
-        """In case the graph is batched, and holds the graphs of multiple episodes,
+    def __getitem__(self, val: int) -> "Graph":
+        """
+        In case the graph is batched, and holds the graphs of multiple episodes,
         this function returns the graph of a specific episode.
+
+        Args:
+            val: The episode to get the graph of.
+
+        Returns:
+            The graph of the specific episode.
         """
         shape = next(iter(self.vertices.values())).seq.shape
         if len(shape) == 0:
@@ -198,7 +341,18 @@ class Graph:
 
     @staticmethod
     def stack(graphs_raw: List["Graph"]) -> "Graph":
-        """Stack multiple graphs into a single graph."""
+        """
+        Stack multiple graphs into a single graph.
+
+        Note: Padding
+            If the graphs have different lengths, the vertices and edges are padded with -1.
+
+        Args:
+            graphs_raw: A list of graphs to stack.
+
+        Returns:
+            A single graph with the vertices and edges stacked
+        """
         # Note: Vertex.seq=-1, .ts_start=-1., .ts_end=-1. for padded vertices
         # Note: Edge.seq_out=-1, .seq_in=-1., .ts_recv=-1. for padded edges or edges that were never received.
         # Convert to graphs
@@ -216,9 +370,12 @@ class Graph:
     def filter(self, nodes: Dict[str, "BaseNode"], filter_edges: bool = True) -> "Graph":
         """Filter the graph to only include the nodes and edges that are in the nodes dictionary.
 
-        :param nodes: A dictionary of nodes. The keys are the unique names of the nodes, and the values are the nodes.
-        :param filter_edges:  If True, only include the nodes that are connected to the nodes in the dictionary.
-        :return: A new graph with only the nodes and edges that are in the nodes dictionary.
+        Args:
+            nodes: A dictionary of nodes. The keys are the unique names of the nodes, and the values are the nodes.
+            filter_edges:  If True, only include the nodes that are connected to the nodes in the dictionary.
+
+        Returns:
+            A new graph with only the nodes and edges that are in the nodes dictionary.
         """
         # Determine set of vertices and connections to keep
         connections = set()
@@ -496,7 +653,18 @@ class Timings:
 
 @struct.dataclass
 class DelayDistribution:
+    """A delay distribution data structure."""
+
     def reset(self, rng: jax.Array) -> "DelayDistribution":
+        """
+        Reset the distribution (e.g. random number generator).
+
+        Args:
+            rng: random number generator
+
+        Returns:
+            DelayDistribution: the reset distribution
+        """
         raise NotImplementedError("DelayDistribution.reset is not implemented.")
 
     @staticmethod
@@ -504,6 +672,15 @@ class DelayDistribution:
         return delay_dist.sample(shape)
 
     def sample(self, shape: Union[int, Tuple] = None) -> Tuple["DelayDistribution", jax.Array]:
+        """
+        Sample from the distribution.
+
+        Args:
+            shape: the shape of the sample
+
+        Returns:
+            The new distribution and the sample
+        """
         raise NotImplementedError("DelayDistribution.sample is not implemented.")
 
     @staticmethod
@@ -511,6 +688,15 @@ class DelayDistribution:
         return delay_dist.quantile(q)
 
     def quantile(self, q: float) -> float:
+        """
+        Compute the quantile of the distribution.
+
+        Args:
+            q: the quantile value
+
+        Returns:
+            The quantile value
+        """
         raise NotImplementedError("DelayDistribution.quantile is not implemented.")
 
     @staticmethod
@@ -518,6 +704,12 @@ class DelayDistribution:
         return delay_dist.mean()
 
     def mean(self) -> float:
+        """
+        Compute the mean of the distribution.
+
+        Returns:
+            The mean value
+        """
         raise NotImplementedError("DelayDistribution.mean is not implemented.")
 
     @staticmethod
@@ -525,6 +717,15 @@ class DelayDistribution:
         return delay_dist.pdf(x)
 
     def pdf(self, x: float) -> float:
+        """
+        Compute the probability density function of the distribution.
+
+        Args:
+            x: the value at which to compute the pdf
+
+        Returns:
+            The pdf value
+        """
         raise NotImplementedError("DelayDistribution.pdf is not implemented.")
 
     def window(self, rate_out) -> int:
@@ -539,17 +740,52 @@ class DelayDistribution:
 
 @struct.dataclass
 class StaticDist(DelayDistribution):
+    """
+    A wrapper around distrax distributions to make them compatible with the DelayDistribution interface.
+
+    Attributes:
+        rng: the random number generator
+        dist: the (static) distrax distribution (e.g. Normal, MixtureSameFamily, etc.)
+    """
+
     rng: jax.Array
     dist: distrax.Distribution = struct.field(pytree_node=False)
 
     def reset(self, rng: jax.Array) -> "StaticDist":
+        """
+        Reset the random number generator.
+
+        Args:
+            rng: random number generator
+
+        Returns:
+            DelayDistribution: the reset distribution
+        """
         return self.replace(rng=rng)
 
     @classmethod
     def create(cls, dist: distrax.Distribution) -> "StaticDist":
+        """
+        Create a static distribution.
+
+        Args:
+            dist: the distrax distribution
+
+        Returns:
+            The static distribution
+        """
         return cls(rng=jax.random.PRNGKey(0), dist=dist)
 
     def sample(self, shape: Union[int, Tuple] = None) -> Tuple["StaticDist", jax.Array]:
+        """
+        Sample from the distribution.
+
+        Args:
+            shape: the shape of the sample
+
+        Returns:
+            The new distribution and the sample
+        """
         if shape is None:
             shape = ()
         new_rng, rng_sample = jax.random.split(self.rng, 2)
@@ -558,6 +794,15 @@ class StaticDist(DelayDistribution):
         return self.replace(rng=new_rng), samples
 
     def quantile(self, q: float) -> Union[float, jax.typing.ArrayLike]:
+        """
+        Compute the quantile of the distribution.
+
+        Args:
+            q: the quantile value
+
+        Returns:
+            The quantile value
+        """
         shape = q.shape if isinstance(q, (jax.Array, onp.ndarray)) else ()
         if isinstance(self.dist, distrax.Deterministic):
             res = onp.ones(shape) * self.dist.mean()
@@ -583,23 +828,58 @@ class StaticDist(DelayDistribution):
             raise NotImplementedError(f"Quantile not implemented for distribution {self.dist}.")
 
     def mean(self) -> float:
+        """
+        Compute the mean of the distribution.
+
+        Returns:
+            The mean value
+        """
         try:
             return self.dist.mean()
         except NotImplementedError as e:
             raise e
 
     def pdf(self, x: float) -> float:
+        """
+        Compute the probability density function of the distribution.
+
+        Args:
+            x: the value at which to compute the pdf
+
+        Returns:
+            The pdf value
+        """
         return self.dist.prob(x)
 
 
 @struct.dataclass
 class TrainableDist(DelayDistribution):
+    """
+    Attributes:
+        alpha: the value between [0, 1]
+        min: the minimum expected delay
+        max: the maximum expected delay
+        interp: the interpolation method ("zoh", "linear", "linear_real_only").
+                "zoh": zero-order hold interpolation between received messages.
+                "linear": linear interpolation between received messages.
+                "linear_real_only": Only start interpolating between received messages.
+    """
+
     alpha: Union[float, jax.typing.ArrayLike] = struct.field(default=0.5)  # Value between [0, 1]
     min: Union[float, jax.typing.ArrayLike] = struct.field(pytree_node=False, default=0.0)  # Minimum expected delay
     max: Union[float, jax.typing.ArrayLike] = struct.field(pytree_node=False, default=0.0)  # Maximum expected delay
     interp: str = struct.field(pytree_node=False, default="zoh")  # "zoh", "linear", "linear_real_only"
 
     def reset(self, rng: jax.Array) -> "TrainableDist":
+        """
+        Does nothing as the distribution is deterministic.
+
+        Args:
+            rng: random number generator
+
+        Returns:
+            DelayDistribution: the reset distribution
+        """
         # Not using the rng for now
         return self
 
@@ -611,6 +891,18 @@ class TrainableDist(DelayDistribution):
         max: Union[float, jax.typing.ArrayLike],
         interp: str = "zoh",
     ) -> "TrainableDist":
+        """
+        Creates a trainable distribution.
+        Converts the delay to alpha, which is the value between [0, 1].
+
+        Args:
+            delay: the desired delay
+            min: the minimum expected delay
+            max: the maximum expected delay
+            interp: the interpolation method ("zoh", "linear", "linear_real_only").
+        Returns:
+            The trainable distribution
+        """
         min = float(min)
         max = float(max)
         assert min < max, f"min should be less than max, but got min={min} and max={max}."
@@ -621,6 +913,15 @@ class TrainableDist(DelayDistribution):
         return cls(alpha=alpha, min=min, max=max, interp=interp)
 
     def sample(self, shape: Union[int, Tuple] = None) -> Tuple["TrainableDist", jax.Array]:
+        """
+        Sample from the distribution.
+
+        Args:
+            shape: the shape of the sample
+
+        Returns:
+            The new distribution and the sample
+        """
         if shape is None:
             shape = ()
         # Sample and broadcast to shape size
@@ -628,24 +929,62 @@ class TrainableDist(DelayDistribution):
         return self, samples
 
     def quantile(self, q: float) -> float:
-        """Calculate the quantile of the distribution.
+        """
+        Compute the quantile of the distribution.
+
         As the distribution is deterministic, the quantile is trivially calculated as the
         constant value of the distribution.
+
+        Args:
+            q: the quantile value
+
+        Returns:
+            The quantile value
         """
         return self.min + self.alpha * (self.max - self.min)
 
     def mean(self) -> Union[float, jax.typing.ArrayLike]:
+        """
+        Compute the mean of the distribution.
+
+        Returns:
+            The mean value
+        """
         return self.min + self.alpha * (self.max - self.min)
 
     def pdf(self, x: float) -> Union[jax.Array, float]:
+        """
+        Compute the probability density function of the distribution.
+
+        Args:
+            x: the value at which to compute the pdf
+
+        Returns:
+            The pdf value
+        """
         mean = self.mean()
         return jnp.where(mean == x, 1.0, 0.0)
 
     def window(self, rate_out: Union[float, int]) -> int:
+        """Compute the additional window size needed for the delay distribution.
+
+        Args:
+            rate_out: the output rate of the connection
+
+        Returns:
+            The additional window size needed for the delay distribution
+        """
         return int(onp.ceil(rate_out * (self.max - self.min)).astype(int))
 
     def equivalent(self, other: "DelayDistribution") -> bool:
-        """Check if two delay distributions are equivalent"""
+        """Check if two delay distributions are equivalent
+
+        Args:
+            other: the other delay distribution
+
+        Returns:
+            True if the two delay distributions are equivalent, False otherwise
+        """
         if not isinstance(other, TrainableDist):
             return False  # Not the same distribution
         if self.max != other.max:
@@ -660,6 +999,14 @@ class TrainableDist(DelayDistribution):
         """Apply the delay to the input state.
 
         The delay is determined by the delay distribution of the connection.
+
+        Args:
+            rate_out: the output rate of the connection
+            input: the input state
+            ts_start: the start time of the computation
+
+        Returns:
+            The input state with the delay applied. This reduces the window size of the input by self.window(rate_out).
         """
         # If no window, return the same input state
         window_delayed = self.window(rate_out)
@@ -723,6 +1070,15 @@ class TrainableDist(DelayDistribution):
         return delayed_input_state
 
     def get_alpha(self, delay: Union[float, jax.typing.ArrayLike]) -> Union[float, jax.typing.ArrayLike]:
+        """
+        Get the alpha value of the delay distribution.
+
+        Args:
+            delay: the delay value
+
+        Returns:
+            The alpha value
+        """
         return jnp.clip(self._get_alpha(delay, self.min, self.max), 0.0, 1.0)
 
     @staticmethod
@@ -741,11 +1097,12 @@ class InputState:
     The size of the buffer is determined by the window size of the corresponding connection
     (i.e. node.connect(..., window=...)).
 
-    :param seq: The sequence number of the received message.
-    :param ts_sent: The time the message was sent.
-    :param ts_recv: The time the message was received.
-    :param data: The message of the connection (arbitrary pytree structure).
-    :param delay_dist: The delay distribution of the connection.
+    Attributes:
+        seq: the sequence number of the received message
+        ts_sent: the time the message was sent
+        ts_recv: the time the message was received
+        data: the message of the connection (arbitrary pytree structure)
+        delay_dist: the delay distribution of the connection
     """
 
     seq: ArrayLike
@@ -767,13 +1124,17 @@ class InputState:
         """Create an InputState from a list of messages, timestamps, and sequence numbers.
 
         The oldest message should be first in the list.
-        :param seq: The sequence number of the received message.
-        :param ts_sent: The timestamps of when the messages were sent.
-        :param ts_recv: The timestamps of when the messages were received.
-        :param outputs: The messages of the connection (arbitrary pytree structure).
-        :param is_data: If True, the outputs are already a stacked pytree structure.
-        :param delay_dist: The delay distribution of the connection.
-        :return: An InputState object, that holds the messages in a ring buffer.
+
+        Args:
+            seq: the sequence number of the received message
+            ts_sent: the time the message was sent
+            ts_recv: the time the message was received
+            outputs: the messages of the connection (arbitrary pytree structure)
+            is_data: if True, the outputs are already a stacked pytree structure
+            delay_dist: the delay distribution of the connection
+
+        Returns:
+            The input state with the messages and timestamps in the ring buffer.
         """
 
         data = jax.tree_util.tree_map(lambda *o: jnp.stack(o, axis=0), *outputs) if not is_data else outputs
@@ -785,7 +1146,18 @@ class InputState:
         return new_a
 
     def push(self, seq: int, ts_sent: float, ts_recv: float, data: Any) -> "InputState":
-        """Push a new message into the ring buffer."""
+        """
+        Push a new message into the ring buffer.
+
+        Args:
+            seq: the sequence number of the received message
+            ts_sent: the time the message was sent
+            ts_recv: the time the message was received
+            data: the message of the connection (arbitrary pytree structure)
+
+        Returns:
+            The new input state with the message pushed into the ring buffer.
+        """
         size = self.seq.shape[0]
         tb = [self.seq, self.ts_sent, self.ts_recv, self.data]
         new_t = [seq, ts_sent, ts_recv, data]
@@ -797,10 +1169,17 @@ class InputState:
             new = jax.tree_util.tree_map(lambda _tb, _t: jnp.array(_tb).at[0].set(_t), tb, new_t)
         return InputState(*new, delay_dist=self.delay_dist)
 
-    def __getitem__(self, val):
+    def __getitem__(self, val: int) -> "InputState":
         """Get the value of the ring buffer at a specific index.
 
         This is useful for indexing all the values of the ring buffer at a specific index.
+
+        Args:
+            val: the index to get the value from
+
+        Returns:
+            The input state at the specific index
+
         """
         tb = [self.seq, self.ts_sent, self.ts_recv, self.data]
         return InputState(*jax.tree_util.tree_map(lambda _tb: _tb[val], tb), delay_dist=self.delay_dist)
@@ -808,17 +1187,19 @@ class InputState:
 
 @struct.dataclass
 class StepState:
-    """Step state definition.
+    """
+    Step state definition.
 
     It holds all the information that is required to step a node.
 
-    :param rng: The random number generator. Used for sampling random processes. If used, it should be updated.
-    :param state: The state of the node. Usually dynamic during an episode.
-    :param params: The parameters of the node. Usually static during an episode.
-    :param inputs: The inputs of the node. See InputState.
-    :param eps: The current episode number. Relates to the computation graph, not the episode counter of an environment.
-    :param seq: The current step number. Automatically increases by 1 every step.
-    :param ts: The current time step at the start of the step. Determined by the computation graph.
+    Attributes:
+        rng: The random number generator. Used for sampling random processes. If used, it should be updated.
+        state: The state of the node. Usually dynamic during an episode.
+        params: The parameters of the node. Usually static during an episode.
+        inputs: The inputs of the node. See InputState.
+        eps: The current episode number. Relates to the computation graph, not the episode counter of an environment.
+        seq: The current step number. Automatically increases by 1 every step.
+        ts: The current time step at the start of the step. Determined by the computation graph.
     """
 
     rng: jax.Array
@@ -839,6 +1220,15 @@ class _StepStateDict:
     graph_state: "GraphState"
 
     def __getitem__(self, item) -> StepState:
+        """
+        Get the StepState for a node in the graph.
+
+        Args:
+            item: the node name
+
+        Returns:
+            The StepState for the node
+        """
         rng = self.graph_state.rng.get(item, None) if self.graph_state.rng is not None else None
         eps = self.graph_state.eps
         seq = self.graph_state.seq.get(item, None) if self.graph_state.seq is not None else None
@@ -895,18 +1285,19 @@ class GraphState:
 
     It holds all the information that is required to step a graph.
 
-    :param step: The current step number. Automatically increases by 1 every step.
-    :param eps: The current episode number. To update the episode, use GraphState.replace_eps.
-    :param rng: The random number generators for each node in the graph.
-    :param seq: The current step number for each node in the graph.
-    :param ts: The start time of the step for each node in the graph.
-    :param params: The parameters for each node in the graph.
-    :param state: The state for each node in the graph.
-    :param inputs: The inputs for each node in the graph.
-    :param timings_eps: The timings data structure that describes the execution and partitioning of the graph.
-    :param buffer: The output buffer of the graph. It holds the outputs of nodes during the execution. Input buffers are
-                   automatically filled with the outputs of previously executed step calls of other nodes.
-    :param aux: Auxiliary data that can be used to store additional information (e.g. records, wrappers etc.).
+    Attributes:
+        step: The current step number. Automatically increases by 1 every step.
+        eps: The current episode number. To update the episode, use GraphState.replace_eps.
+        rng: The random number generators for each node in the graph.
+        seq: The current step number for each node in the graph.
+        ts: The start time of the step for each node in the graph.
+        params: The parameters for each node in the graph.
+        state: The state for each node in the graph.
+        inputs: The inputs for each node in the graph.
+        timings_eps: The timings data structure that describes the execution and partitioning of the graph.
+        buffer: The output buffer of the graph. It holds the outputs of nodes during the execution. Input buffers are
+                automatically filled with the outputs of previously executed step calls of other nodes.
+        aux: Auxiliary data that can be used to store additional information (e.g. records, wrappers etc.).
     """
 
     # The number of partitions (excl. supervisor) have run in the current episode.
@@ -930,6 +1321,7 @@ class GraphState:
 
     @property
     def step_state(self) -> _StepStateDict:
+        """A dictionary-like object that returns a StepState for each node in the graph."""
         return _StepStateDict(self)
 
     def replace_buffer(self, outputs: Union[Dict[str, Output], FrozenDict[str, Output]]) -> "GraphState":
@@ -1006,6 +1398,22 @@ class GraphState:
 
 @struct.dataclass
 class InputInfo:
+    """
+    A data structure that holds information about the input connection.
+
+    Attributes:
+        rate: The rate of the connection.
+        window: The window size of the connection.
+        blocking: Whether the connection is blocking.
+        skip: Whether the connection is skipped.
+        jitter: The jitter of the connection.
+        phase: The phase of the connection.
+        delay_dist: The delay distribution of the connection.
+        delay: The delay of the connection.
+        name: The name of the connection.
+        output: The name of the output node.
+    """
+
     rate: float
     window: int
     blocking: bool
@@ -1020,6 +1428,23 @@ class InputInfo:
 
 @struct.dataclass
 class NodeInfo:
+    """
+    A data structure that holds information about the node.
+
+    Attributes:
+        rate: The rate of the node.
+        advance: Whether the node advances the episode.
+        scheduling: The scheduling of the node.
+        phase: The phase of the node.
+        delay_dist: The delay distribution of the node.
+        delay: The delay of the node.
+        inputs: The inputs of the node.
+        name: The name of the node.
+        cls: The class of the node.
+        color: The color of the node.
+        order: The order of the node.
+    """
+
     rate: float
     advance: bool
     scheduling: constants.Scheduling = struct.field(pytree_node=False)
@@ -1035,6 +1460,15 @@ class NodeInfo:
 
 @struct.dataclass
 class Header:
+    """
+    A data structure that holds the header information of a record.
+
+    Attributes:
+        eps: The episode number.
+        seq: The step number.
+        ts: The time
+    """
+
     eps: Union[int, jax.typing.ArrayLike]
     seq: Union[int, jax.typing.ArrayLike]
     ts: Union[float, jax.typing.ArrayLike]
@@ -1042,6 +1476,17 @@ class Header:
 
 @struct.dataclass
 class MessageRecord:
+    """
+    A data structure that holds information about a sent or received message.
+
+    Attributes:
+        seq_out: The sequence number of the sent message.
+        seq_in: The sequence number of the received message.
+        ts_sent: The time the message was sent.
+        ts_recv: The time the message was received.
+        delay: The delay of the message.
+    """
+
     seq_out: Union[int, jax.typing.ArrayLike]  # todo: If never sent, set to -1?
     seq_in: Union[int, jax.typing.ArrayLike]  # Corresponds to StepRecord.seq. If never received, set to -1.
     ts_sent: Union[float, jax.typing.ArrayLike]  # used to be sent: Header todo: what if never sent?
@@ -1051,12 +1496,35 @@ class MessageRecord:
 
 @struct.dataclass
 class InputRecord:
+    """
+    A data structure that holds information about the input connection.
+
+    Attributes:
+        info: The input information.
+        messages: The message record.
+    """
+
     info: InputInfo = struct.field(pytree_node=False)  # This may have broken backward compatibility
     messages: MessageRecord
 
 
 @struct.dataclass
 class StepRecord:
+    """
+    A data structure that holds information about a step.
+
+    Attributes:
+        eps: The episode number.
+        seq: The step number.
+        ts_start: The start time of the step.
+        ts_end: The end time of the step.
+        delay: The delay of the step.
+        rng: The random number generator.
+        inputs: The input state.
+        state: The state of the node.
+        output: The output of the node
+    """
+
     eps: Union[int, jax.typing.ArrayLike]
     seq: Union[int, jax.typing.ArrayLike]
     ts_start: Union[float, jax.typing.ArrayLike]
@@ -1070,6 +1538,21 @@ class StepRecord:
 
 @struct.dataclass
 class AsyncStepRecord(StepRecord):
+    """
+    A data structure that holds information about an asynchronous step.
+
+    Attributes:
+        ts_scheduled: The scheduled time of the step.
+        ts_max: The maximum time of the step.
+        ts_end_prev: The end time of the previous step.
+        phase: The phase of the step.
+        phase_scheduled: The scheduled phase of the step.
+        phase_inputs: The phase of the inputs.
+        phase_last: The last phase of the step.
+        sent: The header of the sent message.
+        phase_overwrite: The phase overwrite.
+    """
+
     ts_scheduled: Union[float, jax.typing.ArrayLike]
     ts_max: Union[float, jax.typing.ArrayLike]
     ts_end_prev: Union[float, jax.typing.ArrayLike]
@@ -1083,6 +1566,19 @@ class AsyncStepRecord(StepRecord):
 
 @struct.dataclass
 class NodeRecord:
+    """
+    A data structure that holds information about a node.
+
+    Attributes:
+        info: The node information.
+        clock: The clock of the node.
+        real_time_factor: The real time factor of the node.
+        ts_start: The start time of the node.
+        params: The parameters of the node.
+        inputs: The input record.
+        steps: The step record.
+    """
+
     info: NodeInfo = struct.field(pytree_node=False)
     clock: constants.Clock = struct.field(pytree_node=False)
     real_time_factor: float = struct.field(pytree_node=False)
@@ -1094,17 +1590,37 @@ class NodeRecord:
 
 @struct.dataclass
 class EpisodeRecord:
+    """
+    A data structure that holds recorded data of an episode.
+
+    Attributes:
+        nodes: The node records.
+    """
+
     nodes: Dict[str, NodeRecord]
 
-    def __getitem__(self, val):
+    def __getitem__(self, val: int) -> "EpisodeRecord":
+        """
+        Get the value of the episode record at a specific index.
+
+        Args:
+            val: the index to get the value from
+
+        Returns:
+            The episode record at the specific index
+        """
         return jax.tree_util.tree_map(lambda x: x[val], self)
 
     def filter(self, nodes: Dict[str, "BaseNode"], filter_connections: bool = False) -> "EpisodeRecord":
-        """Filter the episode record.
+        """
+        Filter the episode record.
 
-        :param nodes: Only keep record.nodes in of subgraph spanned by nodes.
-        :param filter_connections:  If True, only keep connections between nodes in nodes.
-        :return: A new episode record with only the nodes and connections in nodes.
+        Args:
+            nodes: Only keep record.nodes in of subgraph spanned by nodes.
+            filter_connections: If True, only keep connections between nodes in nodes.
+
+        Returns:
+            A new episode record with only the nodes and connections in nodes.
         """
         # Determine set of nodes and connections to keep
         connections = set()
@@ -1134,6 +1650,12 @@ class EpisodeRecord:
         return EpisodeRecord(nodes=new_nodes)
 
     def to_graph(self) -> Graph:
+        """
+        Convert the episode record to a graph.
+
+        Returns:
+            The graph of the episode record.
+        """
         vertices = {
             n: Vertex(seq=v.steps.seq, ts_start=v.steps.ts_start, ts_end=v.steps.ts_end) for n, v in self.nodes.items()
         }
@@ -1154,6 +1676,13 @@ class EpisodeRecord:
 
 @struct.dataclass
 class ExperimentRecord:
+    """
+    A data structure that holds recorded data of an experiment.
+
+    Attributes:
+        episodes: The episode records.
+    """
+
     episodes: List[EpisodeRecord]
 
     def filter(self, nodes: Dict[str, "BaseNode"], filter_connections: bool = False) -> "ExperimentRecord":
@@ -1202,14 +1731,44 @@ Filter = Dict[str, Params]
 
 @struct.dataclass
 class Transform:
+    """A transformation that can be applied to parameters.
+
+    Can be used to normalize, denormalize, or transform parameters in any way.
+    """
+
     @classmethod
-    def init(cls, *args, **kwargs):
+    def init(cls, *args: Any, **kwargs: Any) -> "Transform":
+        """Initialize the transform.
+
+        Args:
+            *args: The arguments to initialize the transform.
+            **kwargs: The keyword arguments to initialize the transform.
+
+        Returns:
+            The initialized transform.
+        """
         raise NotImplementedError
 
     def apply(self, params: Dict[str, Params]) -> Dict[str, Params]:
+        """Apply the transformation to the parameters.
+
+        Args:
+            params: The original parameters.
+
+        Returns:
+            The transformed parameters.
+        """
         raise NotImplementedError
 
     def inv(self, params: Dict[str, Params]) -> Dict[str, Params]:
+        """Invert the transformation.
+
+        Args:
+            params: The transformed parameters.
+
+        Returns:
+            The original parameters.
+        """
         raise NotImplementedError
 
 
@@ -1218,32 +1777,90 @@ Loss = Callable[[Params, Transform, jax.Array], Union[float, jax.Array]]
 
 @struct.dataclass
 class Identity(Transform):
+    """The identity transformation (NOOP)."""
+
     @classmethod
-    def init(cls):
+    def init(cls) -> "Identity":
+        """
+        Initialize the identity transformation.
+
+        Returns:
+            The identity transformation.
+        """
         return cls()
 
     def apply(self, params: Params) -> Params:
+        """
+        Apply the identity transformation (NOOP).
+
+        Args:
+            params: The parameters.
+
+        Returns:
+            The same parameters.
+        """
         return params
 
     def inv(self, params: Params) -> Params:
+        """
+        Invert the identity transformation (NOOP).
+
+        Args:
+            params: The parameters.
+
+        Returns:
+            The same parameters.
+        """
         return params
 
 
 @struct.dataclass
 class Chain(Transform):
+    """
+    Chain multiple transformations together.
+
+    Attributes:
+        transforms: The transformations to chain together.
+    """
+
     transforms: Sequence[Transform]
 
     @classmethod
-    def init(cls, *transforms):
+    def init(cls, *transforms: Sequence[Transform]) -> "Chain":
+        """Initialize the chain of transformations.
+
+        Args:
+            *transforms: The transformations to chain together. The order of the transformations is important.
+
+        Returns:
+            The chain of transformations.
+        """
         return cls(transforms=transforms)
 
     def apply(self, params: Params) -> Params:
+        """Apply the chain of transformations to the parameters.
+
+        Args:
+            params: The parameters.
+
+        Returns:
+            The transformed parameters.
+        """
         _intermediate = params
         for t in self.transforms:
             _intermediate = t.apply(_intermediate)
         return _intermediate
 
     def inv(self, params: Params) -> Params:
+        """
+        Invert the chain of transformations.
+
+        Args:
+            params: The transformed parameters.
+
+        Returns:
+            The original parameters.
+        """
         _intermediate = params
         for t in self.transforms[::-1]:
             _intermediate = t.inv(_intermediate)
@@ -1252,11 +1869,41 @@ class Chain(Transform):
 
 @struct.dataclass
 class Extend(Transform):
+    """
+    Extend the structure of a pytree with additional parameters from another pytree.
+
+    Useful when you only want to optimize a subset of the parameters, but the full structure is required for simulation.
+
+    Example:
+        ```python
+        from rex.base import Extend
+        base_params = {"a": {"b": 0, "c": "1"}, "d": 2}
+        opt_params = {"a": None, "d": 99}
+
+        transform = Extend.init(base_params, opt_params)
+        extended = transform.apply(opt_params) # {"a": {"b": 0, "c": "1"}, "b": 99}
+        filtered = transform.inv(extended) # {"a": None, "d": 99}
+        ```
+
+    Attributes:
+        base_params: The base parameters.
+        mask: The mask of the extended parameters.
+    """
+
     base_params: Params
     mask: Params
 
     @classmethod
-    def init(cls, base_params: Params, opt_params: Params = None):
+    def init(cls, base_params: Params, opt_params: Params = None) -> "Extend":
+        """Initialize the extend transformation.
+
+        Args:
+            base_params: The base parameters.
+            opt_params: The structure of the params that is going to be extended with the base parameters.
+
+        Returns:
+            The extend transformation.
+        """
         mask = jax.tree_util.tree_map(lambda ex_x: ex_x is not None, opt_params)
         ret = cls(base_params=base_params, mask=mask)
         _ = ret.apply(opt_params)  # Test structure
@@ -1278,21 +1925,58 @@ class Extend(Transform):
         return filtered
 
     def apply(self, params: Params) -> Params:
+        """
+        Apply the extend transformation to the parameters.
+
+        Args:
+            params: The parameters.
+
+        Returns:
+            The extended parameters to the structure of the base parameters.
+        """
         return self.extend(params)
 
     def inv(self, params: Params) -> Params:
+        """
+        Invert the extend transformation.
+
+        Args:
+            params: The extended parameters (i.e. structure of the base parameters).
+
+        Returns:
+            The original parameters (return to the structure of the opt_params).
+        """
         return self.filter(params)
 
 
 @struct.dataclass
 class Denormalize(Transform):
-    """Denormalize the parameters from [-1, 1] to the original scale."""
+    """
+    (De)normalize the parameters to/from a [-1, 1] range.
+
+    Attributes:
+        scale: The scale of the original parameters.
+        offset: The offset of the original parameters.
+    """
 
     scale: Params
     offset: Params
 
     @classmethod
-    def init(cls, min_params: Params, max_params: Params):
+    def init(cls, min_params: Params, max_params: Params) -> "Denormalize":
+        """
+        Initialize the denormalize transformation
+
+        Note: Non-zero scale is required.
+            Therefore, the min and max values should be different for each parameter.
+
+        Args:
+            min_params: The minimum values of the original parameters.
+            max_params: The maximum values of the original parameters.
+
+        Returns:
+            The denormalize transformation
+        """
         offset = jax.tree_util.tree_map(lambda _min, _max: (_min + _max) / 2.0, min_params, max_params)
         scale = jax.tree_util.tree_map(lambda _min, _max: (_max - _min) / 2, min_params, max_params)
         zero_filter = jax.tree_util.tree_map(lambda _scale: _scale == 0.0, scale)
@@ -1319,27 +2003,93 @@ class Denormalize(Transform):
         return params_unnorm
 
     def apply(self, params: Params) -> Params:
+        """
+        Apply the denormalize transformation to the parameters.
+
+        Args:
+            params: The normalized parameters.
+
+        Returns:
+            The denormalized parameters.
+        """
         return self.denormalize(params)
 
     def inv(self, params: Params) -> Params:
+        """
+        Invert the denormalize transformation.
+
+        Args:
+            params: The denormalized parameters.
+
+        Returns:
+            The normalized parameters.
+        """
         return self.normalize(params)
 
 
 @struct.dataclass
-class ExpTransform(Transform):
+class Exponential(Transform):
+    """Apply the exponential transformation to the parameters."""
+
     @classmethod
-    def init(cls):
+    def init(cls) -> "Exponential":
+        """Create an exponential transformation.
+
+        Returns:
+            The exponential transformation.
+        """
         return cls()
 
     def apply(self, params: Params) -> Params:
+        """
+        Apply the exponential transformation to the parameters.
+
+        Args:
+            params: The parameters.
+
+        Returns:
+            The transformed parameters.
+        """
         return jax.tree_util.tree_map(lambda x: jnp.exp(x), params)
 
     def inv(self, params: Params) -> Params:
+        """
+        Invert the exponential transformation.
+
+        Args:
+            params: The transformed parameters.
+
+        Returns:
+            The original parameters.
+        """
         return jax.tree_util.tree_map(lambda x: jnp.log(x), params)
 
 
 @struct.dataclass
 class Shared(Transform):
+    """
+    A shared transformation that can be applied to parameters.
+
+    Useful to share parameters between different parts of the model.
+
+    Example:
+        ```python
+        where_fn = lambda p: p["a"]
+        replace_fn = lambda p: p["b"]
+        inverse_fn = lambda p: None
+        transform = Shared.init(where=where_fn, replace_fn=replace_fn, inverse_fn=inverse_fn)
+
+        opt_params = {"a": 1, "b": 2}
+        applied = transform.apply(opt_params) # {"a": 2, "b": 2}
+        inverted = transform.inv(applied)  # {"a": None, "b": 2}
+        ```
+
+    Attributes:
+        where: The function that determines where to apply the transformation.
+        replace_fn: The function that replaces the parameters.
+        inverse_fn: The function that inverts the transformation.
+    """
+
     where: Callable[[Any], Union[Any, Sequence[Any]]] = struct.field(pytree_node=False)
     replace_fn: Callable[[Any], Union[Any, Sequence[Any]]] = struct.field(pytree_node=False)
     inverse_fn: Callable[[Any], Union[Any, Sequence[Any]]] = struct.field(pytree_node=False)
@@ -1351,12 +2101,41 @@ class Shared(Transform):
         replace_fn: Callable[[Any], Union[Any, Sequence[Any]]],
         inverse_fn: Callable[[Any], Union[Any, Sequence[Any]]] = lambda _tree: None,
     ) -> "Shared":
+        """
+        Initialize the shared transformation.
+
+        Args:
+            where: The function that determines where to apply the transformation.
+            replace_fn: The function that replaces the parameters.
+            inverse_fn: The function that inverts the transformation.
+
+        Returns:
+            The shared transformation.
+        """
         return cls(where=where, replace_fn=replace_fn, inverse_fn=inverse_fn)
 
     def apply(self, params: Params) -> Params:
+        """
+        Apply the shared transformation to the parameters.
+
+        Args:
+            params: The parameters.
+
+        Returns:
+            The transformed parameters.
+        """
         new = self.replace_fn(params)
         return eqx.tree_at(self.where, params, new, is_leaf=lambda x: x is None)
 
     def inv(self, params: Params) -> Params:
+        """
+        Invert the shared transformation
+
+        Args:
+            params: The transformed parameters.
+
+        Returns:
+            The original parameters.
+        """
         new = self.inverse_fn(params)
         return eqx.tree_at(self.where, params, new, is_leaf=lambda x: x is None)

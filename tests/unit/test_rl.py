@@ -81,7 +81,7 @@ def test_squash_action(squash: bool, graph: Graph):
     env = Env(graph)
 
     # Wrap environment
-    wrapped_env = rl.SquashAction(env, squash=squash)
+    wrapped_env = rl.SquashActionWrapper(env, squash=squash)
 
     # Test API
     gs, _obs, _info = wrapped_env.reset()
@@ -95,7 +95,7 @@ def test_clip_action(graph: Graph):
     env = Env(graph)
 
     # Wrap environment
-    wrapped_env = rl.ClipAction(env)
+    wrapped_env = rl.ClipActionWrapper(env)
 
     # Test API
     gs, _obs, _info = wrapped_env.reset()
@@ -108,7 +108,7 @@ def test_vec_env(graph: Graph):
     env = Env(graph)
 
     # Wrap environment
-    wrapped_env = rl.VecEnv(env)
+    wrapped_env = rl.VecEnvWrapper(env)
 
     # Prepare vectorized input
     rngs = jax.random.split(jax.random.PRNGKey(0), 4)
@@ -124,8 +124,8 @@ def test_normalize_vec_observation(graph: Graph):
     env = Env(graph)
 
     # Wrap environment
-    wrapped_env = rl.VecEnv(env)
-    wrapped_env = rl.NormalizeVecObservation(wrapped_env)
+    wrapped_env = rl.VecEnvWrapper(env)
+    wrapped_env = rl.NormalizeVecObservationWrapper(wrapped_env)
 
     # Prepare vectorized input
     rngs = jax.random.split(jax.random.PRNGKey(0), 4)
@@ -144,7 +144,7 @@ def test_normalize_vec_reward(graph: Graph):
     env = Env(graph)
 
     # Wrap environment
-    wrapped_env = rl.VecEnv(env)
+    wrapped_env = rl.VecEnvWrapper(env)
     wrapped_env = rl.NormalizeVecReward(wrapped_env, gamma=0.99)
 
     # Prepare vectorized input

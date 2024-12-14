@@ -1,4 +1,4 @@
-# Cross-Entropy Method (CEM)
+# Cross-Entropy Method
 
 ::: rex.cem.cem
 

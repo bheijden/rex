@@ -128,23 +128,23 @@ nav:
     - Usage:
 #        - 'plotting.md'  # open_colors, utils.plot_...
 #        - 'logging.md'   # utils.log_..., etc..
-#        - Nodes:
+        - 'api/base.md'
         - 'api/node.md'
         - Graphs:
             - 'api/asynchronous.md'
             - 'api/compiled.md'
             - 'api/artificial.md'
-#            - 'api/partition_runner.md'
-        - Delay Estimation:
+            - 'api/record.md'
+        - Delays:
+            - 'api/delays.md'
             - 'api/gmm_estimator.md'
-#            - 'api/hidden.md'
         - System identification:
             - 'api/evosax.md'
             - 'api/cem.md'
-#            - 'api/transform.md'
+            - 'api/transforms.md'
         - Reinforcement learning:
-            - 'api/rl.md'
-#            - 'api/ppo.md'
+            - 'api/environment.md'
+            - 'api/ppo.md'
 #            - 'api/actor_critic.md'
 #    - Advanced API:
 #        - 'api/debug.md'

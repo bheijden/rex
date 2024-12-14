@@ -1,8 +1,3 @@
-"""
-PPO implementation based on the PPO implementation from purejaxrl:
-https://github.com/luchris429/purejaxrl
-"""
-
 from typing import Any, Dict, Union
 
 import flax.linen as nn
@@ -25,14 +20,15 @@ from rex.actor_critic import Actor, ActorCritic, Critic
 from rex.base import Base, GraphState
 from rex.rl import (
     AutoResetWrapper,
+    BaseEnv,
     Environment,
     LogWrapper,
     NormalizeVec,
-    NormalizeVecObservation,
+    NormalizeVecObservationWrapper,
     NormalizeVecReward,
-    SquashAction,
+    SquashActionWrapper,
     SquashState,
-    VecEnv,
+    VecEnvWrapper,
 )
 
 
@@ -59,7 +55,7 @@ class Diagnostics(Base):
 @struct.dataclass
 class Config(Base):
     """
-    Configuration for the PPO algorithm.
+    Configuration for PPO.
 
     Inherit from this class and override the `EVAL_METRICS_JAX_CB` and `EVAL_METRICS_HOST_CB` methods to customize the
     evaluation metrics and the host-side callback for the evaluation metrics.
@@ -168,7 +164,9 @@ class Config(Base):
         """Size of the minibatch"""
         return self.NUM_ENVS * self.NUM_STEPS // self.NUM_MINIBATCHES
 
-    def EVAL_METRICS_JAX_CB(self, total_steps, diagnostics: Diagnostics, eval_transitions: Transition = None) -> Dict:
+    def EVAL_METRICS_JAX_CB(
+        self, total_steps: Union[int, jax.Array], diagnostics: Diagnostics, eval_transitions: Transition = None
+    ) -> Dict:
         """
         Compute evaluation metrics for the PPO algorithm.
 
@@ -354,7 +352,7 @@ class PPOResult(Base):
         return self.runner_state.env_state.aux.get("norm_obs", None)
 
     @property
-    def act_scaling(self) -> SquashAction:
+    def act_scaling(self) -> SquashActionWrapper:
         """Returns the action scaling parameters."""
         return jax.tree_util.tree_map(lambda x: x[0], self.runner_state.env_state.aux.get("act_scaling", None))
 
@@ -376,9 +374,12 @@ class PPOResult(Base):
         )
 
 
-def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
+def train(env: Union[BaseEnv, Environment], config: Config, rng: jax.Array) -> PPOResult:
     """
     Train the PPO model.
+
+    PPO implementation based on the PPO implementation from purejaxrl:
+    https://github.com/luchris429/purejaxrl
 
     Args:
         env: The environment to train on.
@@ -391,11 +392,11 @@ def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
     # INIT TRAIN ENV
     env = AutoResetWrapper(env, fixed_init=config.FIXED_INIT)
     env = LogWrapper(env)
-    env = SquashAction(env, squash=config.SQUASH)
-    env = VecEnv(env)
+    env = SquashActionWrapper(env, squash=config.SQUASH)
+    env = VecEnvWrapper(env)
     vec_env = env
     if config.NORMALIZE_ENV:
-        env = NormalizeVecObservation(env)
+        env = NormalizeVecObservationWrapper(env)
         env = NormalizeVecReward(env, config.GAMMA)
 
     def linear_schedule(count):
@@ -658,102 +659,3 @@ def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
         metrics=metrics,
     )
     return ret
-    # ret = {"runner_state": runner_state, "metrics": metrics}
-    # ret["act_scaling"] = jax.tree_util.tree_map(lambda x: x[0], runner_state[1].aux["act_scaling"])
-    # if config.NORMALIZE_ENV:  # Return normalization parameters
-    #     ret["norm_obs"] = runner_state[1].aux["norm_obs"]
-    #     ret["norm_reward"] = runner_state[1].aux["norm_reward"]
-    # ret["policy"] = Policy(
-    #     act_scaling=ret["act_scaling"],
-    #     obs_scaling=ret["norm_obs"] if config.NORMALIZE_ENV else None,
-    #     model=runner_state[0].params["params"],
-    #     hidden_activation=config.HIDDEN_ACTIVATION,
-    #     output_activation="gaussian",
-    #     state_independent_std=config.STATE_INDEPENDENT_STD
-    # )
-    # return ret
-
-
-if __name__ == "__main__":
-    # NOTE: correct cost function selected in dummy pendulum environment.
-    config = dict(
-        LR=1e-4,
-        NUM_ENVS=64,
-        NUM_STEPS=32,  # increased from 16 to 32 (to solve approx_kl divergence)
-        TOTAL_TIMESTEPS=10e6,
-        UPDATE_EPOCHS=4,
-        NUM_MINIBATCHES=4,
-        GAMMA=0.99,
-        GAE_LAMBDA=0.95,
-        CLIP_EPS=0.2,
-        ENT_COEF=0.01,
-        VF_COEF=0.5,
-        MAX_GRAD_NORM=0.5,  # or 0.5?
-        NUM_HIDDEN_LAYERS=2,
-        NUM_HIDDEN_UNITS=64,
-        KERNEL_INIT_TYPE="xavier_uniform",
-        HIDDEN_ACTIVATION="tanh",
-        STATE_INDEPENDENT_STD=True,
-        SQUASH=True,
-        ANNEAL_LR=False,
-        NORMALIZE_ENV=True,
-        DEBUG=False,
-        VERBOSE=True,
-        FIXED_INIT=True,
-        NUM_EVAL_ENVS=20,
-        EVAL_FREQ=100,
-    )
-    config = Config(**config)
-
-    from rex.pendulum.nodes import TestDiskPendulum
-
-    env = TestDiskPendulum()
-
-    import functools
-
-    train_fn = functools.partial(train, env)
-
-    # Evaluate
-    rng = jax.random.PRNGKey(6)
-
-    # Single
-    # with jax.disable_jit(False):
-    #     out = train_fn(config, rng)
-    # print(out["act_scaling"])
-    # print(out["metrics"]["diagnostics"].total_loss.shape)
-    # exit()
-
-    # Multiple
-    num_seeds = 5
-    vtrain = jax.vmap(train_fn, in_axes=(None, 0))
-    out = vtrain(config, jax.random.split(rng, num_seeds))
-    metrics = out["metrics"]
-    approxkl = metrics["diagnostics"].approxkl.reshape(num_seeds, -1, config.UPDATE_EPOCHS, config.NUM_MINIBATCHES)
-    approxkl = approxkl.mean(axis=(-1, -2))
-    return_values = metrics["returned_episode_returns"][metrics["returned_episode"]].reshape(num_seeds, -1)
-    eval_return_values = metrics["eval/mean_returns"].mean(axis=0)
-    eval_return_std = metrics["eval/std_returns"].mean(axis=0)
-    eval_total_steps = metrics["eval/total_steps"].mean(axis=0)
-    import matplotlib.pyplot as plt
-    import seaborn
-
-    seaborn.set()
-    fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-    ax[0].plot(return_values.mean(axis=0))
-    ax[0].set_xlabel("Episode")
-    ax[0].set_ylabel("Mean Return (train)")
-    ax[1].plot(eval_total_steps, eval_return_values)
-    ax[1].fill_between(eval_total_steps, eval_return_values - eval_return_std, eval_return_values + eval_return_std, alpha=0.5)
-    ax[1].set_xlabel("Timesteps")
-    ax[1].set_ylabel("Mean Return (eval)")
-    ax[2].plot(approxkl.mean(axis=0))
-    ax[2].set_xlabel("Updates")
-    ax[2].set_ylabel("Mean Approx KL")
-    fig.suptitle(f"Pendulum-v0, LR={config.LR}, over {num_seeds} seeds")
-    plt.show()
-    exit()
-
-    # rng = jax.random.PRNGKey(0)
-    # train_jit = jax.jit(make_train(config, env=env))
-    # with jax.disable_jit(False):
-    #     out = train_jit(rng)

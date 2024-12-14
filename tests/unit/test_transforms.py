@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 
-from rex.base import Chain, Denormalize, ExpTransform, Extend, Identity, Shared
+from rex.base import Chain, Denormalize, Exponential, Extend, Identity, Shared
 
 
 # Sample data for testing
@@ -52,7 +52,7 @@ def test_chain():
 
 # Test for ExpTransform
 def test_exp_transform():
-    transform = ExpTransform.init()
+    transform = Exponential.init()
     applied = transform.apply(base_params)
     inverted = transform.inv(applied)
     assert jnp.allclose(applied["a"], jnp.exp(base_params["a"]))
