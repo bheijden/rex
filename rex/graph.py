@@ -44,19 +44,20 @@ class Graph:
         In other words, we first modify the raw computation graphs to take into account the buffer sizes (i.e. window sizes)
         for every connection.
 
-        :param nodes: Dictionary of nodes.
-        :param supervisor: Supervisor node.
-        :param graphs_raw: Raw computation graphs. Must be acyclic.
-        :param skip: List of nodes to skip during graph execution.
-        :param supergraph: Supergraph mode. Options are MCS, TOPOLOGICAL, and GENERATIONAL.
-        :param prune: Prune nodes that are no ancestors of the supervisor node.
-                      Setting to False ensures that all nodes up until the time of the last supervisor node are included.
-        :param S_init: Initial supergraph.
-        :param backtrack: Backtrack parameter for MCS supergraph mode.
-        :param debug: Debug mode. Validates the partitioning and supergraph and times various compilation steps.
-        :param progress_bar: Show progress bar during supergraph generation.
-        :param buffer_sizes: Dictionary of buffer sizes for each connection.
-        :param extra_padding: Extra padding for buffer sizes.
+        Args:
+            nodes: Dictionary of nodes.
+            supervisor: Supervisor node.
+            graphs_raw: Raw computation graphs. Must be acyclic.
+            skip: List of nodes to skip during graph execution.
+            supergraph: Supergraph mode. Options are MCS, TOPOLOGICAL, and GENERATIONAL.
+            prune: Prune nodes that are no ancestors of the supervisor node.
+                   Setting to False ensures that all nodes up until the time of the last supervisor node are included.
+            S_init: Initial supergraph.
+            backtrack: Backtrack parameter for MCS supergraph mode.
+            debug: Debug mode. Validates the partitioning and supergraph and times various compilation steps.
+            progress_bar: Show progress bar during supergraph generation.
+            buffer_sizes: Dictionary of buffer sizes for each connection.
+            extra_padding: Extra padding for buffer sizes.
         """
 
         self.nodes = nodes
@@ -217,20 +218,23 @@ class Graph:
         starting_eps: jax.typing.ArrayLike = 0,
         randomize_eps: bool = False,
         order: Tuple[str, ...] = None,
-    ):
+    ) -> base.GraphState:
         """
         Initializes the graph state with optional parameters for RNG and step states.
 
         Nodes are initialized in a specified order, with the option to override params.
         Useful for setting up the graph state before running the graph with .run, .rollout, or .reset.
 
-        :param rng: Random number generator seed or state.
-        :param params: Predefined params for (a subset of) the nodes.
-        :param starting_step: The simulation's starting step.
-        :param starting_eps: The starting episode.
-        :param randomize_eps: If True, randomly selects the starting episode.
-        :param order: The order in which nodes are initialized.
-        :return: The initialized graph state.
+        Args:
+            rng: Random number generator seed or state.
+            params: Predefined params for (a subset of) the nodes.
+            starting_step: The simulation's starting step.
+            starting_eps: The starting episode.
+            randomize_eps: If True, randomly selects the starting episode.
+            order: The order in which nodes are initialized.
+
+        Returns:
+            The initialized graph state.
         """
         # Determine init order. If name not in order, add it to the end
         order = tuple() if order is None else order
@@ -308,13 +312,16 @@ class Graph:
     ) -> base.GraphState:
         """Sets the record settings for the nodes in the graph.
 
-        :param graph_state: The initial graph state from .init().
-        :param params: Whether to record params for each node. Logged once.
-        :param rng: Whether to record rng for each node. Logged each step.
-        :param inputs: Whether to record inputs for each node. Logged each step. Can become very large.
-        :param state: Whether to record state for each node. Logged each step.
-        :param output: Whether to record output for each node. Logged each step.
-        :return: The updated graph state with record settings.
+        Args:
+            graph_state: The initial graph state from .init().
+            params: Whether to record params for each node. Logged once.
+            rng: Whether to record rng for each node. Logged each step.
+            inputs: Whether to record inputs for each node. Logged each step. Can become very large.
+            state: Whether to record state for each node. Logged each step.
+            output: Whether to record output for each node. Logged each step.
+
+        Returns:
+            The updated graph state with record settings.
         """
         assert "record" not in graph_state.aux, "Already initialized record in graph_state.aux."
 
@@ -501,12 +508,15 @@ class Graph:
         """
         Executes one step of the graph including the supervisor node and returns the updated graph state.
 
-        Different from the .step method, it automatically progresses the graph state post-supervisor execution,
-        suitable for jax.lax.scan or jax.lax.fori_loop operations. This method is different from the gym API, as it uses the
-        .step method of the supervisor node, while the reset and step methods allow the user to override the .step method.
+        Different from the `.step` method, it automatically progresses the graph state post-supervisor execution,
+        suitable for `jax.lax.scan` or `jax.lax.fori_loop` operations. This method is different from the gym API, as it uses the
+        `.step` method of the supervisor node, while the reset and step methods allow the user to override the `.step method`.
 
-        :param graph_state: The current graph state, or initial graph state from .init().
-        :return: Updated graph state. It returns directly *after* the supervisor node's step() is run.
+        Args:
+            graph_state: The current graph state, or initial graph state from `.init()`.
+
+        Returns:
+            Updated graph state. It returns directly *after* the supervisor node's step is run.
         """
         # Runs supergraph (except for supervisor)
         graph_state = self.run_until_supervisor(graph_state)
@@ -522,8 +532,11 @@ class Graph:
         Returns the graph and step state just before what would be the supervisor's step, mimicking the initial observation
         return of a gym environment's reset method. The step state can be considered the initial observation of a gym environment.
 
-        :param graph_state: The graph state from .init().
-        :return: Tuple of the new graph state and the supervisor node's step state *before* execution of the first step.
+        Args:
+            graph_state: The graph state from .init().
+
+        Returns:
+            Tuple of the new graph state and the supervisor node's step state *before* execution of the first step.
         """
         # Runs supergraph (except for supervisor)
         next_graph_state = self.run_until_supervisor(graph_state)
@@ -536,18 +549,21 @@ class Graph:
         """
         Executes one step of the graph, optionally overriding the supervisor node's execution.
 
-        If step_state and output are provided, they override the supervisor's step, allowing for custom step implementations.
-        Otherwise, the supervisor's step() is executed as usual.
+        If `step_state` and `output` are provided, they override the supervisor's step, allowing for custom step implementations.
+        Otherwise, the supervisor's `step()` is executed as usual.
 
-        When providing the updated step_state and output, the provided output can be viewed as the action that the agent would
+        When providing the updated `step_state` and `output`, the provided output can be viewed as the action that the agent would
         take in a gym environment, which is sent to nodes connected to the supervisor node.
 
-        Start every episode with a call to reset() using the initial graph state from init(), then call step() repeatedly.
+        Start every episode with a call to `reset()` using the initial graph state from `init()`, then call `step()` repeatedly.
 
-        :param graph_state: The current graph state.
-        :param step_state: Custom step state for the supervisor node.
-        :param output: Custom output for the supervisor node.
-        :return: Tuple of the new graph state and the supervisor node's step state *before* execution of the next step.
+        Args:
+            graph_state: The current graph state.
+            step_state: Custom step state for the supervisor node.
+            output: Custom output for the supervisor node.
+
+        Returns:
+            Tuple of the new graph state and the supervisor node's step state *before* execution of the next step.
         """
         # Runs supervisor node (if step_state and output are not provided, otherwise overrides step_state and output with provided values)
         new_graph_state = self.run_supervisor(graph_state, step_state, output)
@@ -570,13 +586,17 @@ class Graph:
         By virtue of using the run method, it does not allow for overriding the supervisor node's step method. That is,
         the supervisor node's step method is used during the rollout.
 
-        Note: To record the rollout, use the init_record method on the graph_state before calling this method and
-              set carry_only=True. Then, the record is available in graph_state.aux["record"].
+        Note:
+            To record the rollout, use the init_record method on the graph_state before calling this method and
+            set carry_only=True. Then, the record is available in graph_state.aux["record"].
 
-        :param graph_state: The initial graph state.
-        :param max_steps: The maximum steps to execute, if None, runs until a stop condition is met.
-        :param carry_only: If True, returns only the final graph state; otherwise returns all states.
-        :return: The final or sequence of graph states post-execution.
+        Args:
+            graph_state: The initial graph state.
+            max_steps: The maximum steps to execute, if None, runs until a stop condition is met.
+            carry_only: If True, returns only the final graph state; otherwise returns all states.
+
+        Returns:
+            The final or sequence of graph states post-execution.
         """
         # graph_state = self.init(starting_step=starting_step, starting_eps=eps, randomize_eps=False)
         graph_state = graph_state.replace_eps(self._timings, eps=graph_state.eps)

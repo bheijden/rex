@@ -25,11 +25,14 @@ def generate_graphs(
     All nodes are assumed to have a rate and name attribute.
     Moreover, all nodes are assumed to run and communicate asynchronously. In other words, their timestamps are independent.
 
-    :param nodes: Dictionary of nodes.
-    :param ts_max: Final time.
-    :param rng: Random number generator.
-    :param num_episodes: Number of graphs to generate.
-    :return: Graphs for each episode.
+    Args:
+        nodes: Dictionary of nodes.
+        ts_max: Final time.
+        rng: Random number generator.
+        num_episodes: Number of graphs to generate.
+
+    Returns:
+        Graphs for each episode.
     """
     rng = jax.random.PRNGKey(0) if rng is None else rng
     return _generate_graphs(nodes=nodes, ts_max=ts_max, rng=rng, num_episodes=num_episodes)
@@ -42,10 +45,13 @@ def augment_graphs(graphs: Graph, nodes: Dict[str, BaseNode], rng: jax.Array = N
     Nodes not in graphs.vertices are added to the graphs according to the specified delay_dist.
     Edges between vertices are added for connections not present in graphs.edges.
 
-    :param graphs: Graphs to augment.
-    :param nodes: Dictionary of nodes.
-    :param rng: Random number generator.
-    :return: Augmented graphs.
+    Args:
+        graphs: Graphs to augment.
+        nodes: Dictionary of nodes.
+        rng: Random number generator.
+
+    Returns:
+        Augmented graphs.
     """
     rng = jax.random.PRNGKey(0) if rng is None else rng
 

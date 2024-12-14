@@ -117,8 +117,8 @@ class BraxOutput(base.Base):
 
 
 class BraxWorld(BaseWorld):  # We inherit from BaseWorld for convenience, but you can inherit from BaseNode if you want
-    def __init__(self, *args, backend: str = "generalized", **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, backend: str = "generalized", name: str = "world", **kwargs):
+        super().__init__(*args, name=name, **kwargs)
         self.backend = backend
         # self.sys = mjcf.loads(DISK_PENDULUM_XML)
 

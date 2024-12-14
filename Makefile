@@ -14,9 +14,13 @@ format:
 # In the project directory (../rex) run `uv pip install -r docs/requirements.txt`
 build_docs:
 	# Build the documentation
-	uv run mkdocs build
-	# twice, see https://github.com/patrick-kidger/pytkdocs_tweaks
-	uv run mkdocs build
+	# JUPYTER_PLATFORM_DIRS=1 uv run mkdocs build --strict  # https://github.com/danielfrg/mkdocs-jupyter/issues/154
+	uv run mkdocs build --strict # Add -v for verbose output
+
+serve_docs:
+	# Serve the documentation # Note! Does not run twice..., so not the same as build_docs.
+	#JUPYTER_PLATFORM_DIRS=1 uv run mkdocs serve  # https://github.com/danielfrg/mkdocs-jupyter/issues/154
+	uv run mkdocs serve
 
 run_tests:
 	# Run tests
@@ -27,6 +31,10 @@ run_tests:
 			--cov-report=term \
 			--cov-config=pyproject.toml \
 			-v --color=yes
+
+run_integration_tests:
+	# Run tests
+	uv run pytest tests/integration
 
 run_unit_tests:
 	# Run tests

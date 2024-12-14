@@ -86,6 +86,9 @@ class OdeOutput(base.Base):
 
 
 class OdeWorld(BaseWorld):  # We inherit from BaseWorld for convenience, but you can inherit from BaseNode if you want
+    def __init__(self, *args, name: str = "world", **kwargs):
+        super().__init__(*args, name=name, **kwargs)
+
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> OdeParams:
         """Default params of the node."""
         return OdeParams(

@@ -45,9 +45,9 @@ class Sensor(BaseNode):
     Finally, a stop routine is called after the episode is done.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, name: str = "sensor", **kwargs):
         """No special initialization needed."""
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, name=name, **kwargs)
 
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> SensorParams:
         """Default params of the node."""
@@ -75,13 +75,20 @@ class Sensor(BaseNode):
         return True  # Not doing anything here
 
     def step(self, step_state: StepState) -> Tuple[StepState, SensorOutput]:
-        """If we were to interface a real hardware, you would grab the sensor measurement here."""
-
         """
+        If we were to interface a real hardware, you would grab the sensor measurement here.
+
         As the .step method may be jit-compiled, it is important to wrap any side-effecting code in a host_callback.
         See the jax documentation for more information on how to do this:
         https://jax.readthedocs.io/en/latest/external-callbacks.html
         """
+        # Mock sensor measurement
+        if "world" not in step_state.inputs:
+            # Usually, we would grab the sensor measurement here (e.g. from a real sensor)
+            # For this, we could use an external callback via jax to ensure side-effecting code is not jit-compiled
+            output = SensorOutput(th=jnp.pi, thdot=0.0)  # NOOP if no simulator is connected
+            return step_state, output
+
         world = step_state.inputs["world"][-1].data
 
         def _grab_measurement():
@@ -132,14 +139,14 @@ class SimSensor(BaseNode):
     By calculating and aggregating the reconstruction loss here, we take time-scale differences and delays into account.
     """
 
-    def __init__(self, *args, outputs: SensorOutput = None, **kwargs):
+    def __init__(self, *args, outputs: SensorOutput = None, name: str = "sensor", **kwargs):
         """Initialize a simulated sensor for system identification.
 
         If outputs are provided, we will calculate the reconstruction loss based on the recorded sensor outputs.
 
         :param outputs: Recorded sensor Outputs to be used for system identification.
         """
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, name=name, **kwargs)
         self._outputs = outputs
 
     def init_params(self, rng: jax.Array = None, graph_state: GraphState = None) -> SensorParams:

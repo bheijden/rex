@@ -74,15 +74,52 @@ class BaseEnv:
         return self.graph.max_steps
 
     def observation_space(self, graph_state: base.GraphState) -> Box:
+        """
+        Returns the observation space.
+
+        Args:
+            graph_state: The graph state.
+
+        Returns:
+            The observation space
+        """
         raise NotImplementedError("Subclasses must implement this method.")
 
     def action_space(self, graph_state: base.GraphState) -> Box:
+        """
+        Returns the action space.
+
+        Args:
+            graph_state: The graph state.
+
+        Returns:
+            The action space
+        """
         raise NotImplementedError("Subclasses must implement this method.")
 
     def reset(self, rng: jax.Array = None) -> ResetReturn:
+        """
+        Reset the environment.
+
+        Args:
+            rng: Random number generator. Used to initialize a new graph state.
+
+        Returns:
+            The initial graph state, observation, and info
+        """
         raise NotImplementedError("Subclasses must implement this method.")
 
     def step(self, graph_state: base.GraphState, action: jax.Array) -> StepReturn:
+        """
+        Step the environment.
+
+        Args:
+            graph_state: The current graph state.
+            action: The action to take.
+
+        Returns:
+            The updated graph state, observation, reward, terminated, truncated, and info
+        """
         raise NotImplementedError("Subclasses must implement this method.")
 
 
@@ -108,9 +145,27 @@ class Environment:
         return self.graph.max_steps
 
     def observation_space(self, graph_state: base.GraphState) -> Box:
+        """
+        Returns the observation space.
+
+        Args:
+            graph_state: The graph state.
+
+        Returns:
+            The observation space
+        """
         raise NotImplementedError("Subclasses must implement this method.")
 
     def action_space(self, graph_state: base.GraphState) -> Box:
+        """
+        Returns the action space.
+
+        Args:
+            graph_state: The graph state.
+
+        Returns:
+            The action space
+        """
         raise NotImplementedError("Subclasses must implement this method.")
 
     def get_step_state(self, graph_state: base.GraphState, name: str = None) -> base.StepState:
@@ -240,27 +295,71 @@ class Environment:
 class BaseWrapper(object):
     """Base class for wrappers."""
 
-    def __init__(self, env: Union[Environment, "BaseWrapper"]):
+    def __init__(self, env: Union[BaseEnv, Environment, "BaseWrapper"]):
+        """
+        Initialize the wrapper.
+
+        Args:
+            env: The environment to wrap.
+        """
         self._env = env
 
     # provide proxy access to regular attributes of wrapped object
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
+        """Proxy access to regular attributes of wrapped object.
+
+        Args:
+            name: The name of the attribute.
+
+        Returns:
+            The attribute of the wrapped object.
+        """
         return getattr(self._env, name)
 
 
 @struct.dataclass
 class InitialState:
+    """
+
+    Attributes:
+        graph_state: Initial graph state
+        obs: Initial observation
+        info: Initial info
+    """
+
     graph_state: base.GraphState
     obs: jax.Array
     info: Dict[str, Any]
 
 
 class AutoResetWrapper(BaseWrapper):
-    def __init__(self, env: Union[Environment, "BaseWrapper"], fixed_init: bool = True):
+    def __init__(self, env: Union[BaseEnv, Environment, "BaseWrapper"], fixed_init: bool = True):
+        """
+        The AutoResetWrapper will reset the environment when the episode is done in the step method.
+
+        When fixed_init is True, a fixed initial state is used for the environment instead of actually resetting it.
+        This is useful when you want to use the same initial state for every episode.
+        In some cases, resetting the environment can be expensive, so this can be used to avoid that.
+
+        Args:
+            env: The environment to wrap.
+            fixed_init: Whether to use a fixed initial state.
+        """
         self.fixed_init = fixed_init
         super().__init__(env)
 
     def reset(self, rng: jax.Array = None) -> ResetReturn:
+        """
+        Reset the environment and return the initial state.
+
+        If fixed_init is True, the initial state is stored in the aux of the graph state.
+
+        Args:
+            rng: Random number generator.
+
+        Returns:
+            The initial graph state, observation, and info
+        """
         gs, obs, info = self._env.reset(rng)
         if self.fixed_init:
             init_state = InitialState(graph_state=gs, obs=obs, info=info)
@@ -271,9 +370,14 @@ class AutoResetWrapper(BaseWrapper):
 
     def step(self, graph_state: base.GraphState, action: jax.Array) -> StepReturn:
         """
-        We step the environment and reset the state if the episode is done.
-        If so, we use the initial state stored in the aux to reset the environment.
+        Step the environment and reset the state if the episode is done.
 
+        Args:
+            graph_state: The current graph state.
+            action: The action to take.
+
+        Returns:
+            The updated graph state, observation, reward, terminated, truncated, and info
         """
         # Step the environment
         gs, obs, reward, terminated, truncated, info = self._env.step(graph_state, action)
@@ -318,6 +422,15 @@ class AutoResetWrapper(BaseWrapper):
 
 @struct.dataclass
 class LogState:
+    """
+    Attributes:
+        episode_returns: The sum of the rewards in the episode.
+        episode_lengths: The number of steps in the episode.
+        returned_episode_returns: The sum of the rewards in the episode that was returned.
+        returned_episode_lengths: The number of steps in the episode that was returned.
+        timestep: The current
+    """
+
     episode_returns: float
     episode_lengths: int
     returned_episode_returns: float
@@ -326,12 +439,25 @@ class LogState:
 
 
 class LogWrapper(BaseWrapper):
-    """Log the episode returns and lengths."""
+    def __init__(self, env: Union[BaseEnv, Environment, "BaseWrapper"]):
+        """
+        Log the episode returns and lengths.
 
-    def __init__(self, env: Union[Environment, "BaseWrapper"]):
+        Args:
+            env: The environment to wrap.
+        """
         super().__init__(env)
 
     def reset(self, rng: jax.Array = None) -> ResetReturn:
+        """
+        Stores the log state in the aux of the graph state.
+
+        Args:
+            rng: Random number generator.
+
+        Returns:
+            The initial graph state, observation, and info
+        """
         gs, obs, info = self._env.reset(rng)
 
         log_state = LogState(
@@ -345,6 +471,16 @@ class LogWrapper(BaseWrapper):
         return log_gs, obs, info
 
     def step(self, graph_state: base.GraphState, action: jax.Array) -> StepReturn:
+        """
+        Logs the episode returns and lengths.
+
+        Args:
+            graph_state: The current graph state.
+            action: The action to take.
+
+        Returns:
+            The updated graph state, observation, reward, terminated, truncated, and info
+        """
         gs, obs, reward, terminated, truncated, info = self._env.step(graph_state, action)
         done = jnp.logical_or(terminated, truncated)
         log_state = gs.aux["log"]
@@ -367,24 +503,42 @@ class LogWrapper(BaseWrapper):
 
 @struct.dataclass
 class SquashState:
+    """
+    Attributes:
+        low: The lower bound of the action space.
+        high: The upper bound of the action space.
+        squash: Whether to squash the action space.
+    """
+
     low: jax.Array
     high: jax.Array
     squash: bool = struct.field(pytree_node=False)
 
-    def scale(self, x) -> jax.Array:
-        """Scales the input to [-1, 1] and unsquashes."""
+    def scale(self, x: jax.Array) -> jax.Array:
+        """Scales the input to [-1, 1] and unsquashes.
+
+        Args:
+            x: The input to scale.
+
+        Returns:
+            The scaled input.
+        """
         if self.squash:
             x = 2.0 * (x - self.low) / (self.high - self.low) - 1.0
             # use the opposite of tanh to unsquash
             x = jnp.arctanh(x)
         return x
 
-    def unsquash(self, x) -> jax.Array:
+    def unsquash(self, x: jax.Array) -> jax.Array:
         """
         Squashes x to [-1, 1] and then unscales to the original range [low, high].
+        Else, x is clipped to the range of the action space.
 
-        else x is clipped to the range of the action space.
+        Args:
+            x: The input to unscale.
 
+        Returns:
+            Unscaled input.
         """
         if self.squash:
             x = jnp.tanh(x)
@@ -395,23 +549,52 @@ class SquashState:
 
     @property
     def action_space(self) -> Box:
+        """
+        Returns:
+            The scaled action space.
+        """
         if self.squash:
             return Box(low=-1.0, high=1.0, shape=self.low.shape, dtype=self.low.dtype)
         else:
             return Box(low=self.low, high=self.high, shape=self.low.shape, dtype=self.low.dtype)
 
 
-class SquashAction(BaseWrapper):
-    def __init__(self, env: Union[Environment, "BaseWrapper"], squash: bool = True):
+class SquashActionWrapper(BaseWrapper):
+    def __init__(self, env: Union[BaseEnv, Environment, "BaseWrapper"], squash: bool = True):
+        """
+        Squashes the action space to [-1, 1] and unsquashes it when returning the action.
+
+        Args:
+            env: The environment to wrap.
+            squash: Whether to squash the action space.
+        """
         super().__init__(env)
         self.squash = squash
 
     def action_space(self, graph_state: base.GraphState) -> Box:
+        """
+        Scales the action space to [-1, 1] if squash is True.
+
+        Args:
+            graph_state: The graph state.
+
+        Returns:
+            The scaled action space
+        """
         act_space = self._env.action_space(graph_state)
         act_scaling = SquashState(low=act_space.low, high=act_space.high, squash=self.squash)
         return act_scaling.action_space
 
     def reset(self, rng: jax.Array = None) -> ResetReturn:
+        """
+        Puts the action space scaling in the aux of the graph state.
+
+        Args:
+            rng: Random number generator.
+
+        Returns:
+            The initial graph state, observation, and info
+        """
         gs, obs, info = self._env.reset(rng)
         act_space = self._env.action_space(gs)
         act_scaling = SquashState(low=act_space.low, high=act_space.high, squash=self.squash)
@@ -419,20 +602,47 @@ class SquashAction(BaseWrapper):
         return transform_gs, obs, info
 
     def step(self, graph_state: base.GraphState, action: jax.Array) -> StepReturn:
+        """
+        Unscales the action to the original range of the action space before stepping the environment.
+
+        Args:
+            graph_state: The current graph state.
+            action: The (scaled) action to take.
+
+        Returns:
+            The updated graph state, observation, reward, terminated, truncated, and info
+        """
         act_scaling = graph_state.aux["act_scaling"]
         action = act_scaling.unsquash(action)
         return self._env.step(graph_state, action)
 
 
-class ClipAction(BaseWrapper):
+class ClipActionWrapper(BaseWrapper):
     def step(self, graph_state: base.GraphState, action: jax.Array) -> StepReturn:
+        """
+        Clips the action to the action space before stepping the environment.
+
+        Args:
+            graph_state: The current graph state.
+            action: The action to take.
+
+        Returns:
+            The updated graph state, observation, reward, terminated, truncated
+        """
         act_space = self._env.action_space(graph_state)
         action = jnp.clip(action, act_space.low, act_space.high)
         return self._env.step(graph_state, action)
 
 
-class VecEnv(BaseWrapper):
-    def __init__(self, env, in_axes: Union[int, None, Sequence[Any]] = 0):
+class VecEnvWrapper(BaseWrapper):
+    def __init__(self, env: Union[BaseEnv, Environment, "BaseWrapper"], in_axes: Union[int, None, Sequence[Any]] = 0):
+        """
+        Vectorizes the environment.
+
+        Args:
+            env: The environment to wrap.
+            in_axes: The axes to map over.
+        """
         super().__init__(env)
         self.reset = jax.vmap(self._env.reset, in_axes=in_axes)
         self.step = jax.vmap(self._env.step, in_axes=in_axes)
@@ -440,14 +650,33 @@ class VecEnv(BaseWrapper):
 
 @struct.dataclass
 class NormalizeVec:
+    """
+    Attributes
+        mean: The mean of the observations.
+        var: The variance of the observations.
+        count: The number of observations.
+        return_val: The return value.
+        clip: The clipping value.
+    """
+
     mean: jax.Array
     var: jax.Array
     count: Union[float, jax.typing.ArrayLike]
     return_val: jax.Array
     clip: Union[float, jax.typing.ArrayLike]
 
-    def normalize(self, x, clip=True, subtract_mean=True):
-        """Normalize x"""
+    def normalize(self, x: jax.Array, clip: bool = True, subtract_mean: bool = True) -> jax.Array:
+        """
+        Normalize x to have zero mean and unit variance.
+
+        Args:
+            x: The input to normalize.
+            clip: Whether to clip the input.
+            subtract_mean: Whether to subtract the mean.
+
+        Returns:
+            The normalized input.
+        """
         if subtract_mean:
             x = x - self.mean
         x = x / jnp.sqrt(self.var + 1e-8)
@@ -455,20 +684,45 @@ class NormalizeVec:
             x = jnp.clip(x, -self.clip, self.clip)
         return x
 
-    def denormalize(self, x, add_mean=True):
-        """Denormalize x with variance."""
+    def denormalize(self, x: jax.Array, add_mean: bool = True) -> jax.Array:
+        """
+        Denormalize x to have the original mean and variance.
+
+        Args:
+            x: The input to denormalize.
+            add_mean: Whether to add the mean.
+
+        Returns:
+            The denormalized input.
+        """
         x = x * jnp.sqrt(self.var + 1e-8)
         if add_mean:
             x = x + self.mean
         return x
 
 
-class NormalizeVecObservation(BaseWrapper):
-    def __init__(self, env: Union[Environment, "BaseWrapper"], clip_obs: float = 10.0):
+class NormalizeVecObservationWrapper(BaseWrapper):
+    def __init__(self, env: Union[BaseEnv, Environment, "BaseWrapper"], clip_obs: float = 10.0):
+        """
+        Normalize the observations to have zero mean and unit variance.
+
+        Args:
+            env: The environment to wrap.
+            clip_obs: The clipping value.
+        """
         super().__init__(env)
         self.clip_obs = clip_obs
 
     def reset(self, rng: jax.Array = None) -> ResetReturn:
+        """
+        Places the normalization state in the aux of the graph state.
+
+        Args:
+            rng: Random number generator.
+
+        Returns:
+            The initial graph state, observation, and info
+        """
         gs, obs, info = self._env.reset(rng)
         norm_state = NormalizeVec(
             mean=jnp.zeros_like(obs[0]), var=jnp.ones_like(obs[0]), count=1e-4, return_val=None, clip=self.clip_obs
@@ -493,6 +747,16 @@ class NormalizeVecObservation(BaseWrapper):
         return norm_gs, norm_obs, info
 
     def step(self, graph_state: base.GraphState, action: jax.Array) -> StepReturn:
+        """
+        Normalize the observations to have zero mean and unit variance before returning them.
+
+        Args:
+            graph_state: The current graph state.
+            action: The action to take.
+
+        Returns:
+            The updated graph state, observation, reward, terminated, truncated, and info
+        """
         gs_excl_norm = graph_state.replace_aux({"norm_obs": None})  # Exclude the normalization state (cannot be vmapped)
         gs, obs, reward, terminated, truncated, info = self._env.step(gs_excl_norm, action)
 
@@ -519,13 +783,33 @@ class NormalizeVecObservation(BaseWrapper):
 
 class NormalizeVecReward(BaseWrapper):
     def __init__(
-        self, env: Union[Environment, "BaseWrapper"], gamma: Union[float, jax.typing.ArrayLike], clip_reward: float = 10.0
+        self,
+        env: Union[BaseEnv, Environment, "BaseWrapper"],
+        gamma: Union[float, jax.typing.ArrayLike],
+        clip_reward: float = 10.0,
     ):
+        """
+        Normalize the rewards to have zero mean and unit variance.
+
+        Args:
+            env: The environment to wrap.
+            gamma: The discount factor.
+            clip_reward: The clipping value.
+        """
         super().__init__(env)
         self.gamma = gamma
         self.clip_reward = clip_reward
 
     def reset(self, rng: jax.Array = None) -> ResetReturn:
+        """
+        Places the normalization state in the aux of the graph state.
+
+        Args:
+            rng: Random number generator.
+
+        Returns:
+            The initial graph state, observation, and info
+        """
         gs, obs, info = self._env.reset(rng)
 
         batch_count = obs.shape[0]
@@ -534,6 +818,16 @@ class NormalizeVecReward(BaseWrapper):
         return norm_gs, obs, info
 
     def step(self, graph_state: base.GraphState, action: jax.Array) -> StepReturn:
+        """
+        Normalize the rewards to have zero mean and unit variance before returning them.
+
+        Args:
+            graph_state: The current graph state.
+            action: The action to take.
+
+        Returns:
+            The updated graph state, observation, reward, terminated, truncated, and info
+        """
         gs_excl_norm = graph_state.replace_aux({"norm_reward": None})  # Exclude the normalization state (cannot be vmapped)
         gs, obs, reward, terminated, truncated, info = self._env.step(gs_excl_norm, action)
         done = jnp.logical_or(terminated, truncated)

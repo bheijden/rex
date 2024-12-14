@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, List, Tuple, TYPE_CHECKING
 
 import equinox as eqx
 import jax
@@ -14,6 +14,8 @@ try:
 except ImportError as e:
     raise ImportError(f"Failed to import evosax: {e}. Please install it with `pip install evosax`.")
 
+if TYPE_CHECKING:
+    import matplotlib.pyplot as plt
 
 ESLog = evx.ESLog
 EvoState = evx.strategy.EvoState
@@ -21,21 +23,65 @@ EvoState = evx.strategy.EvoState
 
 @struct.dataclass
 class LogState:
+    """
+    LogState class to manage the logging of evolutionary strategy states.
+
+    Attributes:
+        state: The current state of the logger.
+        logger: The logger instance used for logging.
+    """
+
     state: Dict
     logger: ESLog = struct.field(pytree_node=False)
 
     def update(self, x: jnp.ndarray, fitness: jnp.ndarray) -> "LogState":
+        """Update the log state with new data.
+
+        Args:
+            x: The new data.
+            fitness: The fitness values.
+
+        Returns:
+            LogState: The updated log state.
+        """
         new_log_state = self.logger.update(self.state, x, fitness)
         return self.replace(state=new_log_state)
 
     def save(self, filename: str):
+        """Save the log state to a file.
+
+        Args:
+            filename: The name of the file to save to.
+        """
         return self.logger.save(self.state, filename)
 
     def load(self, filename: str) -> "LogState":
+        """Load the log state from a file.
+
+        Args:
+            filename: The name of the file to load from.
+
+        Returns:
+            LogState: The loaded log state.
+        """
         new_state = self.logger.load(filename)
         return self.replace(state=new_state)
 
-    def plot(self, title, ylims=None, fig=None, ax=None, no_legend=False):
+    def plot(
+        self, title: str, ylims: List[int] = None, fig: "plt.Figure" = None, ax: "plt.Axes" = None, no_legend: bool = False
+    ) -> Tuple["plt.Figure", "plt.Axes"]:
+        """Plot the log state.
+
+        Args:
+            title: The title of the plot.
+            ylims: The y-axis limits.
+            fig: The figure to plot on.
+            ax: The axes to plot on.
+            no_legend: Whether to omit the legend.
+
+        Returns:
+            The plot.
+        """
         return self.logger.plot(self.state, title, ylims, fig, ax, no_legend)
 
 
@@ -44,11 +90,10 @@ class EvoSolver:
     """
     Evolutionary Solver class to manage the evolutionary strategy and its parameters.
 
-    **Attributes**
-
-    - `strategy_params` : Parameters for the evolutionary strategy (evosax.strategy.EvoParams).
-    - `strategy` : Instance of the evolutionary strategy (evosax.strategy.Strategy).
-    - `strategy_name` : Name of the strategy used.
+    Attributes:
+        strategy_params: Parameters for the evolutionary strategy.
+        strategy: Instance of the evolutionary strategy.
+        strategy_name: Name of the strategy used.
     """
 
     strategy_params: evx.strategy.EvoParams
@@ -63,15 +108,18 @@ class EvoSolver:
         strategy: str,
         strategy_kwargs: Dict = None,
         fitness_kwargs: Dict = None,
-    ):
+    ) -> "EvoSolver":
         """Initialize the Evolutionary Solver.
 
-        :param u_min: (Normalized) Minimum values for the parameters (pytree).
-        :param u_max: (Normalized) Maximum values for the parameters (pytree).
-        :param strategy: Name of the strategy to use from evosax.Strategies.
-        :param strategy_kwargs: Keyword arguments to pass to the strategy.
-        :param fitness_kwargs: Keyword arguments to pass to the fitness function of the strategy.
-        :return:
+        Args:
+            u_min: (Normalized) Minimum values for the parameters (pytree).
+            u_max: (Normalized) Maximum values for the parameters (pytree).
+            strategy: Name of the strategy to use from evosax.Strategies.
+            strategy_kwargs: Keyword arguments to pass to the strategy.
+            fitness_kwargs: Keyword arguments to pass to the fitness function of the strategy.
+
+        Returns:
+            EvoSolver instance.
         """
         strategy_name = strategy
         strategy_kwargs = strategy_kwargs or dict()
@@ -93,9 +141,12 @@ class EvoSolver:
     def init_state(self, mean: Dict[str, Params], rng: jax.Array = None) -> EvoState:
         """Initialize the state of the Evolutionary Solver.
 
-        :param mean: (Normalized) Mean values for the parameters (pytree).
-        :param rng: Random number generator.
-        :return:
+        Args:
+            mean: Normalized mean values for the parameters (pytree).
+            rng: Random number generator.
+
+        Returns:
+            EvoState: The initialized state of the Evolutionary Solver.
         """
         if rng is None:
             rng = rnd.PRNGKey(0)
@@ -105,10 +156,13 @@ class EvoSolver:
     def init_logger(self, num_generations: int, top_k: int = 5, maximize: bool = False) -> LogState:
         """Initialize the logger for the Evolutionary Solver.
 
-        :param num_generations: Number of generations to log.
-        :param top_k: Number of top individuals to log.
-        :param maximize: Whether the strategy is maximizing or minimizing.
-        :return:
+        Args:
+            num_generations: Number of generations to log.
+            top_k: Number of top individuals to log.
+            maximize: Whether the strategy is maximizing or minimizing.
+
+        Returns:
+            LogState: The initialized log state.
         """
         logger = evx.ESLog(
             pholder_params=self.strategy.param_reshaper.placeholder_params,
@@ -119,19 +173,25 @@ class EvoSolver:
         log_state = logger.initialize()
         return LogState(state=log_state, logger=logger)
 
-    def flatten(self, tree: Any):
+    def flatten(self, tree: Any) -> jax.typing.ArrayLike:
         """Flatten the tree of parameters.
 
-        :param tree: Tree of parameters.
-        :return: Flattened parameters.
+        Args:
+            tree: Tree of parameters.
+
+        Returns:
+            Flattened parameters.
         """
         return self.strategy.param_reshaper.flatten_single(tree)
 
-    def unflatten(self, x: jax.typing.ArrayLike):
+    def unflatten(self, x: jax.typing.ArrayLike) -> Any:
         """Unflatten the parameters.
 
-        :param x: Flattened parameters.
-        :return: Tree of parameters.
+        Args:
+            x: Flattened parameters.
+
+        Returns:
+            Tree of parameters.
         """
         return self.strategy.param_reshaper.reshape_single(x)
 
@@ -145,25 +205,23 @@ def evo(
     rng: jax.Array = None,
     verbose: bool = True,
     logger: LogState = None,
-):
+) -> Tuple[evx.strategy.EvoState, LogState, jax.Array]:
     """Run the Evolutionary Solver (can be jit-compiled).
 
-    **Arguments**
+    Args:
+        loss: Loss function.
+        solver: Evolutionary Solver.
+        init_state: Initial state of the Evolutionary Solver.
+        transform: Transform function to go from a normalized set of trainable parameters to the denormalized and extended set of parameters.
+        max_steps: Maximum number of steps to run the Evolutionary Solver.
+        rng: Random number generator.
+        verbose: Whether to print the progress.
+        logger: Logger for the Evolutionary Solver.
 
-    - 'loss' : Loss function.
-    - 'solver' : Evolutionary Solver.
-    - 'init_state' : Initial state of the Evolutionary Solver.
-    - 'transform' : Transform function to go from a normalized set of trainable parameters to the denormalized and extended set of parameters.
-    - 'max_steps' : Maximum number of steps to run the Evolutionary Solver.
-    - 'rng' : Random number generator.
-    - 'verbose' : Whether to print the progress.
-    - 'logger' : Logger for the Evolutionary Solver.
-
-    **Returns**
-
-    - 'final_state' : Final state of the Evolutionary Solver.
-    - 'logger' : Logger for the Evolutionary Solver.
-    - 'losses' : Losses at each step.
+    Returns:
+        final_state: Final state of the Evolutionary Solver.
+        logger: Logger for the Evolutionary Solver.
+        losses: Losses at each step.
     """
 
     if rng is None:
@@ -204,6 +262,19 @@ def evo_step(
     rng: jax.Array = None,
     logger: LogState = None,
 ):
+    """Run a single step of the Evolutionary Solver.
+
+    Args:
+        loss: Loss function.
+        solver: Evolutionary Solver.
+        state: Initial state of the Evolutionary Solver.
+        transform: Transform function to go from a normalized set of trainable parameters to the denormalized and extended set of parameters.
+        rng: Random number generator.
+        logger: Logger for the Evolutionary Solver.
+
+    Returns:
+        Tuple containing the new state and the losses.
+    """
     if rng is None:
         rng = rnd.PRNGKey(0)
 

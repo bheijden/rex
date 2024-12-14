@@ -1,4 +1,4 @@
-from typing import Dict, Union
+from typing import Dict, Tuple, Union
 
 import equinox as eqx
 import jax
@@ -11,15 +11,35 @@ from rex.base import Loss, Params, Transform
 
 @struct.dataclass
 class CEMState:
+    """State of the CEM Solver.
+
+    Attributes:
+        mean: (Normalized) Mean values for the parameters (pytree).
+        stdev: (Normalized) Standard deviation values for the parameters (pytree).
+        bestsofar: (Normalized) Best-so-far values for the parameters (pytree).
+        bestsofar_loss: Loss of the best-so-far values.
+    """
+
     mean: Dict[str, Params]
     stdev: Dict[str, Params]
     bestsofar: Dict[str, Params]
     bestsofar_loss: Union[float, jax.typing.ArrayLike]
 
+    def replace(self, **kwargs):
+        return eqx.replace(self, **kwargs)
+
 
 @struct.dataclass
 class CEMSolver:
-    """See https://arxiv.org/pdf/1907.03613.pdf for details on CEM"""
+    """See https://arxiv.org/pdf/1907.03613.pdf for details on CEM
+
+    Attributes:
+        u_min: (Normalized) Minimum values for the parameters (pytree).
+        u_max: (Normalized) Maximum values for the parameters (pytree).
+        evolution_smoothing: Smoothing factor for updating the mean and standard deviation.
+        num_samples: Number of samples per iteration.
+        elite_portion: The portion of the samples to consider
+    """
 
     u_min: Dict[str, Params]
     u_max: Dict[str, Params]
@@ -35,15 +55,18 @@ class CEMSolver:
         num_samples: int = 100,
         evolution_smoothing: Union[float, jax.typing.ArrayLike] = 0.1,
         elite_portion: float = 0.1,
-    ):
+    ) -> "CEMSolver":
         """Initialize the Cross-Entropy Method (CEM) Solver.
 
-        :param u_min: (Normalized) Minimum values for the parameters (pytree).
-        :param u_max: (Normalized) Maximum values for the parameters (pytree).
-        :param num_samples: Number of samples per iteration.
-        :param evolution_smoothing: See https://arxiv.org/pdf/1907.03613.pdf for details.
-        :param elite_portion: See https://arxiv.org/pdf/1907.03613.pdf for details.
-        :return:
+        Args:
+            u_min: (Normalized) Minimum values for the parameters (pytree).
+            u_max: (Normalized) Maximum values for the parameters (pytree).
+            num_samples: Number of samples per iteration.
+            evolution_smoothing: See <https://arxiv.org/pdf/1907.03613.pdf> for details.
+            elite_portion: See <https://arxiv.org/pdf/1907.03613.pdf> for details.
+
+        Returns:
+            CEMSolver: An instance of the CEMSolver class.
         """
         return cls(
             u_min=u_min,
@@ -56,9 +79,12 @@ class CEMSolver:
     def init_state(self, mean: Dict[str, Params], stdev: Dict[str, Params] = None) -> CEMState:
         """Initialize the state of the CEM Solver.
 
-        :param mean: (Normalized) Mean values for the parameters (pytree).
-        :param stdev: (Normalized) Standard deviation values for the parameters (pytree).
-        :return:
+        Args:
+            mean: (Normalized) Mean values for the parameters (pytree).
+            stdev: (Normalized) Standard deviation values for the parameters (pytree).
+
+        Returns:
+            CEMState: The initialized state of the CEM Solver.
         """
         if stdev is None:
             stdev = jax.tree_util.tree_map(lambda _x_min, _x_max: (_x_max - _x_min) / 2.0, self.u_min, self.u_max)
@@ -134,18 +160,21 @@ def cem(
     max_steps: int = 100,
     rng: jax.Array = None,
     verbose: bool = True,
-):
-    """Run the Cross-Entropy Method (can be jit-compiled).
+) -> Tuple[CEMState, jax.typing.ArrayLike]:
+    """
+    Run the Cross-Entropy Method (can be jit-compiled).
 
-    :param loss: Loss function.
-    :param solver: CEM Solver.
-    :param init_state: Initial state of the CEM Solver.
-    :param transform: Transform function to go from a normalized set of trainable parameters to the denormalized and
-                      extended set of parameters.
-    :param max_steps: Maximum number of steps to run the CEM Solver.
-    :param rng: Random number generator.
-    :param verbose: Whether to print the progress.
-    :return:
+    Args:
+        loss: Loss function.
+        solver: CEM Solver.
+        init_state: Initial state of the CEM Solver.
+        transform: Transform function (e.g. denormalization, extension, etc.).
+        max_steps: Maximum number of steps to run the CEM Solver.
+        rng: Random number generator.
+        verbose: Whether to print the progress.
+
+    Returns:
+        The final state of the CEM Solver and the losses at each step.
     """
     if rng is None:
         rng = rnd.PRNGKey(0)

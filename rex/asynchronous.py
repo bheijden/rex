@@ -242,6 +242,7 @@ class _AsyncNodeWrapper:
         device_dist: jax.Device = None,
         jit_step: bool = True,
         profile: bool = False,
+        verbose: bool = False,
     ):
         """Warmup the node by running it once to compile the step function and sample the delay distribution.
 
@@ -250,9 +251,10 @@ class _AsyncNodeWrapper:
         :param device_dist: The device on which the delay distribution should be compiled.
         :param jit_step: Whether to jit the step function.
         :param profile: Whether to profile the step function.
+        :param verbose: Whether to print time-profile information.
         :return:
         """
-
+        log_level = LogLevel.SILENT if not verbose else self.node.log_level
         device_step = device_step if device_step is not None else jax.devices("cpu")[0]
         device_dist = device_dist if device_dist is not None else jax.devices("cpu")[0]
 
@@ -262,12 +264,13 @@ class _AsyncNodeWrapper:
             self.async_step = jax.jit(self.async_step, device=device_step)
 
             # AOT compilation
-            with utils.timer(f"{self.node.name}.step | pre-compile ", log_level=self.node.log_level):
+            with utils.timer(f"{self.node.name}.step | pre-compile ", log_level=log_level):
                 self.async_step = self.async_step.lower(ss).compile()
 
         # Time profile the pre-compiled function
+
         if profile:
-            with utils.timer(f"{self.node.name}.step | time-profile", log_level=self.node.log_level, repeat=10):
+            with utils.timer(f"{self.node.name}.step | time-profile", log_level=log_level, repeat=10):
                 for _ in range(10):
                     ss, o = self.async_step(ss)
 
@@ -1338,25 +1341,28 @@ class AsyncGraph:
         """Creates an interface around all nodes in the graph.
 
         As a mental model, it helps to think of the graph as dividing the nodes into two groups:
+
         1. **Supervisor Node**: The designated node that controls the graph's execution flow.
         2. **All Other Nodes**: These nodes form the environment the supervisor interacts with.
 
         This partitioning of nodes essentially creates an **agent-environment** interface, where the supervisor node acts as the
         agent, and the remaining nodes represent the environment. The graph provides gym-like `.reset` and `.step` methods that
         mirror reinforcement learning interfaces:
+
         - **`.init`**: Initializes the graph state, which includes the state of all nodes.
         - **`.reset`**: Initializes the system and returns the initial observation as would be seen by the supervisor node.
         - **`.step`**: Advances the graph by one step (i.e. steps all nodes except the supervisor) and returns the next observation.
 
-        As a result, the timestep of graph.step is determined by the rate of the supervisor node (i.e., 1/supervisor.rate).
+        As a result, the timestep of graph.step is determined by the rate of the supervisor node (i.e., `1/supervisor.rate`).
 
-        :param nodes: Dictionary of nodes that make up the graph.
-        :param supervisor: The designated node that controls the graph's execution flow.
-        :param clock: Determines how time is managed in the graph. Choices include `Clock.SIMULATED` for virtual simulations
-                      and `Clock.WALL_CLOCK` for real-time applications.
-        :param real_time_factor: Sets the speed of the simulation. It can simulate as fast as possible
-                                 (`RealTimeFactor.FAST_AS_POSSIBLE`), in real-time (`RealTimeFactor.REAL_TIME`), or at any
-                                 custom speed relative to real-time.
+        Args:
+            nodes: Dictionary of nodes that make up the graph.
+            supervisor: The designated node that controls the graph's execution flow.
+            clock: Determines how time is managed in the graph. Choices include `Clock.SIMULATED` for virtual simulations
+                   and `Clock.WALL_CLOCK` for real-time applications.
+            real_time_factor: Sets the speed of the simulation. It can simulate as fast as possible
+                              (`RealTimeFactor.FAST_AS_POSSIBLE`), in real-time (`RealTimeFactor.REAL_TIME`), or at any
+                              custom speed relative to real-time.
         """
         self.nodes = nodes
         self.nodes[supervisor.name] = supervisor
@@ -1395,17 +1401,20 @@ class AsyncGraph:
         rng: jax.typing.ArrayLike = None,
         params: Dict[str, base.Params] = None,
         order: Tuple[str, ...] = None,
-    ):
+    ) -> base.GraphState:
         """
         Initializes the graph state with optional parameters for RNG and step states.
 
         Nodes are initialized in a specified order, with the option to override params.
         Useful for setting up the graph state before running the graph with .run, .rollout, or .reset.
 
-        :param rng: Random number generator seed or state.
-        :param params: Predefined params for (a subset of) the nodes.
-        :param order: The order in which nodes are initialized.
-        :return: The initialized graph state.
+        Args:
+            rng: Random number generator seed or state.
+            params: Predefined params for (a subset of) the nodes.
+            order: The order in which nodes are initialized.
+
+        Returns:
+            The initialized graph state.
         """
         # Determine init order. If name not in order, add it to the end
         order = tuple() if order is None else order
@@ -1461,8 +1470,17 @@ class AsyncGraph:
         state: Union[Dict[str, bool], bool] = None,
         output: Union[Dict[str, bool], bool] = None,
         max_records: Union[Dict[str, int], int] = None,
-    ):
-        """Sets the record settings for the nodes in the graph."""
+    ) -> None:
+        """Sets the record settings for the nodes in the graph.
+
+        Args:
+            params: Whether to record the params of the nodes.
+            rng: Whether to record the RNG states of the nodes.
+            inputs: Whether to record the input states of the nodes.
+            state: Whether to record the state of the nodes.
+            output: Whether to record the output of the nodes.
+            max_records: The maximum number of records to store for each node.
+        """
         params = params if params is not None else {}
         rng = rng if rng is not None else {}
         inputs = inputs if inputs is not None else {}
@@ -1492,21 +1510,23 @@ class AsyncGraph:
         device_dist: Union[Dict[str, jax.Device], jax.Device] = None,
         jit_step: Union[Dict[str, bool], bool] = True,
         profile: Union[Dict[str, bool], bool] = False,
+        verbose: bool = False,
     ):
         """Ahead-of-time compilation of step and I/O functions to avoid latency at runtime.
 
-        :param graph_state: The graph state that is expected to be used during runtime.
-        :param device_step: The device to compile the step functions on. It's also the device used to prepare the input states.
-                            If None, the default device is used.
-        :param device_dist: The device to compile the sampling of the delay distribution functions on. If None, the default device is used.
-                             Only relevant when using a simulated clock.
-        :param jit_step: Whether to compile the step functions with JIT. If True, the step functions are compiled with JIT.
-                         Step functions with jit are faster, but may not have side-effects by default.
-                         Either wrap the side-effecting code in a jax callback wrapper, or set jit=False for those nodes.
-                         See https://jax.readthedocs.io/en/latest/notebooks/external_callbacks.html for more info.
-        :param profile: Whether to compile the step functions with time profiling. If True, the step functions are compiled with time profiling.
-                        *IMPORTANT*: This will test-run the step functions, which may lead to unexpected side-effects.
-        :param
+        Args:
+            graph_state: The graph state that is expected to be used during runtime.
+            device_step: The device to compile the step functions on. It's also the device used to prepare the input states.
+                         If None, the default device is used.
+            device_dist: The device to compile the sampling of the delay distribution functions on. If None, the default device is used.
+                         Only relevant when using a simulated clock.
+            jit_step: Whether to compile the step functions with JIT. If True, the step functions are compiled with JIT.
+                      Step functions with jit are faster, but may not have side-effects by default.
+                      Either wrap the side-effecting code in a jax callback wrapper, or set jit=False for those nodes.
+                      See [here](https://jax.readthedocs.io/en/latest/notebooks/external_callbacks.html) for more info.
+            profile: Whether to compile the step functions with time profiling. If True, the step functions are compiled with time profiling.
+                     **IMPORTANT**: This will test-run the step functions, which may lead to unexpected side-effects.
+            verbose: Whether to print time profiling information.
         """
         device_step = device_step if device_step is not None else {}
         device_dist = device_dist if device_dist is not None else {}
@@ -1521,10 +1541,20 @@ class AsyncGraph:
                 device_dist=device_dist.get(k, None),
                 jit_step=jit_step.get(k, True),
                 profile=profile.get(k, False),
+                verbose=verbose,
             )
 
     def start(self, graph_state: base.GraphState, timeout: float = None) -> base.GraphState:
-        """Starts the graph and all its nodes."""
+        """
+        Starts the graph and all its nodes.
+
+        Args:
+            graph_state: The graph state to start the graph with.
+            timeout: The maximum time to wait for the graph to start. If None, it waits indefinitely.
+
+        Returns:
+            The updated graph state after starting the graph. Usually the same as the input graph state.
+        """
         # Stop first, if we were previously running.
         self.stop(timeout=timeout)
 
@@ -1553,8 +1583,13 @@ class AsyncGraph:
             node._start(start=start)
         return graph_state
 
-    def stop(self, timeout: float = None):
-        """Stops the graph and all its nodes."""
+    def stop(self, timeout: float = None) -> None:
+        """
+        Stops the graph and all its nodes.
+
+        Args:
+            timeout: The maximum time to wait for the graph to stop. If None, it waits indefinitely.
+        """
 
         # # Initiate stop (this unblocks the root's step, that is waiting for an action).
         # if len(self._synchronizer.action) > 0:
@@ -1629,13 +1664,16 @@ class AsyncGraph:
         This method is different from the gym API, as it uses the .step method of the supervisor node,
         while the reset and step methods allow the user to override the .step method.
 
-        :param graph_state: The current graph state, or initial graph state from .init().
-        :param timeout: The maximum time to wait for the graph to complete a step.
-        :return: Updated graph state. It returns directly *after* the supervisor node's step() is run.
+        Args:
+            graph_state: The current graph state, or initial graph state from .init().
+            timeout: The maximum time to wait for the graph to complete a step.
+
+        Returns:
+            Updated graph state. It returns directly *after* the supervisor node's step() is run.
         """
         # Check if start() is called before run() and if not, call start() before run().
         if self._initial_step:
-            self.start(graph_state, timeout=timeout)
+            graph_state = self.start(graph_state, timeout=timeout)
 
         # Runs supergraph (except for supervisor)
         graph_state = self.run_until_supervisor(graph_state)
@@ -1651,8 +1689,11 @@ class AsyncGraph:
         Returns the graph and step state just before what would be the supervisor's step, mimicking the initial observation
         return of a gym environment's reset method. The step state can be considered the initial observation of a gym environment.
 
-        :param graph_state: The graph state from .init().
-        :return: Tuple of the new graph state and the supervisor node's step state *before* execution of the first step.
+        Args:
+            graph_state: The graph state from .init().
+
+        Returns:
+            Tuple of the new graph state and the supervisor node's step state *before* execution of the first step.
         """
         # Stop and start graph
         graph_state = self.start(graph_state, timeout=timeout)
@@ -1675,10 +1716,13 @@ class AsyncGraph:
 
         Start every episode with a call to reset() using the initial graph state from init(), then call step() repeatedly.
 
-        :param graph_state: The current graph state.
-        :param step_state: Custom step state for the supervisor node.
-        :param output: Custom output for the supervisor node.
-        :return: Tuple of the new graph state and the supervisor node's step state *before* execution of the next step.
+        Args:
+            graph_state: The current graph state.
+            step_state: Custom step state for the supervisor node.
+            output: Custom output for the supervisor node.
+
+        Returns:
+            Tuple of the new graph state and the supervisor node's step state *before* execution of the next step.
         """
         # Runs supervisor node (if step_state and output are not provided, otherwise overrides step_state and output with provided values)
         new_graph_state = self.run_supervisor(graph_state, step_state, output)
@@ -1689,7 +1733,12 @@ class AsyncGraph:
         return next_graph_state, next_step_state
 
     def get_record(self) -> base.EpisodeRecord:
-        """Returns the episode record for all nodes in the graph."""
+        """
+        Gets the episode record for all nodes in the graph.
+
+        Returns:
+            Returns the episode record for all nodes in the graph.
+        """
         records = {}
         for name, node in self._async_nodes.items():
             records[name] = node.get_record()

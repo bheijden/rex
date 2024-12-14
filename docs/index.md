@@ -1,17 +1,24 @@
-# Getting started
+# Getting Started
 
-Equinox is your one-stop [JAX](https://github.com/google/jax) library, for everything you need that isn't already in core JAX:
+Rex is a [JAX](https://github.com/google/jax)-powered framework for sim-to-real robotics.
 
-- neural networks (or more generally any model), with easy-to-use PyTorch-like syntax;
-- filtered APIs for transformations;
-- useful PyTree manipulation routines;
-- advanced features like runtime errors;
+Key features:
 
-and best of all, Equinox isn't a framework: everything you write in Equinox is compatible with anything else in JAX or the ecosystem.
+- **Graph-based design**: Model asynchronous systems with nodes for sensing, actuation, and computation.
+- **Latency-aware modeling**: Simulate delay effects for hardware, computation, and communication channels.
+- **Real-time and parallelized runtimes**: Run real-world experiments or accelerated parallelized simulations.
+- **Seamless integration with JAX**: Utilize JAX's autodiff, JIT compilation, and GPU/TPU acceleration.
+- **System identification tools**: Estimate dynamics and delays directly from real-world data.
+- **Modular and extensible**: Compatible with various simulation engines (e.g., [Brax](https://github.com/google/brax), [MuJoCo](https://mujoco.readthedocs.io/en/stable/mjx.html)).
+- **Unified sim2real pipeline**: Train delay-aware policies in simulation and deploy them on real-world systems.
 
-[//]: # (If you're completely new to JAX, then start with this [CNN on MNIST example]&#40;https://docs.kidger.site/equinox/examples/mnist/&#41;.)
+## Sim-to-Real Workflow
 
-[//]: # (_Coming from [Flax]&#40;https://github.com/google/flax&#41; or [Haiku]&#40;https://github.com/deepmind/haiku&#41;? The main difference is that Equinox &#40;a&#41; offers a lot of advanced features not found in these libraries, like PyTree manipulation or runtime errors; &#40;b&#41; has a simpler way of building models: they're just PyTrees, so they can pass across JIT/grad/etc. boundaries smoothly._)
+1. **Interface Real Systems**: Define nodes for sensors, actuators, and computation to represent real-world systems.
+2. **Build Simulation**: Swap real-world nodes with simulated ones (e.g., physics engines, motor dynamics).
+3. **System Identification**: Estimate system dynamics and delays from real-world data.
+4. **Policy Training**: Train delay-aware policies in simulation, accounting for realistic dynamics and delays.
+5. **Evaluation**: Evaluate trained policies on the real-world system, and iterate on the design.
 
 ## Installation
 
@@ -23,50 +30,92 @@ Requires Python 3.9+ and JAX 0.4.30+.
 
 ## Quick example
 
-Models are defined using PyTorch-like syntax:
-
+Here's a simple example of a pendulum system. 
+The real-world system is defined with nodes interfacing hardware for sensing, actuation:
 ```python
-import equinox as eqx
-import jax
+from rex.asynchronous import AsyncGraph
+from rex.examples.pendulum import Actuator, Agent, Sensor
 
-class Linear(eqx.Module):
-    weight: jax.Array
-    bias: jax.Array
+sensor = Sensor(rate=50)        # 50 Hz sampling rate
+agent = Agent(rate=30)          # 30 Hz policy execution rate
+actuator = Actuator(rate=50)    # 50 Hz control rate
+nodes = dict(sensor=sensor, agent=agent, actuator=actuator)
 
-    def __init__(self, in_size, out_size, key):
-        wkey, bkey = jax.random.split(key)
-        self.weight = jax.random.normal(wkey, (out_size, in_size))
-        self.bias = jax.random.normal(bkey, (out_size,))
+agent.connect(sensor)       # Agent receives sensor data
+actuator.connect(agent)     # Actuator receives agent commands
+graph = AsyncGraph(nodes, agent) # Graph for real-world execution
 
-    def __call__(self, x):
-        return self.weight @ x + self.bias
+graph_state = graph.init()  # Initial states of all nodes
+graph.warmup(graph_state)   # Jit-compiles the graph (only once).
+for _ in range(100):        # Run the graph for 100 steps
+    graph_state = graph.run(graph_state) # Run for one step
+graph.stop()                # Stop asynchronous nodes
+data = graph.get_record()   # Get recorded data from the graph
 ```
-
-and may be used alongside normal JAX operations:
-
+In simulation, we replace the hardware-interfacing nodes with simulated ones, add delay models, and add a physics simulation node:
 ```python
-@jax.jit
-@jax.grad
-def loss_fn(model, x, y):
-    pred_y = jax.vmap(model)(x)
-    return jax.numpy.mean((y - pred_y) ** 2)
+from distrax import Normal
+from rex.constants import Clock, RealTimeFactor
+from rex.asynchronous import AsyncGraph
+from rex.examples.pendulum import SimActuator, Agent, SimSensor, BraxWorld
 
-batch_size, in_size, out_size = 32, 2, 3
-model = Linear(in_size, out_size, key=jax.random.PRNGKey(0))
-x = jax.numpy.zeros((batch_size, in_size))
-y = jax.numpy.zeros((batch_size, out_size))
-grads = loss_fn(model, x, y)
+sensor = SimSensor(rate=50, delay_dist=Normal(0.01, 0.001))     # Process delay
+agent = Agent(rate=30, delay_dist=Normal(0.02, 0.005))          # Computational delay
+actuator = SimActuator(rate=50, delay_dist=Normal(0.01, 0.001)) # Process delay
+world = BraxWorld(rate=100)  # 100 Hz physics simulation
+nodes = dict(sensor=sensor, agent=agent, actuator=actuator, world=world)
+
+sensor.connect(world, delay_dist=Normal(0.001, 0.001)) # Sensor delay
+agent.connect(sensor, delay_dist=Normal(0.001, 0.001)) # Communication delay
+actuator.connect(agent, delay_dist=Normal(0.001, 0.001)) # Communication delay
+world.connect(actuator, delay_dist=Normal(0.001, 0.001), # Actuator delay
+              skip=True) # Breaks algebraic loop in the graph
+graph = AsyncGraph(nodes, agent,
+                   clock=Clock.SIMULATED, # Simulates based on delay_dist
+                   real_time_factor=RealTimeFactor.FAST_AS_POSSIBLE)
+
+graph_state = graph.init()  # Initial states of all nodes
+graph.warmup(graph_state)   # Jit-compiles the graph
+for _ in range(100):        # Run the graph for 100 steps
+    graph_state = graph.run(graph_state) # Run for one step
+graph.stop()                # Stop asynchronous nodes
+data = graph.get_record()   # Get recorded data from the graph
 ```
+Nodes are defined using JAX's [PyTrees](https://jax.readthedocs.io/en/latest/pytrees.html):
+```python
+from rex.node import BaseNode
 
-There's no magic behind the scenes. All `eqx.Module` does is register your class as a PyTree. From that point onwards, JAX already knows how to work with PyTrees.
+class Agent(BaseNode):
+    def init_params(self, rng=None, graph_state=None):
+        return SomePyTree(a=..., b=...)
+
+    def init_state(self, rng=None, graph_state=None):
+        return SomePyTree(x1=..., x2=...)
+
+    def init_output(self, rng=None, graph_state=None):
+        return SomePyTree(y1=..., y2=...)
+    
+    # Jit-compiled via graph.warmup for faster execution
+    def step(self, step_state): # Called at Node's rate
+        ss = step_state  # Shorten name
+        # Read params, and current state
+        params, state = ss.params, ss.state
+        # Current episode, sequence, timestamp
+        eps, seq, ts = ss.eps, ss.seq, ss.ts
+        # Grab the data, and I/O timestamps
+        cam = ss.inputs["sensor"] # Received messages 
+        cam.data, cam.ts_send, cam.ts_recv
+        ... # Some computation for new_state, output
+        new_state = SomePyTree(x1=..., x2=...)
+        output = SomePyTree(y1=..., y2=...)
+        # Update step_state for next step call
+        new_ss = ss.replace(state=new_state)
+        return new_ss, output # Sends output
+```
 
 ## Next steps
+If this quick start has got you interested, then have a look at the [sim2real.ipynb](https://github.com/anonymous/rex/blob/master/examples/sim2real.ipynb) notebook for an example of a sim-to-real workflow using Rex.
 
-If this quick start has got you interested, then have a read of ..., which introduces you to basically everything in Rex.
+## Citation
 
-[//]: # (If this quick start has got you interested, then have a read of [All of Equinox]&#40;./all-of-equinox.md&#41;, which introduces you to basically everything in Equinox.)
-
-[//]: # (## Citation)
-
-[//]: # (--8<-- ".citation.md")
-
+--8<-- ".citation.md"

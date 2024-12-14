@@ -1,8 +1,3 @@
-"""
-PPO implementation based on the PPO implementation from purejaxrl:
-https://github.com/luchris429/purejaxrl
-"""
-
 from typing import Any, Dict, Union
 
 import flax.linen as nn
@@ -25,14 +20,15 @@ from rex.actor_critic import Actor, ActorCritic, Critic
 from rex.base import Base, GraphState
 from rex.rl import (
     AutoResetWrapper,
+    BaseEnv,
     Environment,
     LogWrapper,
     NormalizeVec,
-    NormalizeVecObservation,
+    NormalizeVecObservationWrapper,
     NormalizeVecReward,
-    SquashAction,
+    SquashActionWrapper,
     SquashState,
-    VecEnv,
+    VecEnvWrapper,
 )
 
 
@@ -58,10 +54,39 @@ class Diagnostics(Base):
 
 @struct.dataclass
 class Config(Base):
-    """Configuration for the PPO algorithm.
+    """
+    Configuration for PPO.
 
     Inherit from this class and override the `EVAL_METRICS_JAX_CB` and `EVAL_METRICS_HOST_CB` methods to customize the
     evaluation metrics and the host-side callback for the evaluation metrics.
+
+    Attributes:
+        LR: The learning rate.
+        NUM_ENVS: The number of parallel environments.
+        NUM_STEPS: The number of steps to run in each environment per update.
+        TOTAL_TIMESTEPS: The total number of timesteps to run.
+        UPDATE_EPOCHS: The number of epochs to run per update.
+        NUM_MINIBATCHES: The number of minibatches to split the data into.
+        GAMMA: The discount factor.
+        GAE_LAMBDA: The Generalized Advantage Estimation (GAE) parameter.
+        CLIP_EPS: The clipping parameter for the ratio in the policy loss.
+        ENT_COEF: The coefficient of the entropy regularizer.
+        VF_COEF: The value function coefficient.
+        MAX_GRAD_NORM: The maximum gradient norm.
+        NUM_HIDDEN_LAYERS: The number of hidden layers (same for actor and critic).
+        NUM_HIDDEN_UNITS: The number of hidden units per layer (same for actor and critic).
+        KERNEL_INIT_TYPE: The kernel initialization type (same for actor and critic).
+        HIDDEN_ACTIVATION: The hidden activation function (same for actor and critic).
+        STATE_INDEPENDENT_STD: Whether to use state-independent standard deviation for the actor.
+        SQUASH: Whether to squash the action output of the actor.
+        ANNEAL_LR: Whether to anneal the learning rate.
+        NORMALIZE_ENV: Whether to normalize the environment (observations and rewards), actions are always normalized.
+        FIXED_INIT: Whether to use fixed initial states for each parallel environment.
+        OFFSET_STEP: Whether to offset the step counter for each parallel environment to break temporal correlations.
+        NUM_EVAL_ENVS: The number of evaluation environments.
+        EVAL_FREQ: The number of evaluations to run per run of training.
+        VERBOSE: Whether to print verbose output.
+        DEBUG: Whether to print debug output per step.
     """
 
     # Learning rate
@@ -121,21 +146,38 @@ class Config(Base):
 
     @property
     def NUM_UPDATES(self):
+        """Number of updates to run"""
         return self.TOTAL_TIMESTEPS // self.NUM_STEPS // self.NUM_ENVS
 
     @property
     def NUM_UPDATES_PER_EVAL(self):
+        """Number of updates to run per evaluation"""
         return self.NUM_UPDATES // self.EVAL_FREQ
 
     @property
     def NUM_TIMESTEPS(self):
+        """Number of timesteps to run per evaluation"""
         return self.NUM_UPDATES_PER_EVAL * self.NUM_STEPS * self.NUM_ENVS * self.EVAL_FREQ
 
     @property
     def MINIBATCH_SIZE(self):
+        """Size of the minibatch"""
         return self.NUM_ENVS * self.NUM_STEPS // self.NUM_MINIBATCHES
 
-    def EVAL_METRICS_JAX_CB(self, total_steps, diagnostics: Diagnostics, eval_transitions: Transition = None) -> Dict:
+    def EVAL_METRICS_JAX_CB(
+        self, total_steps: Union[int, jax.Array], diagnostics: Diagnostics, eval_transitions: Transition = None
+    ) -> Dict:
+        """
+        Compute evaluation metrics for the PPO algorithm.
+
+        Args:
+            total_steps: The total number of steps run.
+            diagnostics: The diagnostics from the training process.
+            eval_transitions: The transitions from the evaluation process.
+
+        Returns:
+            Dict: A dictionary containing the evaluation metrics.
+        """
         returns_done = eval_transitions.info["returned_episode_returns"] * eval_transitions.done
         lengths_done = eval_transitions.info["returned_episode_lengths"] * eval_transitions.done
         total_eps = eval_transitions.done.sum()
@@ -157,7 +199,15 @@ class Config(Base):
         metrics["eval/total_episodes"] = total_eps
         return metrics
 
-    def EVAL_METRICS_HOST_CB(self, metrics: Dict):
+    def EVAL_METRICS_HOST_CB(self, metrics: Dict) -> None:
+        """
+        Evaluate the evaluation metrics for the PPO algorithm on the host.
+
+        Can be used for printing or logging the evaluation metrics on the host as this is side-effectful.
+
+        Args:
+            metrics: The evaluation metrics.
+        """
         # Standard metrics
         global_step = metrics["train/total_steps"]
         mean_approxkl = metrics["train/mean_approxkl"]
@@ -179,6 +229,18 @@ class Config(Base):
 
 @struct.dataclass
 class Policy(Base):
+    """
+    Represents the policy model.
+
+    Attributes:
+        act_scaling: The action scaling parameters.
+        obs_scaling: The observation scaling parameters.
+        model: The model parameters.
+        hidden_activation: The hidden activation function.
+        output_activation: The output activation function.
+        state_independent_std: Whether the standard deviation of the actor is state-independent
+    """
+
     act_scaling: SquashState
     obs_scaling: NormalizeVec
     model: Dict[str, Dict[str, Union[jax.typing.ArrayLike, Any]]]
@@ -187,6 +249,16 @@ class Policy(Base):
     state_independent_std: bool = struct.field(pytree_node=False)
 
     def apply_actor(self, norm_obs: jax.typing.ArrayLike, rng: jax.Array = None) -> jax.Array:
+        """
+        Apply the actor model to the normalized observation
+
+        Args:
+            norm_obs: The normalized observation
+            rng: Random number generator key
+
+        Returns:
+            The unscaled action
+        """
         x = norm_obs  # Rename for clarity
 
         # Get parameters
@@ -220,6 +292,16 @@ class Policy(Base):
         return x
 
     def get_action(self, obs: jax.typing.ArrayLike, rng: jax.Array = None) -> jax.Array:
+        """
+        Get the action from the policy model
+
+        Args:
+            obs: The observation
+            rng: Random number generator key
+
+        Returns:
+            The action, scaled to the action space.
+        """
         # Normalize observation
         norm_obs = self.obs_scaling.normalize(obs, clip=True, subtract_mean=True) if self.obs_scaling is not None else obs
         # Get action
@@ -233,6 +315,16 @@ class Policy(Base):
 
 @struct.dataclass
 class RunnerState(Base):
+    """
+    Represents the state of the runner during training.
+
+    Attributes:
+        train_state: The state of the training process.
+        env_state: The state of the environment.
+        last_obs: The last observation.
+        rng: Random number generator key
+    """
+
     train_state: TrainState
     env_state: GraphState
     last_obs: jax.typing.ArrayLike
@@ -241,24 +333,37 @@ class RunnerState(Base):
 
 @struct.dataclass
 class PPOResult(Base):
+    """
+    Represents the result of the PPO training process.
+
+    Attributes:
+        config: Configuration for the PPO algorithm.
+        runner_state: The state of the runner after training.
+        metrics: Dictionary containing various metrics collected during training.
+    """
+
     config: Config
     runner_state: RunnerState
     metrics: Dict[str, Any]
 
     @property
     def obs_scaling(self) -> SquashState:
+        """Returns the observation scaling parameters."""
         return self.runner_state.env_state.aux.get("norm_obs", None)
 
     @property
-    def act_scaling(self) -> SquashAction:
+    def act_scaling(self) -> SquashActionWrapper:
+        """Returns the action scaling parameters."""
         return jax.tree_util.tree_map(lambda x: x[0], self.runner_state.env_state.aux.get("act_scaling", None))
 
     @property
     def rwd_scaling(self) -> NormalizeVec:
+        """Returns the reward scaling parameters."""
         return self.runner_state.env_state.aux.get("norm_reward", None)
 
     @property
     def policy(self) -> Policy:
+        """Returns the policy model."""
         return Policy(
             act_scaling=self.act_scaling,
             obs_scaling=self.obs_scaling,
@@ -269,15 +374,29 @@ class PPOResult(Base):
         )
 
 
-def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
+def train(env: Union[BaseEnv, Environment], config: Config, rng: jax.Array) -> PPOResult:
+    """
+    Train the PPO model.
+
+    PPO implementation based on the PPO implementation from purejaxrl:
+    https://github.com/luchris429/purejaxrl
+
+    Args:
+        env: The environment to train on.
+        config: Configuration for the PPO algorithm.
+        rng: Random number generator key.
+
+    Returns:
+        PPOResult: The result of the training process.
+    """
     # INIT TRAIN ENV
     env = AutoResetWrapper(env, fixed_init=config.FIXED_INIT)
     env = LogWrapper(env)
-    env = SquashAction(env, squash=config.SQUASH)
-    env = VecEnv(env)
+    env = SquashActionWrapper(env, squash=config.SQUASH)
+    env = VecEnvWrapper(env)
     vec_env = env
     if config.NORMALIZE_ENV:
-        env = NormalizeVecObservation(env)
+        env = NormalizeVecObservationWrapper(env)
         env = NormalizeVecReward(env, config.GAMMA)
 
     def linear_schedule(count):
@@ -540,102 +659,3 @@ def train(env: Environment, config: Config, rng: jax.Array) -> PPOResult:
         metrics=metrics,
     )
     return ret
-    # ret = {"runner_state": runner_state, "metrics": metrics}
-    # ret["act_scaling"] = jax.tree_util.tree_map(lambda x: x[0], runner_state[1].aux["act_scaling"])
-    # if config.NORMALIZE_ENV:  # Return normalization parameters
-    #     ret["norm_obs"] = runner_state[1].aux["norm_obs"]
-    #     ret["norm_reward"] = runner_state[1].aux["norm_reward"]
-    # ret["policy"] = Policy(
-    #     act_scaling=ret["act_scaling"],
-    #     obs_scaling=ret["norm_obs"] if config.NORMALIZE_ENV else None,
-    #     model=runner_state[0].params["params"],
-    #     hidden_activation=config.HIDDEN_ACTIVATION,
-    #     output_activation="gaussian",
-    #     state_independent_std=config.STATE_INDEPENDENT_STD
-    # )
-    # return ret
-
-
-if __name__ == "__main__":
-    # NOTE: correct cost function selected in dummy pendulum environment.
-    config = dict(
-        LR=1e-4,
-        NUM_ENVS=64,
-        NUM_STEPS=32,  # increased from 16 to 32 (to solve approx_kl divergence)
-        TOTAL_TIMESTEPS=10e6,
-        UPDATE_EPOCHS=4,
-        NUM_MINIBATCHES=4,
-        GAMMA=0.99,
-        GAE_LAMBDA=0.95,
-        CLIP_EPS=0.2,
-        ENT_COEF=0.01,
-        VF_COEF=0.5,
-        MAX_GRAD_NORM=0.5,  # or 0.5?
-        NUM_HIDDEN_LAYERS=2,
-        NUM_HIDDEN_UNITS=64,
-        KERNEL_INIT_TYPE="xavier_uniform",
-        HIDDEN_ACTIVATION="tanh",
-        STATE_INDEPENDENT_STD=True,
-        SQUASH=True,
-        ANNEAL_LR=False,
-        NORMALIZE_ENV=True,
-        DEBUG=False,
-        VERBOSE=True,
-        FIXED_INIT=True,
-        NUM_EVAL_ENVS=20,
-        EVAL_FREQ=100,
-    )
-    config = Config(**config)
-
-    from rex.pendulum.nodes import TestDiskPendulum
-
-    env = TestDiskPendulum()
-
-    import functools
-
-    train_fn = functools.partial(train, env)
-
-    # Evaluate
-    rng = jax.random.PRNGKey(6)
-
-    # Single
-    # with jax.disable_jit(False):
-    #     out = train_fn(config, rng)
-    # print(out["act_scaling"])
-    # print(out["metrics"]["diagnostics"].total_loss.shape)
-    # exit()
-
-    # Multiple
-    num_seeds = 5
-    vtrain = jax.vmap(train_fn, in_axes=(None, 0))
-    out = vtrain(config, jax.random.split(rng, num_seeds))
-    metrics = out["metrics"]
-    approxkl = metrics["diagnostics"].approxkl.reshape(num_seeds, -1, config.UPDATE_EPOCHS, config.NUM_MINIBATCHES)
-    approxkl = approxkl.mean(axis=(-1, -2))
-    return_values = metrics["returned_episode_returns"][metrics["returned_episode"]].reshape(num_seeds, -1)
-    eval_return_values = metrics["eval/mean_returns"].mean(axis=0)
-    eval_return_std = metrics["eval/std_returns"].mean(axis=0)
-    eval_total_steps = metrics["eval/total_steps"].mean(axis=0)
-    import matplotlib.pyplot as plt
-    import seaborn
-
-    seaborn.set()
-    fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-    ax[0].plot(return_values.mean(axis=0))
-    ax[0].set_xlabel("Episode")
-    ax[0].set_ylabel("Mean Return (train)")
-    ax[1].plot(eval_total_steps, eval_return_values)
-    ax[1].fill_between(eval_total_steps, eval_return_values - eval_return_std, eval_return_values + eval_return_std, alpha=0.5)
-    ax[1].set_xlabel("Timesteps")
-    ax[1].set_ylabel("Mean Return (eval)")
-    ax[2].plot(approxkl.mean(axis=0))
-    ax[2].set_xlabel("Updates")
-    ax[2].set_ylabel("Mean Approx KL")
-    fig.suptitle(f"Pendulum-v0, LR={config.LR}, over {num_seeds} seeds")
-    plt.show()
-    exit()
-
-    # rng = jax.random.PRNGKey(0)
-    # train_jit = jax.jit(make_train(config, env=env))
-    # with jax.disable_jit(False):
-    #     out = train_jit(rng)

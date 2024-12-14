@@ -64,29 +64,26 @@ def test_sim2real():
     # @markdown Data from Brax will help us identify the delays and parameters of a simple ODE model.
     # @markdown In a separate notebook, we demonstrate how to define nodes.
     # @markdown Optionally, you can test the system with zero delays by uncommenting the relevant code.
-    from rex.pendulum.actuator import Actuator
-    from rex.pendulum.agent import Agent
-    from rex.pendulum.brax import BraxWorld
-    from rex.pendulum.sensor import Sensor
+    import rex.examples.pendulum as pdm
 
     # `Color` and `order` arguments are merely for visualization purposes.
     # Delay distributions are used to simulate the delays as if the nodes were real-world systems.
     # For real-world systems, it is normally not necessary to specify the delay distributions.
-    sensor = Sensor(
+    sensor = pdm.Sensor(
         name="sensor",
         rate=50,
         color="pink",
         order=1,  # Sensor that reads the angle from the pendulum
         delay_dist=Normal(loc=0.0075, scale=0.003),
     )  # Computation delay of the sensor
-    agent = Agent(
+    agent = pdm.Agent(
         name="agent",
         rate=50,
         color="teal",
         order=3,  # Agent that generates random actions
         delay_dist=Normal(loc=0.01, scale=0.003),
     )  # Computation delay of the agent
-    actuator = Actuator(
+    actuator = pdm.Actuator(
         name="actuator",
         rate=50,
         color="orange",
@@ -94,7 +91,7 @@ def test_sim2real():
         delay_dist=Normal(loc=0.0075, scale=0.003),
     )  # Computation delay of the actuator
     # Computation delay of the world is the world's step size (i.e. 1/rate)
-    world = BraxWorld(name="world", rate=50, color="grape", order=0)  # Brax world that simulates the pendulum
+    world = pdm.BraxWorld(name="world", rate=50, color="grape", order=0)  # Brax world that simulates the pendulum
     nodes = dict(world=world, sensor=sensor, agent=agent, actuator=actuator)
 
     # Connect nodes
@@ -330,25 +327,21 @@ def test_sim2real():
     # By reinitializing the nodes via the `from_info` method, we can reuse the exact same configuration (rate, delay_dist, etc.).
     # We can overwrite (e.g., delay_dist) or specify extra parameters (e.g., outputs) as keyword arguments.
     # The info data is stored in the record, but can also be obtained from the nodes themselves with node.info.
-    from rex.pendulum.actuator import SimActuator
-    from rex.pendulum.agent import Agent
-    from rex.pendulum.ode import OdeWorld
-    from rex.pendulum.sensor import SimSensor
 
-    actuator = SimActuator.from_info(
+    actuator = pdm.SimActuator.from_info(
         record.nodes["actuator"].info, outputs=outputs["actuator"]
     )  # Actuator data to replay the actions
-    sensor = SimSensor.from_info(
+    sensor = pdm.SimSensor.from_info(
         record.nodes["sensor"].info, outputs=outputs["sensor"]
     )  # Sensor data to calculate reconstruction error
-    agent = Agent.from_info(record.nodes["agent"].info, delay_dist=dist_comp)
+    agent = pdm.Agent.from_info(record.nodes["agent"].info, delay_dist=dist_comp)
     nodes_sim = dict(sensor=sensor, agent=agent, actuator=actuator)
 
     # Connect nodes according to real-world system
     [n.connect_from_info(record.nodes[name].info.inputs, nodes_sim) for name, n in nodes_sim.items()]
 
     # Create the world node that is going to simulate the ODE system
-    world = OdeWorld.from_info(
+    world = pdm.OdeWorld.from_info(
         nodes["world"].info
     )  # Initialize OdeWorld with the same parameters (rate, etc.) as the brax world
 
@@ -622,9 +615,7 @@ def test_sim2real():
     graph_rl = rex.graph.Graph(nodes_rl, nodes_rl["agent"], cg)
 
     # Define the environment
-    from rex.pendulum.rl import sweep_pmv2r1zf, SwingUpEnv
-
-    env = SwingUpEnv(graph=graph_rl)
+    env = pdm.rl.SwingUpEnv(graph=graph_rl)
 
     # Set RL params
     rl_params = opt_params.copy()  # Get base structure for params
@@ -633,7 +624,7 @@ def test_sim2real():
 
     # Initialize PPO config
     # sweep_pmv2r1zf is a PPO hyperparameter sweep that was found to work well for the pendulum swing-up task
-    config = sweep_pmv2r1zf.replace(
+    config = pdm.rl.sweep_pmv2r1zf.replace(
         NUM_ENVS=2, NUM_STEPS=16, TOTAL_TIMESTEPS=64, UPDATE_EPOCHS=1, NUM_MINIBATCHES=1, EVAL_FREQ=2, NUM_EVAL_ENVS=2
     )
 
@@ -786,6 +777,4 @@ def test_sim2real():
     # @markdown The following visualization shows the rollout of the pendulum swing-up task, displaying the system's behavior over time.
     # @markdown Note: Html visualization may not work properly if rendering simultaneously in multiple cells.
     # @markdown In such cases, comment-out all but one HTML(pendulum.render(rollout)).
-    # from rex.pendulum.render import render
-
-    # render(eval_real_rollout, dt=float(1 / world.rate))
+    pdm.render.render(eval_real_rollout, dt=float(1 / world.rate))

@@ -5,10 +5,10 @@ description = "Robotic Environments with jaX (REX)"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
-    { name = "Bas van der Heijden", email = "b.heijden@hotmail.com" }
+    { name = "Anonymous", email = "anonymous@hotmail.com" }
 ]
-homepage = "https://github.com/bheijden/rex"
-repository = "https://github.com/bheijden/rex"
+homepage = "https://github.com/anonymous/rex"
+repository = "https://github.com/anonymous/rex"
 keywords = ["robotics", "jax", "simulation", "sim2real", "reinforcement-learning"]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -34,7 +34,7 @@ dependencies = [
 
 [project.optional-dependencies]
 examples = [
-    "brax>=0.10.5", # Required for pendulum.py
+    "brax>=0.12.0", # Required for pendulum.py
     "seaborn>=0.13.2",
     "dill>=0.3.8",
     "jupyterlab>=4.3.2",

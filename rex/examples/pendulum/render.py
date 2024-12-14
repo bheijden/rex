@@ -11,8 +11,8 @@ except ModuleNotFoundError as e:
     print("Brax not installed. Install it with `pip install brax`")
     raise e
 
-from rex.pendulum.brax import BraxState
-from rex.pendulum.ode import OdeState
+from rex.examples.pendulum.brax import BraxState
+from rex.examples.pendulum.ode import OdeState
 
 
 DISK_PENDULUM_VISUAL_XML = """

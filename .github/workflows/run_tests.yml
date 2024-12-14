@@ -28,7 +28,6 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install the project
-        # todo: maybe not extras, but all dev and tests requirements?
         run: uv sync --all-extras --dev --group tests
 
       - name: Check code style
