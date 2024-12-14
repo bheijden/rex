@@ -45,11 +45,11 @@ theme:
 
 site_name: Rex
 site_description: The documentation for the Rex software library.
-site_author: Bas van der Heijden
-site_url: https://github.com/bheijden/rex
+site_author: Anonymous
+site_url: https://github.com/anonymous/rex
 
-repo_url: https://github.com/bheijden/rex
-repo_name: bheijden/rex
+repo_url: https://github.com/anonymous/rex
+repo_name: anonymous/rex
 edit_uri: ""  # No edit button, as some of our pages are in /docs and some in /examples via symlink, so it's impossible for them all to be accurate
 
 # For web-server deployment, maybe remove this line? It will create page_name/index.html structure instead of page_name.html.

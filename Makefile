@@ -16,8 +16,6 @@ build_docs:
 	# Build the documentation
 	# JUPYTER_PLATFORM_DIRS=1 uv run mkdocs build --strict  # https://github.com/danielfrg/mkdocs-jupyter/issues/154
 	uv run mkdocs build --strict # Add -v for verbose output
-	# twice, see https://github.com/patrick-kidger/pytkdocs_tweaks
-	#uv run mkdocs build --strict
 
 serve_docs:
 	# Serve the documentation # Note! Does not run twice..., so not the same as build_docs.

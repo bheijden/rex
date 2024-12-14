@@ -5,10 +5,10 @@ description = "Robotic Environments with jaX (REX)"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
-    { name = "Bas van der Heijden", email = "b.heijden@hotmail.com" }
+    { name = "Anonymous", email = "anonymous@hotmail.com" }
 ]
-homepage = "https://github.com/bheijden/rex"
-repository = "https://github.com/bheijden/rex"
+homepage = "https://github.com/anonymous/rex"
+repository = "https://github.com/anonymous/rex"
 keywords = ["robotics", "jax", "simulation", "sim2real", "reinforcement-learning"]
 classifiers = [
     "Programming Language :: Python :: 3",
