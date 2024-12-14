@@ -148,7 +148,8 @@ nav:
 #            - 'api/actor_critic.md'
 #    - Advanced API:
 #        - 'api/debug.md'
-#    - Misc:
+        - Misc:
+            - 'citation.md'
 #        - 'faq.md'
 #        - 'tricks.md'
-#        - 'citation.md'
+
