@@ -17,8 +17,10 @@ jobs:
             test-script: |
                 cp -r ${{ github.workspace }}/tests ./tests
                 cp ${{ github.workspace }}/pyproject.toml ./pyproject.toml
+                echo "Listing files after copying:"
+                ls -R ./rex
                 python -m pip install pytest
-                pytest
+                pytest ./rex/test
             pypi-token: ${{ secrets.pypi_token }}
             github-user: bheijden
             github-token: ${{ github.token }}
