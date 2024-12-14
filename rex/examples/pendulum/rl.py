@@ -6,8 +6,8 @@ import jax.numpy as jnp
 
 import rex.ppo as ppo
 from rex import base
+from rex.examples.pendulum.agent import AgentParams
 from rex.graph import Graph
-from rex.pendulum.agent import AgentParams
 from rex.rl import BaseEnv, Box, ResetReturn, StepReturn
 
 

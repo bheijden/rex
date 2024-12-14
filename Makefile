@@ -34,6 +34,10 @@ run_tests:
 			--cov-config=pyproject.toml \
 			-v --color=yes
 
+run_integration_tests:
+	# Run tests
+	uv run pytest tests/integration
+
 run_unit_tests:
 	# Run tests
 	uv run pytest tests \
