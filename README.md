@@ -12,7 +12,7 @@
   </a>
 </p>
 
-Rex is a [JAX](https://github.com/google/jax)-powered framework for sim2real robotics, designed to bridge the gap between simulation and the real world. 
+Rex is a [JAX](https://github.com/google/jax)-powered framework for sim-to-real robotics.
 
 Key features:
 
