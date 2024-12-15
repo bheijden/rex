@@ -18,7 +18,7 @@ build_docs:
 	uv run mkdocs build --strict # Add -v for verbose output
 
 serve_docs:
-	# Serve the documentation # Note! Does not run twice..., so not the same as build_docs.
+	# Serve the documentation
 	#JUPYTER_PLATFORM_DIRS=1 uv run mkdocs serve  # https://github.com/danielfrg/mkdocs-jupyter/issues/154
 	uv run mkdocs serve
 
@@ -59,4 +59,4 @@ run_test:
 			--cov-config=pyproject.toml \
 			-v --color=yes
 
-.PHONY: check-codestyle
+.PHONY: lint_check format_check format build_docs serve_docs run_tests run_integration_tests run_unit_tests run_test
