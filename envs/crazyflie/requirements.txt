@@ -1,3 +1,0 @@
-# Issues with uv pip install?
-# https://askubuntu.com/questions/524028/how-can-i-install-python-dev-off-apt-get
-pyvicon-datastream

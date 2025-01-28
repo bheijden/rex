@@ -354,7 +354,9 @@ class PPOResult(Base):
     @property
     def act_scaling(self) -> SquashActionWrapper:
         """Returns the action scaling parameters."""
-        return jax.tree_util.tree_map(lambda x: x[0], self.runner_state.env_state.aux.get("act_scaling", None))
+        # Note, we changed from x[0] to x[..., 0, :] as env_state has [..., NUM_ENVS, ACTION_DIM] shape
+        # and we only want the shape of a single environment.
+        return jax.tree_util.tree_map(lambda x: x[..., 0, :], self.runner_state.env_state.aux.get("act_scaling", None))
 
     @property
     def rwd_scaling(self) -> NormalizeVec:
