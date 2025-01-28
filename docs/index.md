@@ -114,7 +114,7 @@ class Agent(BaseNode):
 ```
 
 ## Next steps
-If this quick start has got you interested, then have a look at the [sim2real.ipynb](https://github.com/anonymous/rex/blob/master/examples/sim2real.ipynb) notebook for an example of a sim-to-real workflow using Rex.
+If this quick start has got you interested, then have a look at the [sim2real.ipynb](https://github.com/bheijden/rex/blob/master/examples/sim2real.ipynb) notebook for an example of a sim-to-real workflow using Rex.
 
 ## Citation
 

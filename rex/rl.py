@@ -554,6 +554,7 @@ class SquashState:
             The scaled action space.
         """
         if self.squash:
+            # todo: Shouldn't this be [-inf, inf]?
             return Box(low=-1.0, high=1.0, shape=self.low.shape, dtype=self.low.dtype)
         else:
             return Box(low=self.low, high=self.high, shape=self.low.shape, dtype=self.low.dtype)

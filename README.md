@@ -129,17 +129,17 @@ class Agent(BaseNode):
 ```
 
 ## Next steps
-If this quick start has got you interested, then have a look at the [sim2real.ipynb](https://github.com/anonymous/rex/blob/master/examples/sim2real.ipynb) notebook for an example of a sim-to-real workflow using Rex.
+If this quick start has got you interested, then have a look at the [sim2real.ipynb](https://github.com/bheijden/rex/blob/master/examples/sim2real.ipynb) notebook for an example of a sim-to-real workflow using Rex.
 
 ## Citation
 
 If you are using rex for your scientific publications, please cite:
 
 ```bibtex
-@article{anonymous2024rex,
+@article{heijden2024rex,
   title={{REX: GPU-Accelerated Sim2Real Framework with Delay and Dynamics Estimation}},
-  author={Anonymized},
-  journal={OpenReview},
-  year={2024}
+  author={van der Heijden, Bas and Kober, Jens and Babuska, Robert and Ferranti, Laura},
+  journal={Transactions on Machine Learning Research (TMLR)},
+  year={2025}
 }
 ```
