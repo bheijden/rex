@@ -1,0 +1,3238 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="The documentation for the Rex software library.">
+      
+      
+        <meta name="author" content="Bas van der Heijden">
+      
+      
+        <link rel="canonical" href="https://github.com/bheijden/rex/api/environment.html">
+      
+      
+        <link rel="prev" href="transforms.html">
+      
+      
+        <link rel="next" href="ppo.html">
+      
+      
+      <link rel="icon" href="../_static/favicon_trex.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.5.47">
+    
+    
+      
+        <title>Environment and Wrappers - Rex</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.6f8fc17f.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+  
+  
+    
+    
+  
+    
+    
+  
+    
+    
+  
+    
+    
+  
+    
+    
+  
+    
+    
+  
+    
+    
+  
+    
+    
+  
+    
+    
+  
+    
+    
+  
+    
+    
+  
+    
+    
+  
+  
+  <style>:root{--md-admonition-icon--note:url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.75 1.75 0 0 1 1 7.775m1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2"/></svg>');--md-admonition-icon--abstract:url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M2.5 1.75v11.5c0 .138.112.25.25.25h3.17a.75.75 0 0 1 0 1.5H2.75A1.75 1.75 0 0 1 1 13.25V1.75C1 .784 1.784 0 2.75 0h8.5C12.216 0 13 .784 13 1.75v7.736a.75.75 0 0 1-1.5 0V1.75a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25m13.274 9.537zl-4.557 4.45a.75.75 0 0 1-1.055-.008l-1.943-1.95a.75.75 0 0 1 1.062-1.058l1.419 1.425 4.026-3.932a.75.75 0 1 1 1.048 1.074M4.75 4h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5M4 7.75A.75.75 0 0 1 4.75 7h2a.75.75 0 0 1 0 1.5h-2A.75.75 0 0 1 4 7.75"/></svg>');--md-admonition-icon--info:url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8m8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13M6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75M8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2"/></svg>');--md-admonition-icon--tip:url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3.499.75a.75.75 0 0 1 1.5 0v.996C5.9 2.903 6.793 3.65 7.662 4.376l.24.202c-.036-.694.055-1.422.426-2.163C9.1.873 10.794-.045 12.622.26 14.408.558 16 1.94 16 4.25c0 1.278-.954 2.575-2.44 2.734l.146.508.065.22c.203.701.412 1.455.476 2.226.142 1.707-.4 3.03-1.487 3.898C11.714 14.671 10.27 15 8.75 15h-6a.75.75 0 0 1 0-1.5h1.376a4.5 4.5 0 0 1-.563-1.191 3.84 3.84 0 0 1-.05-2.063 4.65 4.65 0 0 1-2.025-.293.75.75 0 0 1 .525-1.406c1.357.507 2.376-.006 2.698-.318l.009-.01a.747.747 0 0 1 1.06 0 .75.75 0 0 1-.012 1.074c-.912.92-.992 1.835-.768 2.586.221.74.745 1.337 1.196 1.621H8.75c1.343 0 2.398-.296 3.074-.836.635-.507 1.036-1.31.928-2.602-.05-.603-.216-1.224-.422-1.93l-.064-.221c-.12-.407-.246-.84-.353-1.29a2.4 2.4 0 0 1-.507-.441 3.1 3.1 0 0 1-.633-1.248.75.75 0 0 1 1.455-.364c.046.185.144.436.31.627.146.168.353.305.712.305.738 0 1.25-.615 1.25-1.25 0-1.47-.95-2.315-2.123-2.51-1.172-.196-2.227.387-2.706 1.345-.46.92-.27 1.774.019 3.062l.042.19.01.05c.348.443.666.949.94 1.553a.75.75 0 1 1-1.365.62c-.553-1.217-1.32-1.94-2.3-2.768L6.7 5.527c-.814-.68-1.75-1.462-2.692-2.619a3.7 3.7 0 0 0-1.023.88c-.406.495-.663 1.036-.722 1.508.116.122.306.21.591.239.388.038.797-.06 1.032-.19a.75.75 0 0 1 .728 1.31c-.515.287-1.23.439-1.906.373-.682-.067-1.473-.38-1.879-1.193L.75 5.677V5.5c0-.984.48-1.94 1.077-2.664.46-.559 1.05-1.055 1.673-1.353z"/></svg>');--md-admonition-icon--success:url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 .018-1.042.75.75 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0"/></svg>');--md-admonition-icon--question:url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8m8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13M6.92 6.085h.001a.749.749 0 1 1-1.342-.67c.169-.339.436-.701.849-.977C6.845 4.16 7.369 4 8 4a2.76 2.76 0 0 1 1.637.525c.503.377.863.965.863 1.725 0 .448-.115.83-.329 1.15-.205.307-.47.513-.692.662-.109.072-.22.138-.313.195l-.006.004a6 6 0 0 0-.26.16 1 1 0 0 0-.276.245.75.75 0 0 1-1.248-.832c.184-.264.42-.489.692-.661q.154-.1.313-.195l.007-.004c.1-.061.182-.11.258-.161a1 1 0 0 0 .277-.245C8.96 6.514 9 6.427 9 6.25a.61.61 0 0 0-.262-.525A1.27 1.27 0 0 0 8 5.5c-.369 0-.595.09-.74.187a1 1 0 0 0-.34.398M9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0"/></svg>');--md-admonition-icon--warning:url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0M9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0"/></svg>');--md-admonition-icon--failure:url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M2.344 2.343za8 8 0 0 1 11.314 11.314A8.002 8.002 0 0 1 .234 10.089a8 8 0 0 1 2.11-7.746m1.06 10.253a6.5 6.5 0 1 0 9.108-9.275 6.5 6.5 0 0 0-9.108 9.275M6.03 4.97 8 6.94l1.97-1.97a.749.749 0 0 1 1.275.326.75.75 0 0 1-.215.734L9.06 8l1.97 1.97a.749.749 0 0 1-.326 1.275.75.75 0 0 1-.734-.215L8 9.06l-1.97 1.97a.749.749 0 0 1-1.275-.326.75.75 0 0 1 .215-.734L6.94 8 4.97 6.03a.75.75 0 0 1 .018-1.042.75.75 0 0 1 1.042-.018"/></svg>');--md-admonition-icon--danger:url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M9.504.43a1.516 1.516 0 0 1 2.437 1.713L10.415 5.5h2.123c1.57 0 2.346 1.909 1.22 3.004l-7.34 7.142a1.25 1.25 0 0 1-.871.354h-.302a1.25 1.25 0 0 1-1.157-1.723L5.633 10.5H3.462c-1.57 0-2.346-1.909-1.22-3.004zm1.047 1.074L3.286 8.571A.25.25 0 0 0 3.462 9H6.75a.75.75 0 0 1 .694 1.034l-1.713 4.188 6.982-6.793A.25.25 0 0 0 12.538 7H9.25a.75.75 0 0 1-.683-1.06l2.008-4.418.003-.006-.004-.009-.006-.006-.008-.001q-.005 0-.009.004"/></svg>');--md-admonition-icon--bug:url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M4.72.22a.75.75 0 0 1 1.06 0l1 .999a3.5 3.5 0 0 1 2.441 0l.999-1a.748.748 0 0 1 1.265.332.75.75 0 0 1-.205.729l-.775.776c.616.63.995 1.493.995 2.444v.327q0 .15-.025.292c.408.14.764.392 1.029.722l1.968-.787a.75.75 0 0 1 .556 1.392L13 7.258V9h2.25a.75.75 0 0 1 0 1.5H13v.5q-.002.615-.141 1.186l2.17.868a.75.75 0 0 1-.557 1.392l-2.184-.873A5 5 0 0 1 8 16a5 5 0 0 1-4.288-2.427l-2.183.873a.75.75 0 0 1-.558-1.392l2.17-.868A5 5 0 0 1 3 11v-.5H.75a.75.75 0 0 1 0-1.5H3V7.258L.971 6.446a.75.75 0 0 1 .558-1.392l1.967.787c.265-.33.62-.583 1.03-.722a1.7 1.7 0 0 1-.026-.292V4.5c0-.951.38-1.814.995-2.444L4.72 1.28a.75.75 0 0 1 0-1.06m.53 6.28a.75.75 0 0 0-.75.75V11a3.5 3.5 0 1 0 7 0V7.25a.75.75 0 0 0-.75-.75ZM6.173 5h3.654A.17.17 0 0 0 10 4.827V4.5a2 2 0 1 0-4 0v.327c0 .096.077.173.173.173"/></svg>');--md-admonition-icon--example:url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M5 5.782V2.5h-.25a.75.75 0 0 1 0-1.5h6.5a.75.75 0 0 1 0 1.5H11v3.282l3.666 5.76C15.619 13.04 14.543 15 12.767 15H3.233c-1.776 0-2.852-1.96-1.899-3.458Zm-2.4 6.565a.75.75 0 0 0 .633 1.153h9.534a.75.75 0 0 0 .633-1.153L12.225 10.5h-8.45ZM9.5 2.5h-3V6c0 .143-.04.283-.117.403L4.73 9h6.54L9.617 6.403A.75.75 0 0 1 9.5 6Z"/></svg>');--md-admonition-icon--quote:url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M1.75 2.5h10.5a.75.75 0 0 1 0 1.5H1.75a.75.75 0 0 1 0-1.5m4 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5m0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5M2.5 7.75v6a.75.75 0 0 1-1.5 0v-6a.75.75 0 0 1 1.5 0"/></svg>');}</style>
+
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../_static/custom_css.css">
+    
+      <link rel="stylesheet" href="../css/ansi-colours.css">
+    
+      <link rel="stylesheet" href="../css/jupyter-cells.css">
+    
+      <link rel="stylesheet" href="../css/pandas-dataframe.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="white" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#environment-and-wrappers" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../index.html" title="Rex" class="md-header__button md-logo" aria-label="Rex" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 2v1h-1v6h-1v1H9v1H8v1H7v1H5v-1H4v-1H3V9H2v6h1v1h1v1h1v1h1v4h2v-1H7v-1h1v-1h1v-1h1v1h1v3h2v-1h-1v-4h1v-1h1v-1h1v-3h1v1h1v-2h-2V9h5V8h-3V7h5V3h-1V2m-7 1h1v1h-1Z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Rex
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Environment and Wrappers
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="white" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      <label class="md-header__button md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+      </label>
+      <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+    
+      <div class="md-header__source">
+        
+<a href="https://github.com/bheijden/rex" title="source.link.title" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bheijden/rex
+  </div>
+</a>
+
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../index.html" title="Rex" class="md-nav__button md-logo" aria-label="Rex" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 2v1h-1v6h-1v1H9v1H8v1H7v1H5v-1H4v-1H3V9H2v6h1v1h1v1h1v1h1v4h2v-1H7v-1h1v-1h1v-1h1v1h1v3h2v-1h-1v-4h1v-1h1v-1h1v-3h1v1h1v-2h-2V9h5V8h-3V7h5V3h-1V2m-7 1h1v1h-1Z"/></svg>
+
+    </a>
+    Rex
+  </label>
+  
+    <div class="md-nav__source">
+      
+<a href="https://github.com/bheijden/rex" title="source.link.title" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bheijden/rex
+  </div>
+</a>
+
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../index.html" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Getting Started
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  <span class="md-ellipsis">
+    Examples
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            Examples
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_1" id="__nav_2_1_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Introductory
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_1">
+            <span class="md-nav__icon md-icon"></span>
+            Introductory
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/node_definitions.html" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    How to define nodes
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/graph_and_environment_creation.html" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Graphs and environments
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_2" id="__nav_2_2_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Advanced
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2">
+            <span class="md-nav__icon md-icon"></span>
+            Advanced
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/sim2real.html" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Sim2real with a pendulum
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  <span class="md-ellipsis">
+    Usage
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Usage
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="base.html" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Base
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="node.html" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Node
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Graphs
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            Graphs
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="asynchronous.html" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Asynchronous
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="compiled.html" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Compiled
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="artificial.html" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Artificial
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="record.html" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Record
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Delays
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            Delays
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="delays.html" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Delays
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="gmm_estimator.html" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Gmm estimator
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    System identification
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            System identification
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="evosax.html" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Evosax
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="cem.html" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Cross-Entropy Method
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="transforms.html" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Transforms
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Reinforcement learning
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            Reinforcement learning
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    Environment and Wrappers
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="environment.html" class="md-nav__link md-nav__link--active">
+        
+  
+  <span class="md-ellipsis">
+    Environment and Wrappers
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#rex.rl.BaseEnv" class="md-nav__link">
+    <span class="md-ellipsis">
+      BaseEnv
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rex.rl.BaseWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      BaseWrapper
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rex.rl.AutoResetWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      AutoResetWrapper
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rex.rl.LogWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      LogWrapper
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rex.rl.LogState" class="md-nav__link">
+    <span class="md-ellipsis">
+      LogState
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rex.rl.SquashActionWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      SquashActionWrapper
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rex.rl.SquashState" class="md-nav__link">
+    <span class="md-ellipsis">
+      SquashState
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rex.rl.ClipActionWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      ClipActionWrapper
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rex.rl.VecEnvWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      VecEnvWrapper
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rex.rl.NormalizeVecObservationWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      NormalizeVecObservationWrapper
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rex.rl.NormalizeVecReward" class="md-nav__link">
+    <span class="md-ellipsis">
+      NormalizeVecReward
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rex.rl.NormalizeVec" class="md-nav__link">
+    <span class="md-ellipsis">
+      NormalizeVec
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="ppo.html" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Proximal Policy Optimization
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_7" id="__nav_3_7_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Misc
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_7">
+            <span class="md-nav__icon md-icon"></span>
+            Misc
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../citation.html" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Citation
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+<h1 id="environment-and-wrappers">Environment and Wrappers<a class="headerlink" href="#environment-and-wrappers" title="Permanent link">¤</a></h1>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="rex.rl.BaseEnv" class="doc doc-heading">
+            <code>rex.rl.BaseEnv</code>
+
+
+<a href="#rex.rl.BaseEnv" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h5 id="rex.rl.BaseEnv.graph" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">graph</span> <span class="o">=</span> <span class="n">graph</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#rex.rl.BaseEnv.graph" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h5 id="rex.rl.BaseEnv.max_steps" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">max_steps</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">jax</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">]</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#rex.rl.BaseEnv.max_steps" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>The maximum number of steps in the environment.</p>
+<p>Per default, this is the maximum number of steps the supervisor (i.e. agent) is stepped in the provided computation graph.
+You can override this property to provide a custom value (smaller than the default).
+This value is used as the episode length when evaluating the environment during training.</p>
+    </div>
+
+</div>
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.BaseEnv.observation_space" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">observation_space</span><span class="p">(</span><span class="n">graph_state</span><span class="p">:</span> <span class="n">base</span><span class="o">.</span><span class="n">GraphState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Box</span></code>
+
+<a href="#rex.rl.BaseEnv.observation_space" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Returns the observation space.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>graph_state</code></b>
+              (<code><a class="autorefs autorefs-internal" title="rex.base.GraphState" href="base.html#rex.base.GraphState">GraphState</a></code>)
+          –
+          <div class="doc-md-description">
+            <p>The graph state.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="rex.rl.Box">Box</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The observation space</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.BaseEnv.action_space" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">action_space</span><span class="p">(</span><span class="n">graph_state</span><span class="p">:</span> <span class="n">base</span><span class="o">.</span><span class="n">GraphState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Box</span></code>
+
+<a href="#rex.rl.BaseEnv.action_space" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Returns the action space.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>graph_state</code></b>
+              (<code><a class="autorefs autorefs-internal" title="rex.base.GraphState" href="base.html#rex.base.GraphState">GraphState</a></code>)
+          –
+          <div class="doc-md-description">
+            <p>The graph state.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="rex.rl.Box">Box</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The action space</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.BaseEnv.reset" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">reset</span><span class="p">(</span><span class="n">rng</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ResetReturn</span></code>
+
+<a href="#rex.rl.BaseEnv.reset" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Reset the environment.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>rng</code></b>
+              (<code><span title="jax.Array">Array</span></code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Random number generator. Used to initialize a new graph state.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="rex.rl.ResetReturn">ResetReturn</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The initial graph state, observation, and info</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.BaseEnv.step" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">step</span><span class="p">(</span><span class="n">graph_state</span><span class="p">:</span> <span class="n">base</span><span class="o">.</span><span class="n">GraphState</span><span class="p">,</span> <span class="n">action</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StepReturn</span></code>
+
+<a href="#rex.rl.BaseEnv.step" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Step the environment.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>graph_state</code></b>
+              (<code><a class="autorefs autorefs-internal" title="rex.base.GraphState" href="base.html#rex.base.GraphState">GraphState</a></code>)
+          –
+          <div class="doc-md-description">
+            <p>The current graph state.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>action</code></b>
+              (<code><span title="jax.Array">Array</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>The action to take.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="rex.rl.StepReturn">StepReturn</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The updated graph state, observation, reward, terminated, truncated, and info</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><hr />
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="rex.rl.BaseWrapper" class="doc doc-heading">
+            <code>rex.rl.BaseWrapper</code>
+
+
+<a href="#rex.rl.BaseWrapper" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code>object</code></p>
+
+
+        <p>Base class for wrappers.</p>
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.BaseWrapper.__init__" class="doc doc-heading">
+            <code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="n">env</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">BaseEnv</span><span class="p">,</span> <span class="n">Environment</span><span class="p">,</span> <span class="n">BaseWrapper</span><span class="p">])</span></code>
+
+<a href="#rex.rl.BaseWrapper.__init__" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Initialize the wrapper.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>env</code></b>
+              (<code><span title="typing.Union">Union</span>[<a class="autorefs autorefs-internal" title="rex.rl.BaseEnv" href="#rex.rl.BaseEnv">BaseEnv</a>, <span title="rex.rl.Environment">Environment</span>, <a class="autorefs autorefs-internal" title="rex.rl.BaseWrapper" href="#rex.rl.BaseWrapper">BaseWrapper</a>]</code>)
+          –
+          <div class="doc-md-description">
+            <p>The environment to wrap.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.BaseWrapper.__getattr__" class="doc doc-heading">
+            <code class="highlight language-python"><span class="fm">__getattr__</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span></code>
+
+<a href="#rex.rl.BaseWrapper.__getattr__" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Proxy access to regular attributes of wrapped object.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>name</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>The name of the attribute.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="typing.Any">Any</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The attribute of the wrapped object.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><hr />
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="rex.rl.AutoResetWrapper" class="doc doc-heading">
+            <code>rex.rl.AutoResetWrapper</code>
+
+
+<a href="#rex.rl.AutoResetWrapper" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="rex.rl.BaseWrapper" href="#rex.rl.BaseWrapper">BaseWrapper</a></code></p>
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.AutoResetWrapper.__init__" class="doc doc-heading">
+            <code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="n">env</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">BaseEnv</span><span class="p">,</span> <span class="n">Environment</span><span class="p">,</span> <span class="n">BaseWrapper</span><span class="p">],</span> <span class="n">fixed_init</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span></code>
+
+<a href="#rex.rl.AutoResetWrapper.__init__" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>The AutoResetWrapper will reset the environment when the episode is done in the step method.</p>
+<p>When fixed_init is True, a fixed initial state is used for the environment instead of actually resetting it.
+This is useful when you want to use the same initial state for every episode.
+In some cases, resetting the environment can be expensive, so this can be used to avoid that.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>env</code></b>
+              (<code><span title="typing.Union">Union</span>[<a class="autorefs autorefs-internal" title="rex.rl.BaseEnv" href="#rex.rl.BaseEnv">BaseEnv</a>, <span title="rex.rl.Environment">Environment</span>, <a class="autorefs autorefs-internal" title="rex.rl.BaseWrapper" href="#rex.rl.BaseWrapper">BaseWrapper</a>]</code>)
+          –
+          <div class="doc-md-description">
+            <p>The environment to wrap.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>fixed_init</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Whether to use a fixed initial state.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.AutoResetWrapper.reset" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">reset</span><span class="p">(</span><span class="n">rng</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ResetReturn</span></code>
+
+<a href="#rex.rl.AutoResetWrapper.reset" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Reset the environment and return the initial state.</p>
+<p>If fixed_init is True, the initial state is stored in the aux of the graph state.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>rng</code></b>
+              (<code><span title="jax.Array">Array</span></code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Random number generator.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="rex.rl.ResetReturn">ResetReturn</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The initial graph state, observation, and info</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.AutoResetWrapper.step" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">step</span><span class="p">(</span><span class="n">graph_state</span><span class="p">:</span> <span class="n">base</span><span class="o">.</span><span class="n">GraphState</span><span class="p">,</span> <span class="n">action</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StepReturn</span></code>
+
+<a href="#rex.rl.AutoResetWrapper.step" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Step the environment and reset the state if the episode is done.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>graph_state</code></b>
+              (<code><a class="autorefs autorefs-internal" title="rex.base.GraphState" href="base.html#rex.base.GraphState">GraphState</a></code>)
+          –
+          <div class="doc-md-description">
+            <p>The current graph state.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>action</code></b>
+              (<code><span title="jax.Array">Array</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>The action to take.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="rex.rl.StepReturn">StepReturn</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The updated graph state, observation, reward, terminated, truncated, and info</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><hr />
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="rex.rl.LogWrapper" class="doc doc-heading">
+            <code>rex.rl.LogWrapper</code>
+
+
+<a href="#rex.rl.LogWrapper" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="rex.rl.BaseWrapper" href="#rex.rl.BaseWrapper">BaseWrapper</a></code></p>
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.LogWrapper.__init__" class="doc doc-heading">
+            <code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="n">env</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">BaseEnv</span><span class="p">,</span> <span class="n">Environment</span><span class="p">,</span> <span class="n">BaseWrapper</span><span class="p">])</span></code>
+
+<a href="#rex.rl.LogWrapper.__init__" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Log the episode returns and lengths.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>env</code></b>
+              (<code><span title="typing.Union">Union</span>[<a class="autorefs autorefs-internal" title="rex.rl.BaseEnv" href="#rex.rl.BaseEnv">BaseEnv</a>, <span title="rex.rl.Environment">Environment</span>, <a class="autorefs autorefs-internal" title="rex.rl.BaseWrapper" href="#rex.rl.BaseWrapper">BaseWrapper</a>]</code>)
+          –
+          <div class="doc-md-description">
+            <p>The environment to wrap.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.LogWrapper.reset" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">reset</span><span class="p">(</span><span class="n">rng</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ResetReturn</span></code>
+
+<a href="#rex.rl.LogWrapper.reset" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Stores the log state in the aux of the graph state.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>rng</code></b>
+              (<code><span title="jax.Array">Array</span></code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Random number generator.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="rex.rl.ResetReturn">ResetReturn</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The initial graph state, observation, and info</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.LogWrapper.step" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">step</span><span class="p">(</span><span class="n">graph_state</span><span class="p">:</span> <span class="n">base</span><span class="o">.</span><span class="n">GraphState</span><span class="p">,</span> <span class="n">action</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StepReturn</span></code>
+
+<a href="#rex.rl.LogWrapper.step" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Logs the episode returns and lengths.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>graph_state</code></b>
+              (<code><a class="autorefs autorefs-internal" title="rex.base.GraphState" href="base.html#rex.base.GraphState">GraphState</a></code>)
+          –
+          <div class="doc-md-description">
+            <p>The current graph state.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>action</code></b>
+              (<code><span title="jax.Array">Array</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>The action to take.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="rex.rl.StepReturn">StepReturn</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The updated graph state, observation, reward, terminated, truncated, and info</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="rex.rl.LogState" class="doc doc-heading">
+            <code>rex.rl.LogState</code>
+
+
+<a href="#rex.rl.LogState" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+
+
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code><span title="rex.rl.LogState.episode_returns">episode_returns</span></code></b>
+              (<code>float</code>)
+          –
+          <div class="doc-md-description">
+            <p>The sum of the rewards in the episode.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code><span title="rex.rl.LogState.episode_lengths">episode_lengths</span></code></b>
+              (<code>int</code>)
+          –
+          <div class="doc-md-description">
+            <p>The number of steps in the episode.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code><span title="rex.rl.LogState.returned_episode_returns">returned_episode_returns</span></code></b>
+              (<code>float</code>)
+          –
+          <div class="doc-md-description">
+            <p>The sum of the rewards in the episode that was returned.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code><span title="rex.rl.LogState.returned_episode_lengths">returned_episode_lengths</span></code></b>
+              (<code>int</code>)
+          –
+          <div class="doc-md-description">
+            <p>The number of steps in the episode that was returned.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code><span title="rex.rl.LogState.timestep">timestep</span></code></b>
+              (<code>int</code>)
+          –
+          <div class="doc-md-description">
+            <p>The current</p>
+          </div>
+        </li>
+    </ul>
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div><hr />
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="rex.rl.SquashActionWrapper" class="doc doc-heading">
+            <code>rex.rl.SquashActionWrapper</code>
+
+
+<a href="#rex.rl.SquashActionWrapper" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="rex.rl.BaseWrapper" href="#rex.rl.BaseWrapper">BaseWrapper</a></code></p>
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.SquashActionWrapper.__init__" class="doc doc-heading">
+            <code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="n">env</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">BaseEnv</span><span class="p">,</span> <span class="n">Environment</span><span class="p">,</span> <span class="n">BaseWrapper</span><span class="p">],</span> <span class="n">squash</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span></code>
+
+<a href="#rex.rl.SquashActionWrapper.__init__" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Squashes the action space to [-1, 1] and unsquashes it when returning the action.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>env</code></b>
+              (<code><span title="typing.Union">Union</span>[<a class="autorefs autorefs-internal" title="rex.rl.BaseEnv" href="#rex.rl.BaseEnv">BaseEnv</a>, <span title="rex.rl.Environment">Environment</span>, <a class="autorefs autorefs-internal" title="rex.rl.BaseWrapper" href="#rex.rl.BaseWrapper">BaseWrapper</a>]</code>)
+          –
+          <div class="doc-md-description">
+            <p>The environment to wrap.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>squash</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Whether to squash the action space.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.SquashActionWrapper.reset" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">reset</span><span class="p">(</span><span class="n">rng</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ResetReturn</span></code>
+
+<a href="#rex.rl.SquashActionWrapper.reset" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Puts the action space scaling in the aux of the graph state.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>rng</code></b>
+              (<code><span title="jax.Array">Array</span></code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Random number generator.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="rex.rl.ResetReturn">ResetReturn</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The initial graph state, observation, and info</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.SquashActionWrapper.step" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">step</span><span class="p">(</span><span class="n">graph_state</span><span class="p">:</span> <span class="n">base</span><span class="o">.</span><span class="n">GraphState</span><span class="p">,</span> <span class="n">action</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StepReturn</span></code>
+
+<a href="#rex.rl.SquashActionWrapper.step" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Unscales the action to the original range of the action space before stepping the environment.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>graph_state</code></b>
+              (<code><a class="autorefs autorefs-internal" title="rex.base.GraphState" href="base.html#rex.base.GraphState">GraphState</a></code>)
+          –
+          <div class="doc-md-description">
+            <p>The current graph state.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>action</code></b>
+              (<code><span title="jax.Array">Array</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>The (scaled) action to take.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="rex.rl.StepReturn">StepReturn</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The updated graph state, observation, reward, terminated, truncated, and info</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.SquashActionWrapper.action_space" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">action_space</span><span class="p">(</span><span class="n">graph_state</span><span class="p">:</span> <span class="n">base</span><span class="o">.</span><span class="n">GraphState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Box</span></code>
+
+<a href="#rex.rl.SquashActionWrapper.action_space" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Scales the action space to [-1, 1] if squash is True.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>graph_state</code></b>
+              (<code><a class="autorefs autorefs-internal" title="rex.base.GraphState" href="base.html#rex.base.GraphState">GraphState</a></code>)
+          –
+          <div class="doc-md-description">
+            <p>The graph state.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="rex.rl.Box">Box</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The scaled action space</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="rex.rl.SquashState" class="doc doc-heading">
+            <code>rex.rl.SquashState</code>
+
+
+<a href="#rex.rl.SquashState" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+
+
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code><span title="rex.rl.SquashState.low">low</span></code></b>
+              (<code><span title="jax.Array">Array</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>The lower bound of the action space.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code><span title="rex.rl.SquashState.high">high</span></code></b>
+              (<code><span title="jax.Array">Array</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>The upper bound of the action space.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code><span title="rex.rl.SquashState.squash">squash</span></code></b>
+              (<code>bool</code>)
+          –
+          <div class="doc-md-description">
+            <p>Whether to squash the action space.</p>
+          </div>
+        </li>
+    </ul>
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h5 id="rex.rl.SquashState.action_space" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">action_space</span><span class="p">:</span> <span class="n">Box</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#rex.rl.SquashState.action_space" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="rex.rl.Box">Box</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The scaled action space.</p>
+          </div>
+        </li>
+    </ul>
+    </div>
+
+</div>
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.SquashState.scale" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">scale</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span></code>
+
+<a href="#rex.rl.SquashState.scale" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Scales the input to [-1, 1] and unsquashes.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>x</code></b>
+              (<code><span title="jax.Array">Array</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>The input to scale.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="jax.Array">Array</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The scaled input.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.SquashState.unsquash" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">unsquash</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span></code>
+
+<a href="#rex.rl.SquashState.unsquash" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Squashes x to [-1, 1] and then unscales to the original range [low, high].
+Else, x is clipped to the range of the action space.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>x</code></b>
+              (<code><span title="jax.Array">Array</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>The input to unscale.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="jax.Array">Array</span></code>
+          –
+          <div class="doc-md-description">
+            <p>Unscaled input.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><hr />
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="rex.rl.ClipActionWrapper" class="doc doc-heading">
+            <code>rex.rl.ClipActionWrapper</code>
+
+
+<a href="#rex.rl.ClipActionWrapper" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="rex.rl.BaseWrapper" href="#rex.rl.BaseWrapper">BaseWrapper</a></code></p>
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.ClipActionWrapper.step" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">step</span><span class="p">(</span><span class="n">graph_state</span><span class="p">:</span> <span class="n">base</span><span class="o">.</span><span class="n">GraphState</span><span class="p">,</span> <span class="n">action</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StepReturn</span></code>
+
+<a href="#rex.rl.ClipActionWrapper.step" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Clips the action to the action space before stepping the environment.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>graph_state</code></b>
+              (<code><a class="autorefs autorefs-internal" title="rex.base.GraphState" href="base.html#rex.base.GraphState">GraphState</a></code>)
+          –
+          <div class="doc-md-description">
+            <p>The current graph state.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>action</code></b>
+              (<code><span title="jax.Array">Array</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>The action to take.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="rex.rl.StepReturn">StepReturn</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The updated graph state, observation, reward, terminated, truncated</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><hr />
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="rex.rl.VecEnvWrapper" class="doc doc-heading">
+            <code>rex.rl.VecEnvWrapper</code>
+
+
+<a href="#rex.rl.VecEnvWrapper" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="rex.rl.BaseWrapper" href="#rex.rl.BaseWrapper">BaseWrapper</a></code></p>
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.VecEnvWrapper.__init__" class="doc doc-heading">
+            <code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="n">env</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">BaseEnv</span><span class="p">,</span> <span class="n">Environment</span><span class="p">,</span> <span class="n">BaseWrapper</span><span class="p">],</span> <span class="n">in_axes</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span></code>
+
+<a href="#rex.rl.VecEnvWrapper.__init__" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Vectorizes the environment.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>env</code></b>
+              (<code><span title="typing.Union">Union</span>[<a class="autorefs autorefs-internal" title="rex.rl.BaseEnv" href="#rex.rl.BaseEnv">BaseEnv</a>, <span title="rex.rl.Environment">Environment</span>, <a class="autorefs autorefs-internal" title="rex.rl.BaseWrapper" href="#rex.rl.BaseWrapper">BaseWrapper</a>]</code>)
+          –
+          <div class="doc-md-description">
+            <p>The environment to wrap.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>in_axes</code></b>
+              (<code><span title="typing.Union">Union</span>[int, None, <span title="typing.Sequence">Sequence</span>[<span title="typing.Any">Any</span>]]</code>, default:
+                  <code>0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The axes to map over.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><hr />
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="rex.rl.NormalizeVecObservationWrapper" class="doc doc-heading">
+            <code>rex.rl.NormalizeVecObservationWrapper</code>
+
+
+<a href="#rex.rl.NormalizeVecObservationWrapper" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="rex.rl.BaseWrapper" href="#rex.rl.BaseWrapper">BaseWrapper</a></code></p>
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.NormalizeVecObservationWrapper.__init__" class="doc doc-heading">
+            <code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="n">env</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">BaseEnv</span><span class="p">,</span> <span class="n">Environment</span><span class="p">,</span> <span class="n">BaseWrapper</span><span class="p">],</span> <span class="n">clip_obs</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">10.0</span><span class="p">)</span></code>
+
+<a href="#rex.rl.NormalizeVecObservationWrapper.__init__" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Normalize the observations to have zero mean and unit variance.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>env</code></b>
+              (<code><span title="typing.Union">Union</span>[<a class="autorefs autorefs-internal" title="rex.rl.BaseEnv" href="#rex.rl.BaseEnv">BaseEnv</a>, <span title="rex.rl.Environment">Environment</span>, <a class="autorefs autorefs-internal" title="rex.rl.BaseWrapper" href="#rex.rl.BaseWrapper">BaseWrapper</a>]</code>)
+          –
+          <div class="doc-md-description">
+            <p>The environment to wrap.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>clip_obs</code></b>
+              (<code>float</code>, default:
+                  <code>10.0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The clipping value.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.NormalizeVecObservationWrapper.reset" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">reset</span><span class="p">(</span><span class="n">rng</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ResetReturn</span></code>
+
+<a href="#rex.rl.NormalizeVecObservationWrapper.reset" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Places the normalization state in the aux of the graph state.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>rng</code></b>
+              (<code><span title="jax.Array">Array</span></code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Random number generator.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="rex.rl.ResetReturn">ResetReturn</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The initial graph state, observation, and info</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.NormalizeVecObservationWrapper.step" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">step</span><span class="p">(</span><span class="n">graph_state</span><span class="p">:</span> <span class="n">base</span><span class="o">.</span><span class="n">GraphState</span><span class="p">,</span> <span class="n">action</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StepReturn</span></code>
+
+<a href="#rex.rl.NormalizeVecObservationWrapper.step" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Normalize the observations to have zero mean and unit variance before returning them.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>graph_state</code></b>
+              (<code><a class="autorefs autorefs-internal" title="rex.base.GraphState" href="base.html#rex.base.GraphState">GraphState</a></code>)
+          –
+          <div class="doc-md-description">
+            <p>The current graph state.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>action</code></b>
+              (<code><span title="jax.Array">Array</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>The action to take.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="rex.rl.StepReturn">StepReturn</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The updated graph state, observation, reward, terminated, truncated, and info</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="rex.rl.NormalizeVecReward" class="doc doc-heading">
+            <code>rex.rl.NormalizeVecReward</code>
+
+
+<a href="#rex.rl.NormalizeVecReward" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="rex.rl.BaseWrapper" href="#rex.rl.BaseWrapper">BaseWrapper</a></code></p>
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.NormalizeVecReward.__init__" class="doc doc-heading">
+            <code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="n">env</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">BaseEnv</span><span class="p">,</span> <span class="n">Environment</span><span class="p">,</span> <span class="n">BaseWrapper</span><span class="p">],</span> <span class="n">gamma</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">jax</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">],</span> <span class="n">clip_reward</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">10.0</span><span class="p">)</span></code>
+
+<a href="#rex.rl.NormalizeVecReward.__init__" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Normalize the rewards to have zero mean and unit variance.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>env</code></b>
+              (<code><span title="typing.Union">Union</span>[<a class="autorefs autorefs-internal" title="rex.rl.BaseEnv" href="#rex.rl.BaseEnv">BaseEnv</a>, <span title="rex.rl.Environment">Environment</span>, <a class="autorefs autorefs-internal" title="rex.rl.BaseWrapper" href="#rex.rl.BaseWrapper">BaseWrapper</a>]</code>)
+          –
+          <div class="doc-md-description">
+            <p>The environment to wrap.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>gamma</code></b>
+              (<code><span title="typing.Union">Union</span>[float, <span title="jax.typing.ArrayLike">ArrayLike</span>]</code>)
+          –
+          <div class="doc-md-description">
+            <p>The discount factor.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>clip_reward</code></b>
+              (<code>float</code>, default:
+                  <code>10.0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The clipping value.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.NormalizeVecReward.reset" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">reset</span><span class="p">(</span><span class="n">rng</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ResetReturn</span></code>
+
+<a href="#rex.rl.NormalizeVecReward.reset" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Places the normalization state in the aux of the graph state.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>rng</code></b>
+              (<code><span title="jax.Array">Array</span></code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Random number generator.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="rex.rl.ResetReturn">ResetReturn</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The initial graph state, observation, and info</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.NormalizeVecReward.step" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">step</span><span class="p">(</span><span class="n">graph_state</span><span class="p">:</span> <span class="n">base</span><span class="o">.</span><span class="n">GraphState</span><span class="p">,</span> <span class="n">action</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StepReturn</span></code>
+
+<a href="#rex.rl.NormalizeVecReward.step" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Normalize the rewards to have zero mean and unit variance before returning them.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>graph_state</code></b>
+              (<code><a class="autorefs autorefs-internal" title="rex.base.GraphState" href="base.html#rex.base.GraphState">GraphState</a></code>)
+          –
+          <div class="doc-md-description">
+            <p>The current graph state.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>action</code></b>
+              (<code><span title="jax.Array">Array</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>The action to take.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="rex.rl.StepReturn">StepReturn</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The updated graph state, observation, reward, terminated, truncated, and info</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="rex.rl.NormalizeVec" class="doc doc-heading">
+            <code>rex.rl.NormalizeVec</code>
+
+
+<a href="#rex.rl.NormalizeVec" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+
+
+        <p>Attributes
+    mean: The mean of the observations.
+    var: The variance of the observations.
+    count: The number of observations.
+    return_val: The return value.
+    clip: The clipping value.</p>
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.NormalizeVec.normalize" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">normalize</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span><span class="p">,</span> <span class="n">clip</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">subtract_mean</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span></code>
+
+<a href="#rex.rl.NormalizeVec.normalize" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Normalize x to have zero mean and unit variance.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>x</code></b>
+              (<code><span title="jax.Array">Array</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>The input to normalize.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>clip</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Whether to clip the input.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>subtract_mean</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Whether to subtract the mean.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="jax.Array">Array</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The normalized input.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="rex.rl.NormalizeVec.denormalize" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">denormalize</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span><span class="p">,</span> <span class="n">add_mean</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span></code>
+
+<a href="#rex.rl.NormalizeVec.denormalize" class="headerlink" title="Permanent link">¤</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Denormalize x to have the original mean and variance.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>x</code></b>
+              (<code><span title="jax.Array">Array</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>The input to denormalize.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>add_mean</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Whether to add the mean.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="jax.Array">Array</span></code>
+          –
+          <div class="doc-md-description">
+            <p>The denormalized input.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    <script id="__config" type="application/json">{"base": "..", "features": ["navigation.sections", "toc.integrate", "header.autohide"], "search": "../assets/javascripts/workers/search.6ce7567c.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.83f73b43.min.js"></script>
+      
+        <script src="../_static/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
