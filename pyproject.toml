@@ -1,13 +1,13 @@
 [project]
 name = "rex-lib"
-version = "0.0.9"
+version = "0.0.10"
 description = "Robotic Environments with jaX (REX)"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
     { name = "Bas van der Heijden", email = "b.heijden@hotmail.com" }
 ]
-homepage = "https://github.com/bheijden/rex"
+homepage = "https://bheijden.github.io/rex/"
 repository = "https://github.com/bheijden/rex"
 keywords = ["robotics", "jax", "simulation", "sim2real", "reinforcement-learning"]
 classifiers = [

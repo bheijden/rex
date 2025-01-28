@@ -41,7 +41,7 @@ pip install rex-lib
 Requires Python 3.9+ and JAX 0.4.30+.
 
 ## Documentation
-Available at [rex-lib.github.io](https://rex-lib.github.io/).
+Available at [https://bheijden.github.io/rex/](https://bheijden.github.io/rex/).
 
 ## Quick example
 
