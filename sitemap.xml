@@ -2,74 +2,74 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://github.com/bheijden/rex/index.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
     <url>
          <loc>https://github.com/bheijden/rex/citation.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
     <url>
          <loc>https://github.com/bheijden/rex/api/artificial.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
     <url>
          <loc>https://github.com/bheijden/rex/api/asynchronous.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
     <url>
          <loc>https://github.com/bheijden/rex/api/base.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
     <url>
          <loc>https://github.com/bheijden/rex/api/cem.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
     <url>
          <loc>https://github.com/bheijden/rex/api/compiled.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
     <url>
          <loc>https://github.com/bheijden/rex/api/delays.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
     <url>
          <loc>https://github.com/bheijden/rex/api/environment.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
     <url>
          <loc>https://github.com/bheijden/rex/api/evosax.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
     <url>
          <loc>https://github.com/bheijden/rex/api/gmm_estimator.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
     <url>
          <loc>https://github.com/bheijden/rex/api/node.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
     <url>
          <loc>https://github.com/bheijden/rex/api/ppo.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
     <url>
          <loc>https://github.com/bheijden/rex/api/record.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
     <url>
          <loc>https://github.com/bheijden/rex/api/transforms.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
     <url>
          <loc>https://github.com/bheijden/rex/examples/graph_and_environment_creation.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
     <url>
          <loc>https://github.com/bheijden/rex/examples/node_definitions.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
     <url>
          <loc>https://github.com/bheijden/rex/examples/sim2real.html</loc>
-         <lastmod>2025-01-28</lastmod>
+         <lastmod>2025-06-11</lastmod>
     </url>
 </urlset>
