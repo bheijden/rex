@@ -2955,7 +2955,7 @@ wheels = [
 
 [[package]]
 name = "rex-lib"
-version = "0.0.9"
+version = "0.0.11"
 source = { editable = "." }
 dependencies = [
     { name = "distrax" },
@@ -2965,6 +2965,7 @@ dependencies = [
     { name = "jax" },
     { name = "matplotlib" },
     { name = "networkx" },
+    { name = "numpy" },
     { name = "optax" },
     { name = "supergraph" },
     { name = "tqdm" },
@@ -2999,13 +3000,14 @@ requires-dist = [
     { name = "dill", marker = "extra == 'examples'", specifier = ">=0.3.8" },
     { name = "distrax", specifier = ">=0.1.5" },
     { name = "equinox", specifier = ">=0.11.4" },
-    { name = "evosax", specifier = ">=0.1.6" },
+    { name = "evosax", specifier = ">=0.1.6,<0.2.0" },
     { name = "flax", specifier = ">=0.8.5" },
     { name = "ipykernel", marker = "extra == 'examples'", specifier = ">=6.29.5" },
     { name = "jax", specifier = ">=0.4.30" },
     { name = "jupyterlab", marker = "extra == 'examples'", specifier = ">=4.3.2" },
     { name = "matplotlib", specifier = ">=3.7.0" },
     { name = "networkx", specifier = ">=3.2.1" },
+    { name = "numpy", specifier = "<2.0.0" },
     { name = "optax", specifier = ">=0.2.3" },
     { name = "seaborn", marker = "extra == 'examples'", specifier = ">=0.13.2" },
     { name = "supergraph", specifier = ">=0.0.8" },

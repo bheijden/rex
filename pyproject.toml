@@ -1,6 +1,6 @@
 [project]
 name = "rex-lib"
-version = "0.0.10"
+version = "0.0.11"
 description = "Robotic Environments with jaX (REX)"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -26,10 +26,11 @@ dependencies = [
     "networkx>=3.2.1",
     "jax>=0.4.30",  # Without CUDA by default
     "equinox>=0.11.4",
-    "evosax>=0.1.6",  # Required for evo.py
+    "evosax>=0.1.6,<0.2.0",  # Required for evo.py
     "optax>=0.2.3",  # Required for ppo.py
     "flax>=0.8.5",
-    "distrax>=0.1.5"
+    "distrax>=0.1.5",
+    "numpy<2.0.0"
 ]
 
 [project.optional-dependencies]
